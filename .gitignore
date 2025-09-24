@@ -1,0 +1,25 @@
+# Environment variables
+.env.local
+.env
+.env.production
+
+# Credentials
+credentials.json
+service-account.json
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.next/
+.vercel/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+.vercel
