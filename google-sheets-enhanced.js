@@ -38,6 +38,7 @@ function onOpen() {
     .addItem('Update SKU Analytics', 'updateSkuAnalytics')
     .addItem('Update Inventory', 'updateInventory')
     .addItem('Update Fulfillments', 'updateFulfillments')
+    .addItem('Generate Delivery Report', 'generateDeliveryReportFromAPI')
     .addSeparator()
     .addItem('Sync All Shops (Orders)', 'syncAllShops')
     .addItem('Sync All Shops (SKUs)', 'syncAllShopsSku')
@@ -64,27 +65,263 @@ function updateDashboard() {
   try {
     console.log('🚀 Starter dashboard opdatering...');
 
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - 30);
+    // Læs datoer fra Dashboard arket (B1/B2). Fallback: sidste 30 dage
+    const { startDate, endDate } = getDashboardSelectedDates_();
 
-    const data = fetchAnalyticsData(startDate, endDate, 'dashboard');
+    // Hent ordrer oprettet i perioden + retur-ordrer dateret efter refund_date
+    const url = `${CONFIG.API_BASE}/analytics`;
+    const payload = {
+      startDate: formatDateWithTime(startDate, false),
+      endDate: formatDateWithTime(endDate, true),
+      type: 'orders',
+      includeReturns: true
+    };
+    const res = makeApiRequest(url, payload);
 
-    if (data.success && data.count > 0) {
-      updateSheet(CONFIG.SHEETS.DASHBOARD, data.headers, data.data);
-      console.log(`✅ Dashboard opdateret med ${data.count} ordrer`);
+    const ordersRows = Array.isArray(res?.data) ? res.data : [];
+    const returnRows = Array.isArray(res?.returns) ? res.returns : [];
 
-      // Opdater også metadata (timestamp)
-      const sheet = getOrCreateSheet(CONFIG.SHEETS.DASHBOARD);
-      sheet.getRange('A1').setNote(`Sidste opdatering: ${new Date().toLocaleString('da-DK')}`);
-    } else {
-      console.log('⚠️ Ingen data modtaget');
-    }
+    renderDashboard_(ordersRows, returnRows, startDate, endDate);
+    console.log(`✅ Dashboard opdateret (orders: ${ordersRows.length}, returns: ${returnRows.length})`);
 
   } catch (error) {
     console.error('💥 Fejl i updateDashboard:', error);
     throw error;
   }
+}
+
+// Render Dashboard identisk med det gamle GAS-setup
+function renderDashboard_(orderRows, returnRows, startDate, endDate) {
+  const sheet = getOrCreateSheet(CONFIG.SHEETS.DASHBOARD);
+
+  // Sæt dato inputs i toppen (A1/A2) som i det gamle setup
+  sheet.getRange('A1').setValue('Startdato:');
+  sheet.getRange('A2').setValue('Slutdato:');
+  sheet.getRange('A1:A2').setFontWeight('bold');
+  // Bevar brugerens indtastede datoer i B1/B2 uændret; kun format
+  sheet.getRange('B1:B2').setNumberFormat('dd/MM/yyyy');
+
+  // Ryd alt under række 4 (behold eventuelle brugerfelter over det)
+  if (sheet.getLastRow() >= 4) {
+    const lastRow = sheet.getLastRow();
+    const lastCol = Math.max(1, sheet.getLastColumn());
+    sheet.getRange(4, 1, lastRow - 3, lastCol).clear();
+  }
+
+  // Headers som i det gamle Dashboard
+  const headers = [
+    'Shop','Bruttoomsætning','Nettoomsætning',
+    'Antal stk Brutto','Antal stk Netto','Antal Ordrer',
+    'Gnst ordreværdi','Basket size','Gns. stykpris',
+    'Retur % i stk','Retur % i kr','Retur % i antal o',
+    'Fragt indtægt ex','% af oms','Rabat ex moms','Cancelled stk'
+  ];
+  sheet.getRange('A4:P4').setValues([headers]).setFontWeight('bold').setBackground('#E3F2FD');
+
+  // Indekser for order rows (som fra /api/analytics?type=orders)
+  const IDX = {
+    SHOP:0, ORDER_ID:1, CREATED_AT:2, COUNTRY:3, DISCOUNTED_TOTAL:4,
+    TAX:5, SHIPPING:6, ITEM_COUNT:7, REFUNDED_AMOUNT:8, REFUNDED_QTY:9,
+    REFUND_DATE:10, TOTAL_DISCOUNTS_EX_TAX:11, CANCELLED_QTY:12,
+    SALE_DISCOUNT_TOTAL:13, COMBINED_DISCOUNT_TOTAL:14
+  };
+
+  // Init pr. shop
+  const shops = extractShopsFromOrders_(orderRows);
+  const shopMap = {};
+  const skuStats = {};
+  shops.forEach(s => {
+    shopMap[s] = { gross:0, net:0, orders:new Set(), shipping:0, refundedAmount:0, refundOrders:new Set(), totalDiscounts:0 };
+    skuStats[s] = { qty:0, qtyNet:0, refundedQty:0, cancelledQty:0 };
+  });
+
+  // Ordrer oprettet i perioden
+  orderRows.forEach(row => {
+    if (!row || row.length < 15) return;
+    const shop = row[IDX.SHOP];
+    if (!shopMap[shop]) return;
+
+    const discountedTotal = toNum_(row[IDX.DISCOUNTED_TOTAL]);
+    const tax = toNum_(row[IDX.TAX]);
+    const shipping = toNum_(row[IDX.SHIPPING]);
+    const shippingTax = shipping * 0.25; // 25% moms på fragt
+    const productTax = tax - shippingTax; // Moms kun på produkter
+    const brutto = discountedTotal - productTax;
+
+    shopMap[shop].gross += brutto;
+    shopMap[shop].net += brutto;
+    shopMap[shop].shipping += shipping;
+    shopMap[shop].totalDiscounts += toNum_(row[IDX.COMBINED_DISCOUNT_TOTAL]);
+    shopMap[shop].orders.add(row[IDX.ORDER_ID]);
+
+    const cancelledQty = toNum_(row[IDX.CANCELLED_QTY]);
+    const itemCount = toNum_(row[IDX.ITEM_COUNT]);
+    // Brutto antal skal ekskludere annulleringer
+    const bruttoQty = Math.max(0, itemCount - cancelledQty);
+    skuStats[shop].qty += bruttoQty;
+    // Netto starter fra brutto (allerede uden annulleringer) og reduceres senere af retur
+    skuStats[shop].qtyNet += bruttoQty;
+    skuStats[shop].cancelledQty += cancelledQty;
+
+    // Træk annulleringer fra nettoomsætning proportionalt med enhedsprisen ex moms
+    if (itemCount > 0 && cancelledQty > 0) {
+      const perUnitExTax = brutto / itemCount;
+      const cancelValueExTax = perUnitExTax * cancelledQty;
+      // Træk fra både brutto (B) og netto (C)
+      shopMap[shop].gross -= cancelValueExTax;
+      shopMap[shop].net -= cancelValueExTax;
+    }
+  });
+
+  // Returer dateret på refund_date i perioden
+  returnRows.forEach(row => {
+    if (!row || row.length < 15) return;
+    const shop = row[IDX.SHOP];
+    if (!shopMap[shop]) return;
+
+    const refundedAmount = toNum_(row[IDX.REFUNDED_AMOUNT]);
+    const refundedQty = toNum_(row[IDX.REFUNDED_QTY]);
+    const refundDate = row[IDX.REFUND_DATE];
+    if (!refundDate) return;
+
+    shopMap[shop].net -= refundedAmount;
+    shopMap[shop].refundedAmount += refundedAmount;
+    if (refundedQty > 0) {
+      const orderId = row[IDX.ORDER_ID] || '';
+      shopMap[shop].refundOrders.add(orderId);
+    }
+    skuStats[shop].refundedQty += refundedQty;
+    skuStats[shop].qtyNet -= refundedQty;
+  });
+
+  // Byg rækker
+  const rows = [];
+  const totals = { brutto:0, netto:0, stkBrutto:0, stkNetto:0, orders:0, fragt:0, returStk:0, returKr:0, returOrdre:0, rabat:0, cancelled:0 };
+
+  shops.forEach(shop => {
+    const o = shopMap[shop], s = skuStats[shop];
+    const orders = o.orders.size;
+    const brutto = o.gross, netto = o.net, fragt = o.shipping;
+    const stkBrutto = s.qty, stkNetto = s.qtyNet;
+    const stkPris = stkNetto > 0 ? netto / stkNetto : 0;
+    const ordreværdi = orders > 0 ? netto / orders : 0;
+    const basketSize = orders > 0 ? stkNetto / orders : 0;
+    const returStkPct = stkBrutto > 0 ? s.refundedQty / stkBrutto : 0;
+    const returKrPct = brutto > 0 ? o.refundedAmount / brutto : 0;
+    const returOrdrePct = orders > 0 ? o.refundOrders.size / orders : 0;
+    const fragtPct = netto > 0 ? fragt / netto : 0;
+
+    rows.push([
+      shopLabel_(shop),
+      round2_(brutto),
+      round2_(netto),
+      stkBrutto,
+      stkNetto,
+      orders,
+      round2_(ordreværdi),
+      toFixed1_(basketSize),
+      round2_(stkPris),
+      pctStr_(returStkPct),
+      pctStr_(returKrPct),
+      pctStr_(returOrdrePct),
+      round2_(fragt),
+      toFixed2_(fragtPct * 100),
+      round2_(o.totalDiscounts),
+      s.cancelledQty
+    ]);
+
+    totals.brutto += brutto; totals.netto += netto; totals.stkBrutto += stkBrutto; totals.stkNetto += stkNetto;
+    totals.orders += orders; totals.fragt += fragt; totals.returStk += s.refundedQty; totals.returKr += o.refundedAmount;
+    totals.returOrdre += o.refundOrders.size; totals.rabat += o.totalDiscounts; totals.cancelled += s.cancelledQty;
+  });
+
+  // Total række
+  rows.push([
+    'I alt',
+    round2_(totals.brutto),
+    round2_(totals.netto),
+    totals.stkBrutto,
+    totals.stkNetto,
+    totals.orders,
+    round2_(totals.orders > 0 ? totals.netto / totals.orders : 0),
+    totals.orders > 0 ? toFixed1_(totals.stkNetto / totals.orders) : '0',
+    round2_(totals.stkNetto > 0 ? totals.netto / totals.stkNetto : 0),
+    pctStr_(totals.stkBrutto > 0 ? (totals.returStk / totals.stkBrutto) : 0),
+    pctStr_(totals.brutto > 0 ? (totals.returKr / totals.brutto) : 0),
+    pctStr_(totals.orders > 0 ? (totals.returOrdre / totals.orders) : 0),
+    round2_(totals.fragt),
+    toFixed2_(totals.netto > 0 ? (totals.fragt / totals.netto * 100) : 0),
+    round2_(totals.rabat),
+    totals.cancelled
+  ]);
+
+  if (rows.length > 0) {
+    sheet.getRange(5, 1, rows.length, rows[0].length).setValues(rows);
+    sheet.getRange(5 + rows.length - 1, 1, 1, rows[0].length).setFontWeight('bold').setBackground('#F0F8FF');
+    sheet.autoResizeColumns(1, rows[0].length);
+  }
+}
+
+// Hjælpere til Dashboard
+function extractShopsFromOrders_(rows) {
+  const s = new Set();
+  rows.forEach(r => { if (r && r.length > 0 && r[0]) s.add(r[0]); });
+  return Array.from(s).sort();
+}
+
+function shopLabel_(domain) {
+  const map = {
+    'pompdelux-da.myshopify.com':'DA',
+    'pompdelux-de.myshopify.com':'DE',
+    'pompdelux-nl.myshopify.com':'NL',
+    'pompdelux-int.myshopify.com':'INT',
+    'pompdelux-chf.myshopify.com':'CHF'
+  };
+  return map[domain] || domain;
+}
+
+function toNum_(v) { const n = Number(v); return isNaN(n) ? 0 : n; }
+function round2_(v) { return Math.round((v || 0) * 100) / 100; }
+function toFixed1_(v) { return (v || 0).toFixed(1); }
+function toFixed2_(v) { return (v || 0).toFixed(2); }
+function pctStr_(v) { return (Math.round((v || 0) * 10000) / 100).toFixed(2) + '%'; }
+
+// Læs brugerens valgte datoer fra Dashboard arket (B1/B2). Fallback: sidste 30 dage
+function getDashboardSelectedDates_() {
+  const sheet = getOrCreateSheet(CONFIG.SHEETS.DASHBOARD);
+
+  // Sørg for labels findes
+  sheet.getRange('A1').setValue('Startdato:');
+  sheet.getRange('A2').setValue('Slutdato:');
+  sheet.getRange('A1:A2').setFontWeight('bold');
+
+  let startVal, endVal;
+  try {
+    startVal = sheet.getRange('B1').getValue();
+    endVal = sheet.getRange('B2').getValue();
+  } catch (e) {
+    // ignore
+  }
+
+  if (startVal instanceof Date && endVal instanceof Date && !isNaN(startVal) && !isNaN(endVal)) {
+    // Arbejd direkte på kopier uden at skrive tilbage til celler
+    const s = new Date(startVal.getTime());
+    const e = new Date(endVal.getTime());
+    // Fortolk datoer i lokal tidszone nøjagtigt som indtastet
+    s.setHours(0, 0, 0, 0);
+    e.setHours(23, 59, 59, 999);
+    return { startDate: s, endDate: e };
+  }
+
+  // Fallback til sidste 30 dage og skriv dem i cellerne
+  const endDate = new Date();
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - 30);
+  // Skriv kun fallback-datoer når cellerne er tomme/ugyldige
+  sheet.getRange('B1').setValue(startDate);
+  sheet.getRange('B2').setValue(endDate);
+  sheet.getRange('B1:B2').setNumberFormat('dd/MM/yyyy');
+  return { startDate, endDate };
 }
 
 /**
@@ -539,8 +776,8 @@ function fetchInventoryData(type = 'list', options = {}) {
 function fetchFulfillmentData(startDate, endDate, type = 'list', options = {}) {
   const url = `${CONFIG.API_BASE}/fulfillments`;
   const payload = {
-    startDate: formatDate(startDate),
-    endDate: formatDate(endDate),
+    startDate: formatDateWithTime(startDate, false),
+    endDate: formatDateWithTime(endDate, true),
     type: type,
     ...options
   };
@@ -886,4 +1123,190 @@ function createDailyTrigger() {
     console.error(`💥 Fejl i createDailyTrigger: ${error.message}`);
     SpreadsheetApp.getUi().alert('Trigger fejl', `Kunne ikke oprette trigger: ${error.message}`, SpreadsheetApp.getUi().ButtonSet.OK);
   }
+}
+
+/**
+ * DELIVERY REPORT (ny version) – genskaber DeliveryReport.gs via API
+ */
+function generateDeliveryReportFromAPI() {
+  try {
+    const sheet = getOrCreateSheet('Delivery Report');
+
+    // Smart date selector
+    setupDeliveryDateSelector_(sheet);
+    const { startDate, endDate } = getDeliverySelectedDates_(sheet);
+
+    const API_BASE_URL = CONFIG.API_BASE;
+
+    // 1) Fulfillments i perioden (dateret på fulfillment.date)
+    const fulfillments = makeApiRequest(
+      `${API_BASE_URL}/fulfillments`,
+      {
+        startDate: formatDateWithTime(startDate, false),
+        endDate: formatDateWithTime(endDate, true),
+        type: 'list'
+      }
+    );
+
+    // 2) Orders returns i perioden (by refundDate)
+    const ordersRes = makeApiRequest(
+      `${API_BASE_URL}/analytics`,
+      {
+        startDate: formatDateWithTime(startDate, false),
+        endDate: formatDateWithTime(endDate, true),
+        type: 'orders',
+        includeReturns: true
+      }
+    );
+    const returnRows = Array.isArray(ordersRes?.returns) ? ordersRes.returns : [];
+
+    // 3) Carrier mapping til returns (seneste carrier pr. order)
+    const returnOrderIds = Array.from(new Set(returnRows.map(r => r[1]).filter(Boolean)));
+    let orderIdToCarrier = {};
+    if (returnOrderIds.length > 0) {
+      const carrierRes = makeApiPostRequest_(
+        `${API_BASE_URL}/fulfillments?type=carrier-map`,
+        { orderIds: returnOrderIds }
+      );
+      (carrierRes?.data || []).forEach(m => { orderIdToCarrier[m.order_id] = m.carrier || 'Ukendt'; });
+    }
+
+    // Ryd outputområde
+    clearDeliveryArea_(sheet);
+    sheet.getRange('A4').setValue('🚚 DELIVERY RAPPORT').setFontWeight('bold').setFontSize(14);
+
+    // 4) Delivery matrix (Land x Carrier)
+    const deliveryMatrix = buildFulfillmentMatrix_(fulfillments?.data || []);
+    let currentRow = 6;
+    if (deliveryMatrix.table.length > 1) {
+      sheet.getRange(currentRow, 1, deliveryMatrix.table.length, deliveryMatrix.table[0].length).setValues(deliveryMatrix.table);
+      sheet.getRange(currentRow, 1, 1, deliveryMatrix.table[0].length).setFontWeight('bold').setBackground('#E3F2FD');
+      currentRow += deliveryMatrix.table.length + 2;
+    }
+
+    // 5) Statistikker
+    sheet.getRange(currentRow++, 1).setValue('📊 LEVERINGSSTATISTIK:').setFontWeight('bold');
+    sheet.getRange(currentRow++, 1, 1, 2).setValues([[ 'Antal fulfilled ordrer:', deliveryMatrix.totalFulfillments ]]);
+    sheet.getRange(currentRow++, 1, 1, 2).setValues([[ 'Antal fulfilled styk:', deliveryMatrix.totalItems ]]);
+
+    // 6) Returns matrix (Land x Carrier) efter refundDate
+    const returnsMatrix = buildReturnsMatrix_(returnRows, orderIdToCarrier);
+    currentRow++;
+    if (returnsMatrix.table.length > 1) {
+      sheet.getRange(currentRow++, 1).setValue('♻️ RETURER PR. LAND OG LEVERANDØR:').setFontWeight('bold');
+      sheet.getRange(currentRow, 1, returnsMatrix.table.length, returnsMatrix.table[0].length).setValues(returnsMatrix.table);
+      sheet.getRange(currentRow, 1, 1, returnsMatrix.table[0].length).setFontWeight('bold').setBackground('#FFE3E3');
+      currentRow += returnsMatrix.table.length;
+    }
+
+    // Auto-size
+    sheet.autoResizeColumns(1, 12);
+
+  } catch (error) {
+    console.error('💥 Fejl i generateDeliveryReportFromAPI:', error);
+    throw error;
+  }
+}
+
+// Helpers til Delivery Report
+function setupDeliveryDateSelector_(sheet) {
+  sheet.getRange('A1').setValue('Startdato:');
+  sheet.getRange('A2').setValue('Slutdato:');
+  sheet.getRange('A1:A2').setFontWeight('bold');
+  if (!sheet.getRange('B1').getValue()) sheet.getRange('B1').setValue(new Date());
+  if (!sheet.getRange('B2').getValue()) sheet.getRange('B2').setValue(new Date());
+  sheet.getRange('B1:B2').setNumberFormat('dd/MM/yyyy');
+}
+
+function getDeliverySelectedDates_(sheet) {
+  let s = sheet.getRange('B1').getValue();
+  let e = sheet.getRange('B2').getValue();
+  const startDate = new Date(s instanceof Date ? s.getTime() : Date.now()); startDate.setHours(0,0,0,0);
+  const endDate = new Date(e instanceof Date ? e.getTime() : Date.now()); endDate.setHours(23,59,59,999);
+  return { startDate, endDate };
+}
+
+function clearDeliveryArea_(sheet) {
+  if (sheet.getLastRow() >= 4) {
+    const lastRow = sheet.getLastRow();
+    const lastCol = Math.max(1, sheet.getLastColumn());
+    sheet.getRange(4, 1, lastRow - 3, lastCol).clear();
+  }
+}
+
+function buildFulfillmentMatrix_(rows) {
+  const carriers = new Set();
+  const countries = new Set();
+  const matrix = {};
+  let totalFulfillments = 0;
+  let totalItems = 0;
+
+  (rows || []).forEach(r => {
+    // API list mode returns array-of-arrays for Google Sheets compatibility
+    const country = r[2] || 'Unknown';
+    const carrier = r[3] || 'Unknown';
+    const items = Number(r[4]) || 0;
+    carriers.add(carrier);
+    countries.add(country);
+    const key = `${country}|${carrier}`;
+    matrix[key] = (matrix[key] || 0) + 1;
+    totalFulfillments++;
+    totalItems += items;
+  });
+
+  const cols = ['Land', ...Array.from(carriers).sort()];
+  const table = [cols];
+  Array.from(countries).sort().forEach(cty => {
+    const row = [cty];
+    Array.from(carriers).sort().forEach(car => {
+      row.push(matrix[`${cty}|${car}`] || 0);
+    });
+    table.push(row);
+  });
+
+  return { table, totalFulfillments, totalItems };
+}
+
+function buildReturnsMatrix_(returnRows, orderIdToCarrier) {
+  const carriers = new Set();
+  const countries = new Set();
+  const matrix = {};
+  let totalReturnedItems = 0;
+
+  (returnRows || []).forEach(r => {
+    const orderId = r[1];
+    const country = r[3] || 'Unknown';
+    const refundedQty = Number(r[9]) || 0;
+    const carrier = orderIdToCarrier[orderId] || 'Ukendt';
+    carriers.add(carrier);
+    countries.add(country);
+    const key = `${country}|${carrier}`;
+    matrix[key] = (matrix[key] || 0) + 1;
+    totalReturnedItems += refundedQty;
+  });
+
+  const cols = ['Land', ...Array.from(carriers).sort()];
+  const table = [cols];
+  Array.from(countries).sort().forEach(cty => {
+    const row = [cty];
+    Array.from(carriers).sort().forEach(car => {
+      row.push(matrix[`${cty}|${car}`] || 0);
+    });
+    table.push(row);
+  });
+
+  return { table, totalReturnedItems };
+}
+
+function makeApiPostRequest_(url, body) {
+  const response = UrlFetchApp.fetch(url, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { 'Authorization': `Bearer ${CONFIG.API_KEY}` },
+    payload: JSON.stringify(body),
+    muteHttpExceptions: true
+  });
+  const code = response.getResponseCode();
+  if (code >= 200 && code < 300) return JSON.parse(response.getContentText());
+  throw new Error('API POST error ' + code + ': ' + response.getContentText());
 }

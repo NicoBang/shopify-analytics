@@ -132,7 +132,7 @@ curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
 
 # Test fulfillment tracking
 curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-byns53dzs-nicolais-projects-291e9559.vercel.app/api/fulfillments?type=analytics&startDate=2025-09-15&endDate=2025-09-18"
+  "https://shopify-analytics-io15ha8kn-nicolais-projects-291e9559.vercel.app/api/fulfillments?type=analytics&startDate=2024-09-30&endDate=2024-10-31"
 
 # Test product metadata and style analytics (FIXED DATE FILTERING)
 curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \

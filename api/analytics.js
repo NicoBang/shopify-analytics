@@ -56,6 +56,30 @@ class SupabaseService {
     return allOrders;
   }
 
+  async getOrdersRefundedInPeriod(startDate, endDate, shop = null) {
+    // Fetch orders where refund_date falls within the period (returns dated by refund date)
+    let query = this.supabase
+      .from('orders')
+      .select('*')
+      .not('refund_date', 'is', null)
+      .gte('refund_date', startDate.toISOString())
+      .lte('refund_date', endDate.toISOString())
+      .order('refund_date', { ascending: false });
+
+    if (shop) {
+      query = query.eq('shop', shop);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('❌ Error fetching refunded orders:', error);
+      throw error;
+    }
+
+    return data || [];
+  }
+
   async getAnalytics(startDate, endDate) {
     const { data, error } = await this.supabase
       .from('order_analytics')
@@ -99,7 +123,7 @@ module.exports = async function handler(req, res) {
   if (validationError) return validationError;
 
   // Extract parameters
-  let { startDate, endDate, type = 'dashboard', shop = null } = req.query;
+  let { startDate, endDate, type = 'dashboard', shop = null, includeReturns = 'false' } = req.query;
 
   // Also support POST body parameters
   if (req.method === 'POST' && req.body) {
@@ -107,6 +131,7 @@ module.exports = async function handler(req, res) {
     endDate = req.body.endDate || endDate;
     type = req.body.type || type;
     shop = req.body.shop || shop;
+    includeReturns = String(req.body.includeReturns ?? includeReturns);
   }
 
   if (!startDate || !endDate) {
@@ -127,13 +152,63 @@ module.exports = async function handler(req, res) {
     const start = new Date(startDate);
     const end = new Date(endDate);
 
+    // Normalize includeReturns once for use across handler
+    const wantsReturns = String(includeReturns) === 'true';
+
     let data, rows, count;
+    let returnRows = [];
 
     switch (type.toLowerCase()) {
       case 'dashboard':
       case 'orders':
         // Get order data for Google Sheets format
         const orders = await supabaseService.getOrdersForPeriod(start, end, shop);
+        // Build cancelled_qty map from SKUs if missing/zero on orders
+        const orderIds = (orders || []).map(o => o.order_id).filter(Boolean);
+        const cancelledByOrder = {};
+        // Helper to aggregate in chunks to avoid IN() limits
+        const chunkSize = 1000;
+        for (let i = 0; i < orderIds.length; i += chunkSize) {
+          const chunk = orderIds.slice(i, i + chunkSize);
+          if (chunk.length === 0) continue;
+          const { data: skuChunk, error: skuErr } = await supabaseService.supabase
+            .from('skus')
+            .select('order_id,cancelled_qty')
+            .in('order_id', chunk);
+          if (skuErr) {
+            console.warn('⚠️ Could not aggregate cancelled_qty from skus:', skuErr.message);
+            break;
+          }
+          (skuChunk || []).forEach(r => {
+            const k = r.order_id;
+            const v = Number(r.cancelled_qty) || 0;
+            if (!cancelledByOrder[k]) cancelledByOrder[k] = 0;
+            cancelledByOrder[k] += v;
+          });
+        }
+        if (wantsReturns) {
+          const refundedOrders = await supabaseService.getOrdersRefundedInPeriod(start, end, shop);
+          // Map refunded orders to the same row structure if requested
+          returnRows = refundedOrders.map(order => [
+            order.shop,
+            order.order_id,
+            order.created_at,
+            order.country,
+            order.discounted_total || 0,
+            order.tax || 0,
+            order.shipping || 0,
+            order.item_count || 0,
+            order.refunded_amount || 0,
+            order.refunded_qty || 0,
+            order.refund_date || '',
+            order.total_discounts_ex_tax || 0,
+            (order.cancelled_qty && order.cancelled_qty > 0)
+              ? order.cancelled_qty
+              : (cancelledByOrder[order.order_id] || 0),
+            order.sale_discount_total || 0,
+            order.combined_discount_total || 0
+          ]);
+        }
 
         // Transform data for Google Sheets (array of arrays)
         rows = orders.map(order => [
@@ -149,7 +224,9 @@ module.exports = async function handler(req, res) {
           order.refunded_qty || 0,
           order.refund_date || '',
           order.total_discounts_ex_tax || 0,
-          order.cancelled_qty || 0,
+          (order.cancelled_qty && order.cancelled_qty > 0)
+            ? order.cancelled_qty
+            : (cancelledByOrder[order.order_id] || 0),
           order.sale_discount_total || 0,
           order.combined_discount_total || 0
         ]);
@@ -159,7 +236,7 @@ module.exports = async function handler(req, res) {
           'Shop', 'Order ID', 'Created At', 'Country', 'Discounted Total',
           'Tax', 'Shipping', 'Item Count', 'Refunded Amount', 'Refunded Qty',
           'Refund Date', 'Total Discounts Ex Tax', 'Cancelled Qty', 'Sale Discount Total', 'Combined Discount Total'
-        ]};
+        ] };
         break;
 
       case 'analytics':
@@ -200,7 +277,7 @@ module.exports = async function handler(req, res) {
     console.log(`✅ Analytics completed: ${count} records`);
 
     // Return success response
-    return res.status(200).json({
+    const baseResponse = {
       success: true,
       type,
       count,
@@ -212,7 +289,14 @@ module.exports = async function handler(req, res) {
       shop: shop || 'all',
       timestamp: new Date().toISOString(),
       ...(rows ? { headers: data.headers } : {})
-    });
+    };
+
+    if (type.toLowerCase() === 'orders') {
+      // For orders, optionally include returns at top-level for dashboard logic
+      baseResponse.returns = wantsReturns ? returnRows : undefined;
+    }
+
+    return res.status(200).json(baseResponse);
 
   } catch (error) {
     console.error('💥 Analytics error:', error);
