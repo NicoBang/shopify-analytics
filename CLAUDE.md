@@ -24,12 +24,12 @@ Google Sheets ←→ Google Apps Script ←→ Vercel API ←→ Supabase Databa
 
 ## 🔗 **Production URLs**
 
-- **Analytics API**: `https://shopify-analytics-byns53dzs-nicolais-projects-291e9559.vercel.app/api/analytics`
-- **Sync API**: `https://shopify-analytics-byns53dzs-nicolais-projects-291e9559.vercel.app/api/sync-shop`
-- **SKU Cache API**: `https://shopify-analytics-byns53dzs-nicolais-projects-291e9559.vercel.app/api/sku-cache`
-- **Inventory API**: `https://shopify-analytics-byns53dzs-nicolais-projects-291e9559.vercel.app/api/inventory`
-- **Fulfillments API**: `https://shopify-analytics-byns53dzs-nicolais-projects-291e9559.vercel.app/api/fulfillments`
-- **Metadata API**: `https://shopify-analytics-byns53dzs-nicolais-projects-291e9559.vercel.app/api/metadata`
+- **Analytics API**: `https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/analytics`
+- **Sync API**: `https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/sync-shop`
+- **SKU Cache API**: `https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/sku-cache`
+- **Inventory API**: `https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/inventory`
+- **Fulfillments API**: `https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/fulfillments`
+- **Metadata API**: `https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/metadata`
 - **Supabase**: [Your Supabase dashboard URL]
 - **Vercel**: [Your Vercel dashboard URL]
 
@@ -116,27 +116,27 @@ vercel --prod --yes
 
 # Test API endpoints
 curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-byns53dzs-nicolais-projects-291e9559.vercel.app/api/analytics?startDate=2025-09-15&endDate=2025-09-18"
+  "https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/analytics?startDate=2025-09-15&endDate=2025-09-18"
 
 # Sync specific store
 curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-byns53dzs-nicolais-projects-291e9559.vercel.app/api/sync-shop?shop=pompdelux-da.myshopify.com&type=orders&days=7"
+  "https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/sync-shop?shop=pompdelux-da.myshopify.com&type=orders&days=7"
 
-# Test SKU analytics (replaces SKU_CACHE)
+# Test SKU analytics (individual SKUs with sizes)
 curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-byns53dzs-nicolais-projects-291e9559.vercel.app/api/sku-cache?type=analytics&startDate=2025-09-15&endDate=2025-09-18&limit=10"
+  "https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/metadata?type=style&startDate=2025-09-15&endDate=2025-09-18&groupBy=sku"
+
+# Test color analytics (aggregated by color) - FIXED VAREMODTAGET AGGREGATION
+curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
+  "https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/metadata?type=style&startDate=2025-09-15&endDate=2025-09-18&groupBy=farve"
 
 # Test inventory management
 curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-byns53dzs-nicolais-projects-291e9559.vercel.app/api/inventory?type=analytics&lowStockThreshold=5"
+  "https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/inventory?type=analytics&lowStockThreshold=5"
 
 # Test fulfillment tracking
 curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-io15ha8kn-nicolais-projects-291e9559.vercel.app/api/fulfillments?type=analytics&startDate=2024-09-30&endDate=2024-10-31"
-
-# Test product metadata and style analytics (FIXED DATE FILTERING)
-curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-byns53dzs-nicolais-projects-291e9559.vercel.app/api/metadata?type=style&startDate=2025-09-20&endDate=2025-09-21&groupBy=farve"
+  "https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/fulfillments?type=analytics&startDate=2024-09-30&endDate=2024-10-31"
 ```
 
 ### Database Management
@@ -161,12 +161,9 @@ GROUP BY shop;
 ```javascript
 // Main functions available in Google Sheets menu (Enhanced)
 updateDashboard()               // Update dashboard with 30 days data
-updateSkuAnalytics()           // Update SKU analytics (replaces SKU_CACHE)
-updateInventory()              // Update inventory with metadata
-updateFulfillments()           // Update fulfillment tracking
-generateStyleColorAnalytics()  // Color-based product analytics
-generateStyleProductAnalytics() // Product-based analytics
-generateFinancialAnalytics()   // Financial analytics with inventory
+generateStyleColorAnalytics()  // Color-based product analytics (aggregated)
+generateStyleSKUAnalytics()    // SKU-based analytics (individual SKUs with sizes)
+testConnection()               // Test API connectivity
 
 // Sync functions
 syncAllShops()                 // Sync all 5 stores (orders)
@@ -385,12 +382,37 @@ Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc
 
 ---
 
-**Last Updated**: 2025-09-24
+**Last Updated**: 2025-09-25
 **System Status**: ✅ Production Ready
 **Performance**: 100x improvement achieved
 **Migration**: Complete ✅
 
-## 🔧 Recent Fixes
+## 🔧 Recent Updates
+
+### 2025-09-25: Fixed Critical Varemodtaget Aggregation Bug + Added SKU Analytics
+- **🐛 MAJOR BUG FIX**: Fixed varemodtaget aggregation in Style Color Analytics
+  - **Problem**: Varemodtaget only showed value from first size variant (e.g., 35 instead of 274)
+  - **Root Cause**: Metadata aggregation only used first SKU instead of summing all sizes
+  - **Solution**: Modified `/api/metadata.js` to sum varemodtaget across all SKU variants
+  - **Example**: Artikelnummer 100537 now correctly shows 274 (35+50+50+49+50+40) instead of 35
+  - **Impact**: All Style Color Analytics now show correct inventory levels
+
+- **💰 PRICE LOGIC ENHANCEMENT**: Implemented highest price selection
+  - Uses `compare_at_price` if > 0, otherwise uses `price`
+  - Automatically selects highest price across all variants
+  - Shows in "Vejl. Pris" column in both Color and SKU Analytics
+
+- **🆕 NEW FEATURE**: Added generateStyleSKUAnalytics() Function
+  - **Implementation**: Uses same method as `generateStyleColorAnalytics()` with `groupBy: 'sku'`
+  - **Key Features**:
+    - Shows individual SKUs instead of aggregating by color/article number
+    - Size column in position G (e.g., "146/152", "128", "134")
+    - Same data fields: Program, Produkt, Farve, Sæson, Køn, etc.
+    - 90-day default period with customizable dates in A1/B1
+  - **Sheet Name**: "SKU_Analytics"
+  - **Menu**: "Style Analytics (SKUs)"
+
+- **Files Updated**: `api/metadata.js`, `google-sheets-enhanced.js`, `CLAUDE.md`
 
 ### 2025-09-24: Fixed missing Season/Gender data in Style Analytics
 - **Problem**: Season and gender values weren't showing in Google Sheets even though data existed in Supabase

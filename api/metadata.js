@@ -366,15 +366,34 @@ class SupabaseService {
               // Extract the base artikelnummer from the SKU (part before backslash)
               const baseArtikelNummer = meta.artikelnummer.split('\\')[0] || meta.artikelnummer;
 
-              // Only use the FIRST metadata entry for each artikelnummer to ensure consistency
-              // This prevents random metadata from different size variants being used
               if (!metadataMap[baseArtikelNummer]) {
-                metadataMap[baseArtikelNummer] = meta;
+                // Create new entry with first metadata values
+                metadataMap[baseArtikelNummer] = {
+                  ...meta,
+                  varemodtaget: parseInt(meta.varemodtaget) || 0
+                };
 
                 // Add to uniqueArtikelNummers even if no sales
                 if (!allArtikelNummers.has(baseArtikelNummer)) {
                   uniqueArtikelNummers.push(baseArtikelNummer);
                   allArtikelNummers.add(baseArtikelNummer);
+                }
+              } else {
+                // Sum varemodtaget from all SKUs for same artikelnummer
+                metadataMap[baseArtikelNummer].varemodtaget += parseInt(meta.varemodtaget) || 0;
+
+                // Update price to use the highest of all variants
+                const currentMax = Math.max(
+                  parseFloat(metadataMap[baseArtikelNummer].price) || 0,
+                  parseFloat(metadataMap[baseArtikelNummer].compare_at_price) || 0
+                );
+                const newMax = Math.max(
+                  parseFloat(meta.price) || 0,
+                  parseFloat(meta.compare_at_price) || 0
+                );
+                if (newMax > currentMax) {
+                  metadataMap[baseArtikelNummer].price = meta.price;
+                  metadataMap[baseArtikelNummer].compare_at_price = meta.compare_at_price;
                 }
               }
             }
