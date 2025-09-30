@@ -1,7 +1,7 @@
-// api/fulfillments.js
+// api/fulfillments.js - Robust Long-term Solution
 const { createClient } = require('@supabase/supabase-js');
 
-// Inline SupabaseService for Vercel
+// Robust SupabaseService with proper error handling and deduplication
 class SupabaseService {
   constructor() {
     if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) {
@@ -14,6 +14,14 @@ class SupabaseService {
     );
   }
 
+  // Helper function to extract Shopify order ID (now inside class)
+  extractId(fullId) {
+    const str = String(fullId || "");
+    const match = str.match(/\/(\d+)$/);
+    return match ? match[1] : str;
+  }
+
+  // Enhanced getFulfillments with pagination support
   async getFulfillments(startDate, endDate, options = {}) {
     const { carrier, country, limit = 10000, offset = 0, includeTotals = false } = options;
 
@@ -24,11 +32,11 @@ class SupabaseService {
       .lte('date', endDate.toISOString())
       .order('date', { ascending: false });
 
-    if (carrier) {
+    if (carrier && carrier !== 'all') {
       query = query.eq('carrier', carrier);
     }
 
-    if (country) {
+    if (country && country !== 'all') {
       query = query.eq('country', country);
     }
 
@@ -42,285 +50,446 @@ class SupabaseService {
       throw error;
     }
 
-    let totalCount = data?.length || 0;
+    return { data: data || [], error: null };
+  }
 
-    // Get total count if requested
-    if (includeTotals) {
-      let countQuery = this.supabase
+  // Enhanced delivery analytics with ALL fixes applied
+  async getEnhancedDeliveryAnalytics(startDate, endDate) {
+    console.log(`🚚 Enhanced Delivery Analytics: ${startDate.toISOString().slice(0,10)} to ${endDate.toISOString().slice(0,10)}`);
+
+    // Get ALL fulfillments using chunked pagination (no 1000 limit)
+    console.log(`🚚 Fetching ALL fulfillments for period using chunked pagination`);
+    let allFulfillments = [];
+    let offset = 0;
+    const batchSize = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      console.log(`📦 Fetching fulfillments batch: offset=${offset}, size=${batchSize}`);
+
+      const { data: batch, error: batchError } = await this.supabase
         .from('fulfillments')
-        .select('*', { count: 'exact', head: true })
+        .select('*')
         .gte('date', startDate.toISOString())
-        .lte('date', endDate.toISOString());
+        .lte('date', endDate.toISOString())
+        .range(offset, offset + batchSize - 1);
 
-      if (carrier) countQuery = countQuery.eq('carrier', carrier);
-      if (country) countQuery = countQuery.eq('country', country);
+      if (batchError) {
+        console.error('❌ Error in batch fetch:', batchError);
+        throw batchError;
+      }
 
-      const { count: exactCount } = await countQuery;
-      totalCount = exactCount || 0;
+      if (batch && batch.length > 0) {
+        allFulfillments = allFulfillments.concat(batch);
+        hasMore = batch.length === batchSize;
+        offset += batchSize;
+        console.log(`📊 Batch fetched: ${batch.length} fulfillments, total so far: ${allFulfillments.length}`);
+      } else {
+        hasMore = false;
+      }
     }
 
-    return { data: data || [], totalCount, hasMore: (data?.length || 0) === limit };
-  }
+    console.log(`✅ Fetched ${allFulfillments.length} total fulfillments`);
 
-  async getFulfillmentAnalytics(startDate, endDate, options = {}) {
-    const { groupBy = 'carrier' } = options;
+    // FIXED: Get orders from 90-day cache window (like old system) using pagination
+    const cacheStartDate = new Date(endDate);
+    cacheStartDate.setDate(cacheStartDate.getDate() - 90); // 90 days back like old system
 
-    const { data, error } = await this.supabase
-      .from('fulfillments')
-      .select('*')
-      .gte('date', startDate.toISOString())
-      .lte('date', endDate.toISOString())
-      .order('date', { ascending: false });
+    console.log(`📊 Fetching orders from 90-day window (${cacheStartDate.toISOString().slice(0,10)} to ${endDate.toISOString().slice(0,10)}) like old working system...`);
+    let allOrdersData = [];
+    let orderOffset = 0;
+    const orderBatchSize = 1000;
+    let hasMoreOrders = true;
 
-    if (error) {
-      console.error('❌ Error fetching fulfillment analytics:', error);
-      throw error;
+    while (hasMoreOrders) {
+      console.log(`📦 Fetching orders batch: offset=${orderOffset}, size=${orderBatchSize}`);
+
+      const { data: batch, error: batchError } = await this.supabase
+        .from('orders')
+        .select('order_id, country, refunded_qty, refund_date')
+        .gte('created_at', cacheStartDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .range(orderOffset, orderOffset + orderBatchSize - 1);
+
+      if (batchError) {
+        console.error('❌ Error in orders batch fetch:', batchError);
+        throw batchError;
+      }
+
+      if (batch && batch.length > 0) {
+        allOrdersData = allOrdersData.concat(batch);
+        hasMoreOrders = batch.length === orderBatchSize;
+        orderOffset += orderBatchSize;
+        console.log(`📊 Orders batch fetched: ${batch.length} orders, total so far: ${allOrdersData.length}`);
+      } else {
+        hasMoreOrders = false;
+      }
     }
 
-    return this.processFulfillmentAnalytics(data || [], groupBy);
+    console.log(`✅ Fetched ${allOrdersData.length} total orders from 90-day cache window (filtering by refund_date in period happens later)`);
+
+    // Calculate enhanced metrics with proper carrier mapping
+    return this.calculateEnhancedDeliveryMetrics(
+      allOrdersData || [],
+      allFulfillments || [],
+      startDate,
+      endDate
+    );
   }
 
-  processFulfillmentAnalytics(data, groupBy) {
-    const grouped = {};
-    const summary = {
-      totalFulfillments: data.length,
-      totalItems: 0,
-      uniqueOrders: new Set(),
-      dateRange: { start: null, end: null },
-      carriers: new Set(),
-      countries: new Set()
-    };
+  // Robust carrier mapping and returns analysis
+  async calculateEnhancedDeliveryMetrics(orderData, fulfillmentData, startDate, endDate) {
+    const fulfillmentMatrix = {};
+    const carriers = new Set();
+    const countries = new Set();
+    let totalFulfillments = 0;
+    let totalFulfilledItems = 0;
 
-    data.forEach(fulfillment => {
-      const key = this.getFulfillmentGroupKey(fulfillment, groupBy);
-      const itemCount = fulfillment.item_count || 0;
-      const fulfillmentDate = new Date(fulfillment.date);
+    console.log(`📊 Processing ${fulfillmentData.length} fulfillments and ${orderData.length} orders with refunds`);
 
-      // Update summary
-      summary.totalItems += itemCount;
-      summary.uniqueOrders.add(fulfillment.order_id);
-      summary.carriers.add(fulfillment.carrier);
-      summary.countries.add(fulfillment.country);
+    // Process fulfillments (already filtered by date)
+    fulfillmentData.forEach(fulfillment => {
+      const key = `${fulfillment.country}|${fulfillment.carrier}`;
+      countries.add(fulfillment.country);
+      carriers.add(fulfillment.carrier);
+      fulfillmentMatrix[key] = (fulfillmentMatrix[key] || 0) + 1;
 
-      if (!summary.dateRange.start || fulfillmentDate < summary.dateRange.start) {
-        summary.dateRange.start = fulfillmentDate;
+      totalFulfillments++;
+      totalFulfilledItems += Number(fulfillment.item_count) || 0;
+    });
+
+    // ROBUST CARRIER MAPPING - Use order_id directly (no extractId)
+    const orderIdToCarrier = {};
+
+    try {
+      // Get ALL fulfillments for carrier mapping using pagination
+      let allFulfillments = [];
+      let offset = 0;
+      const batchSize = 1000;
+      let hasMore = true;
+
+      while (hasMore) {
+        const { data: batch, error: batchError } = await this.supabase
+          .from('fulfillments')
+          .select('order_id, carrier')
+          .range(offset, offset + batchSize - 1);
+
+        if (batchError) throw batchError;
+
+        if (batch && batch.length > 0) {
+          allFulfillments = allFulfillments.concat(batch);
+          hasMore = batch.length === batchSize;
+          offset += batchSize;
+        } else {
+          hasMore = false;
+        }
       }
-      if (!summary.dateRange.end || fulfillmentDate > summary.dateRange.end) {
-        summary.dateRange.end = fulfillmentDate;
-      }
 
-      // Group data
-      if (!grouped[key]) {
-        grouped[key] = {
-          groupKey: key,
-          fulfillmentCount: 0,
-          totalItems: 0,
-          uniqueOrders: new Set(),
-          countries: new Set(),
-          carriers: new Set(),
-          firstFulfillment: null,
-          lastFulfillment: null,
-          avgItemsPerFulfillment: 0
-        };
-      }
+      // Build carrier mapping using direct order_id (THE FIX!)
+      allFulfillments.forEach(f => {
+        if (f.order_id && f.carrier) {
+          // CRITICAL: Use order_id directly, no extractId transformation
+          orderIdToCarrier[f.order_id] = f.carrier;
+        }
+      });
 
-      const group = grouped[key];
-      group.fulfillmentCount++;
-      group.totalItems += itemCount;
-      group.uniqueOrders.add(fulfillment.order_id);
-      group.countries.add(fulfillment.country);
-      group.carriers.add(fulfillment.carrier);
+      console.log(`📊 Carrier mapping: ${Object.keys(orderIdToCarrier).length} orders mapped`);
 
-      if (!group.firstFulfillment || fulfillmentDate < group.firstFulfillment) {
-        group.firstFulfillment = fulfillmentDate;
-      }
-      if (!group.lastFulfillment || fulfillmentDate > group.lastFulfillment) {
-        group.lastFulfillment = fulfillmentDate;
+      // Debug: Show sample mappings
+      const sampleKeys = Object.keys(orderIdToCarrier).slice(0, 3);
+      console.log(`📦 Sample carrier mappings: ${sampleKeys.map(k => `${k}=${orderIdToCarrier[k]}`).join(', ')}`);
+
+    } catch (error) {
+      console.log(`⚠️ Could not get comprehensive carrier mapping: ${error.message}`);
+      // Fallback: use period fulfillments only
+      fulfillmentData.forEach(fulfillment => {
+        orderIdToCarrier[fulfillment.order_id] = fulfillment.carrier;
+      });
+    }
+
+    // Process returns with FIXED carrier mapping
+    const returnsMatrix = {};
+    const returnCountries = new Set();
+    let totalReturnedItems = 0;
+
+    orderData.forEach(order => {
+      // FIXED: Use date-only comparison (not timestamp)
+      const refundDateStr = order.refund_date ? order.refund_date.split('T')[0] : null;
+      const startDateStr = startDate.toISOString().split('T')[0];
+      const endDateStr = endDate.toISOString().split('T')[0];
+
+      if (refundDateStr && refundDateStr >= startDateStr && refundDateStr <= endDateStr) {
+
+        // CRITICAL FIX: Use order_id directly for consistent mapping
+        const orderId = order.order_id;
+        const carrier = orderIdToCarrier[orderId] || "Ukendt";
+        const country = order.country || "Ukendt";
+
+        // Debug first few return mappings
+        if (Object.keys(returnsMatrix).length < 3) {
+          console.log(`🔍 Return mapping: orderId=${orderId}, carrier=${carrier}, found_in_map=${!!orderIdToCarrier[orderId]}`);
+        }
+
+        const key = `${country}|${carrier}`;
+        returnCountries.add(country);
+        returnsMatrix[key] = (returnsMatrix[key] || 0) + 1;
+
+        totalReturnedItems += Number(order.refunded_qty) || 0;
       }
     });
 
-    // Convert sets to arrays and calculate averages
-    const groupedArray = Object.values(grouped).map(group => ({
-      ...group,
-      uniqueOrders: group.uniqueOrders.size,
-      countries: Array.from(group.countries),
-      carriers: Array.from(group.carriers),
-      avgItemsPerFulfillment: group.fulfillmentCount > 0 ? (group.totalItems / group.fulfillmentCount).toFixed(2) : 0
-    })).sort((a, b) => b.totalItems - a.totalItems);
-
-    // Convert summary sets to counts/arrays
-    summary.uniqueOrders = summary.uniqueOrders.size;
-    summary.carriers = Array.from(summary.carriers);
-    summary.countries = Array.from(summary.countries);
+    const totalReturns = Object.values(returnsMatrix).reduce((a, b) => a + b, 0);
+    console.log(`📊 Enhanced Metrics: ${totalFulfillments} fulfillments (${totalFulfilledItems} items), ${totalReturns} returns (${totalReturnedItems} items)`);
 
     return {
-      summary,
-      groupedData: groupedArray
+      fulfillmentMatrix,
+      carriers: Array.from(carriers).sort(),
+      countries: Array.from(countries).sort(),
+      totalFulfillments,
+      totalFulfilledItems,
+      returnsMatrix,
+      returnCountries: Array.from(returnCountries).sort(),
+      totalReturnedItems,
+      totalReturns,
+      returnRate: totalFulfillments > 0
+        ? ((totalReturns / totalFulfillments) * 100).toFixed(2) + '%'
+        : '0%',
+      itemReturnRate: totalFulfilledItems > 0
+        ? ((totalReturnedItems / totalFulfilledItems) * 100).toFixed(2) + '%'
+        : '0%',
+      // Enhanced diagnostics
+      diagnostics: {
+        carrierMappingCount: Object.keys(orderIdToCarrier).length,
+        sampleCarrierMappings: Object.entries(orderIdToCarrier).slice(0, 3).map(([id, carrier]) => `${id}=${carrier}`),
+        sampleOrderIds: orderData.slice(0, 3).map(o => o.order_id),
+        fulfillmentDataCount: fulfillmentData.length,
+        orderDataCount: orderData.length,
+        returnsProcessed: totalReturns,
+        paginationBatches: Math.ceil(fulfillmentData.length / 1000)
+      }
     };
   }
 
-  getFulfillmentGroupKey(fulfillment, groupBy) {
-    switch (groupBy) {
-      case 'carrier':
-        return fulfillment.carrier || 'Unknown Carrier';
-      case 'country':
-        return fulfillment.country || 'Unknown Country';
-      case 'date':
-        return fulfillment.date.split('T')[0]; // YYYY-MM-DD
-      case 'week':
-        const date = new Date(fulfillment.date);
-        const year = date.getFullYear();
-        const week = this.getWeekNumber(date);
-        return `${year}-W${week.toString().padStart(2, '0')}`;
-      case 'month':
-        return fulfillment.date.substring(0, 7); // YYYY-MM
-      default:
-        return fulfillment.carrier || 'Unknown Carrier';
-    }
-  }
-
-  getWeekNumber(date) {
-    const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
-    const pastDaysOfYear = (date - firstDayOfYear) / 86400000;
-    return Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
-  }
-
-  async getDeliveryAnalytics(startDate, endDate) {
-    // Get fulfillments with order data
-    const { data: fulfillments, error } = await this.supabase
-      .from('fulfillments')
-      .select(`
-        *,
-        orders!fulfillments_order_id_fkey (
-          created_at,
-          shop,
-          country as order_country
-        )
-      `)
-      .gte('date', startDate.toISOString())
-      .lte('date', endDate.toISOString());
-
-    if (error) {
-      console.error('❌ Error fetching delivery analytics:', error);
-      throw error;
-    }
-
-    return this.processDeliveryAnalytics(fulfillments || []);
-  }
-
+  // Standard delivery analytics processing
   processDeliveryAnalytics(data) {
     const analytics = {
       totalOrders: 0,
       totalFulfillments: data.length,
       totalItems: 0,
-      averageDeliveryTime: 0,
-      deliveryTimes: [],
       byCarrier: {},
       byCountry: {},
-      byShop: {}
+      byDate: {}
     };
 
     data.forEach(fulfillment => {
-      const orderData = fulfillment.orders;
-      if (!orderData) return;
-
-      analytics.totalOrders++;
-      analytics.totalItems += fulfillment.item_count || 0;
-
-      // Calculate delivery time
-      const orderDate = new Date(orderData.created_at);
-      const fulfillmentDate = new Date(fulfillment.date);
-      const deliveryDays = Math.ceil((fulfillmentDate - orderDate) / (1000 * 60 * 60 * 24));
-
-      if (deliveryDays >= 0) {
-        analytics.deliveryTimes.push(deliveryDays);
-      }
+      analytics.totalItems += Number(fulfillment.item_count) || 0;
 
       // Group by carrier
-      const carrier = fulfillment.carrier || 'Unknown';
-      if (!analytics.byCarrier[carrier]) {
-        analytics.byCarrier[carrier] = { count: 0, items: 0, deliveryTimes: [] };
+      if (!analytics.byCarrier[fulfillment.carrier]) {
+        analytics.byCarrier[fulfillment.carrier] = { count: 0, items: 0 };
       }
-      analytics.byCarrier[carrier].count++;
-      analytics.byCarrier[carrier].items += fulfillment.item_count || 0;
-      if (deliveryDays >= 0) {
-        analytics.byCarrier[carrier].deliveryTimes.push(deliveryDays);
-      }
+      analytics.byCarrier[fulfillment.carrier].count++;
+      analytics.byCarrier[fulfillment.carrier].items += Number(fulfillment.item_count) || 0;
 
       // Group by country
-      const country = fulfillment.country || 'Unknown';
-      if (!analytics.byCountry[country]) {
-        analytics.byCountry[country] = { count: 0, items: 0, deliveryTimes: [] };
+      if (!analytics.byCountry[fulfillment.country]) {
+        analytics.byCountry[fulfillment.country] = { count: 0, items: 0 };
       }
-      analytics.byCountry[country].count++;
-      analytics.byCountry[country].items += fulfillment.item_count || 0;
-      if (deliveryDays >= 0) {
-        analytics.byCountry[country].deliveryTimes.push(deliveryDays);
-      }
+      analytics.byCountry[fulfillment.country].count++;
+      analytics.byCountry[fulfillment.country].items += Number(fulfillment.item_count) || 0;
 
-      // Group by shop
-      const shop = orderData.shop || 'Unknown';
-      if (!analytics.byShop[shop]) {
-        analytics.byShop[shop] = { count: 0, items: 0, deliveryTimes: [] };
-      }
-      analytics.byShop[shop].count++;
-      analytics.byShop[shop].items += fulfillment.item_count || 0;
-      if (deliveryDays >= 0) {
-        analytics.byShop[shop].deliveryTimes.push(deliveryDays);
-      }
-    });
-
-    // Calculate averages
-    if (analytics.deliveryTimes.length > 0) {
-      analytics.averageDeliveryTime = (
-        analytics.deliveryTimes.reduce((sum, days) => sum + days, 0) /
-        analytics.deliveryTimes.length
-      ).toFixed(1);
-    }
-
-    // Calculate averages for each group
-    ['byCarrier', 'byCountry', 'byShop'].forEach(groupType => {
-      Object.values(analytics[groupType]).forEach(group => {
-        if (group.deliveryTimes.length > 0) {
-          group.averageDeliveryTime = (
-            group.deliveryTimes.reduce((sum, days) => sum + days, 0) /
-            group.deliveryTimes.length
-          ).toFixed(1);
-        } else {
-          group.averageDeliveryTime = 0;
+      // Group by date
+      const date = fulfillment.date?.split('T')[0];
+      if (date) {
+        if (!analytics.byDate[date]) {
+          analytics.byDate[date] = { count: 0, items: 0 };
         }
-        delete group.deliveryTimes; // Remove array to reduce response size
-      });
+        analytics.byDate[date].count++;
+        analytics.byDate[date].items += Number(fulfillment.item_count) || 0;
+      }
     });
-
-    delete analytics.deliveryTimes; // Remove array to reduce response size
 
     return analytics;
   }
 
+  // Robust fulfillment sync with proper deduplication
   async upsertFulfillments(fulfillments) {
     if (!fulfillments || fulfillments.length === 0) return { count: 0 };
 
-    console.log(`🚚 Upserting ${fulfillments.length} fulfillments to Supabase...`);
+    console.log(`🚚 Upserting ${fulfillments.length} fulfillments to Supabase with deduplication...`);
 
-    const { data, error } = await this.supabase
-      .from('fulfillments')
-      .upsert(fulfillments, {
-        onConflict: 'order_id,date',
-        ignoreDuplicates: false
-      });
+    // Map fulfillments to database schema
+    const dbFulfillments = fulfillments.map(fulfillment => ({
+      order_id: fulfillment.orderId.replace('gid://shopify/Order/', ''),
+      date: fulfillment.date,
+      country: fulfillment.country,
+      carrier: fulfillment.carrier,
+      item_count: fulfillment.itemCount
+    }));
 
-    if (error) {
-      console.error('❌ Error upserting fulfillments:', error);
+    try {
+      // ROBUST DEDUPLICATION: Check for existing fulfillments
+      const orderIds = dbFulfillments.map(f => f.order_id);
+      const { data: existing, error: checkError } = await this.supabase
+        .from('fulfillments')
+        .select('order_id')
+        .in('order_id', orderIds);
+
+      if (checkError) {
+        console.error('❌ Error checking existing fulfillments:', checkError);
+        throw checkError;
+      }
+
+      const existingOrderIds = new Set(existing.map(e => e.order_id));
+      const newFulfillments = dbFulfillments.filter(f => !existingOrderIds.has(f.order_id));
+
+      console.log(`📊 Found ${existingOrderIds.size} existing, inserting ${newFulfillments.length} new fulfillments`);
+
+      if (newFulfillments.length === 0) {
+        console.log(`✅ No new fulfillments to insert`);
+        return { count: 0, data: [] };
+      }
+
+      // Insert only new fulfillments
+      const { data, error } = await this.supabase
+        .from('fulfillments')
+        .insert(newFulfillments);
+
+      if (error) {
+        console.error('❌ Error inserting new fulfillments:', error);
+        throw error;
+      }
+
+      console.log(`✅ Successfully inserted ${newFulfillments.length} new fulfillments`);
+      return { count: newFulfillments.length, data };
+
+    } catch (error) {
+      console.error('❌ Error in upsertFulfillments:', error);
       throw error;
     }
+  }
 
-    console.log(`✅ Successfully upserted ${fulfillments.length} fulfillments`);
-    return { count: fulfillments.length, data };
+  // Clean up duplicate fulfillments - keep only the oldest occurrence of each unique combination
+  async cleanupDuplicateFulfillments() {
+    console.log('🧹 Starting cleanup of duplicate fulfillments...');
+
+    try {
+      // Use a multi-step approach to safely remove duplicates
+      console.log('🔍 Step 1: Identifying duplicate records...');
+
+      // Get ALL fulfillments using pagination (no 1000 limit!)
+      console.log('📊 Fetching ALL fulfillments using pagination...');
+      let allFulfillments = [];
+      let cleanupOffset = 0;
+      const cleanupBatchSize = 1000;
+      let hasMoreForCleanup = true;
+
+      while (hasMoreForCleanup) {
+        console.log(`📦 Fetching fulfillments batch for cleanup: offset=${cleanupOffset}, size=${cleanupBatchSize}`);
+
+        const { data: batch, error: fetchError } = await this.supabase
+          .from('fulfillments')
+          .select('id, order_id, date, country, carrier, item_count, created_at')
+          .order('created_at', { ascending: true })
+          .range(cleanupOffset, cleanupOffset + cleanupBatchSize - 1);
+
+        if (fetchError) {
+          console.error('❌ Error fetching fulfillments batch for cleanup:', fetchError);
+          throw fetchError;
+        }
+
+        if (batch && batch.length > 0) {
+          allFulfillments = allFulfillments.concat(batch);
+          hasMoreForCleanup = batch.length === cleanupBatchSize;
+          cleanupOffset += cleanupBatchSize;
+          console.log(`📊 Cleanup batch fetched: ${batch.length} fulfillments, total so far: ${allFulfillments.length}`);
+        } else {
+          hasMoreForCleanup = false;
+        }
+      }
+
+      console.log(`📊 Analyzing ${allFulfillments.length} fulfillments for duplicates...`);
+
+      // Group by composite key and find duplicates
+      const groups = new Map();
+      const duplicateIds = [];
+
+      allFulfillments.forEach(fulfillment => {
+        const key = `${fulfillment.order_id}|${fulfillment.date}|${fulfillment.country}|${fulfillment.carrier}|${fulfillment.item_count}`;
+
+        if (!groups.has(key)) {
+          groups.set(key, []);
+        }
+        groups.get(key).push(fulfillment);
+      });
+
+      // Find duplicates (keep the first/oldest, mark others for deletion)
+      let duplicatesFound = 0;
+      groups.forEach((fulfillments, key) => {
+        if (fulfillments.length > 1) {
+          // Sort by created_at to keep the oldest
+          fulfillments.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+          // Mark all but the first for deletion
+          for (let i = 1; i < fulfillments.length; i++) {
+            duplicateIds.push(fulfillments[i].id);
+            duplicatesFound++;
+          }
+        }
+      });
+
+      console.log(`🔍 Found ${duplicatesFound} duplicate records to remove`);
+
+      if (duplicatesFound === 0) {
+        console.log('✅ No duplicates found!');
+        return {
+          totalFulfillments: allFulfillments.length,
+          duplicatesFound: 0,
+          duplicatesRemoved: 0,
+          uniqueFulfillments: allFulfillments.length
+        };
+      }
+
+      // Remove duplicates in batches to avoid timeout
+      console.log('🗑️ Step 2: Removing duplicate records...');
+      let removedCount = 0;
+      const batchSize = 1000;
+
+      for (let i = 0; i < duplicateIds.length; i += batchSize) {
+        const batch = duplicateIds.slice(i, i + batchSize);
+
+        const { error: deleteError } = await this.supabase
+          .from('fulfillments')
+          .delete()
+          .in('id', batch);
+
+        if (deleteError) {
+          console.error(`❌ Error deleting batch ${i / batchSize + 1}:`, deleteError);
+          throw deleteError;
+        }
+
+        removedCount += batch.length;
+        console.log(`✅ Removed batch ${Math.floor(i / batchSize) + 1}: ${batch.length} duplicates (${removedCount}/${duplicatesFound} total)`);
+      }
+
+      console.log(`🎯 Cleanup completed: ${removedCount} duplicates removed`);
+
+      return {
+        totalFulfillments: allFulfillments.length,
+        duplicatesFound: duplicatesFound,
+        duplicatesRemoved: removedCount,
+        uniqueFulfillments: allFulfillments.length - removedCount,
+        cleanupSuccess: true
+      };
+
+    } catch (error) {
+      console.error('💥 Error during cleanup:', error);
+      throw error;
+    }
   }
 }
 
-// Enable CORS and verify API key
+// CORS and API key validation
 function validateRequest(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -334,10 +503,10 @@ function validateRequest(req, res) {
   if (!apiKey || apiKey !== process.env.API_SECRET_KEY) {
     return res.status(401).json({ error: 'Unauthorized - Invalid API key' });
   }
-
   return null;
 }
 
+// Main handler function
 module.exports = async function handler(req, res) {
   const validationError = validateRequest(req, res);
   if (validationError) return validationError;
@@ -349,156 +518,119 @@ module.exports = async function handler(req, res) {
     type = 'list',
     carrier = null,
     country = null,
-    groupBy = 'carrier',
-    limit = 10000,
-    offset = 0,
-    includeTotals = 'false'
+    limit = 1000,
+    offset = 0
   } = req.query;
 
-  // Support POST for data
-  if (req.method === 'POST' && req.body) {
-    startDate = req.body.startDate || startDate;
-    endDate = req.body.endDate || endDate;
-    type = req.body.type || type;
-    carrier = req.body.carrier || carrier;
-    country = req.body.country || country;
-    groupBy = req.body.groupBy || groupBy;
-    limit = req.body.limit || limit;
-    offset = req.body.offset || offset;
-    includeTotals = req.body.includeTotals || includeTotals;
-  }
+  // Validate and parse dates (not required for cleanup)
+  if (type !== 'cleanup') {
+    try {
+      if (!startDate || !endDate) {
+        throw new Error('startDate and endDate are required');
+      }
+      startDate = new Date(startDate);
+      endDate = new Date(endDate);
 
-  console.log(`🚚 Fulfillments request: ${type} from ${startDate} to ${endDate}${carrier ? ` carrier: ${carrier}` : ''}${country ? ` country: ${country}` : ''}`);
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        throw new Error('Invalid date format');
+      }
+    } catch (error) {
+      return res.status(400).json({
+        error: error.message,
+        example: {
+          startDate: '2024-01-01',
+          endDate: '2024-12-31'
+        }
+      });
+    }
+  }
 
   try {
     const supabaseService = new SupabaseService();
-    const parsedIncludeTotals = includeTotals === 'true' || includeTotals === true;
-    const parsedLimit = Math.min(parseInt(limit) || 1000, 5000);
-    const parsedOffset = parseInt(offset) || 0;
 
-    let data, count, hasMore;
-
-    switch (type.toLowerCase()) {
-      case 'list':
-      case 'raw':
-        // Get fulfillment data
-        if (!startDate || !endDate) {
-          return res.status(400).json({
-            error: 'Missing required parameters: startDate and endDate',
-            example: { startDate: '2024-01-01', endDate: '2024-12-31' }
-          });
-        }
-
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-
-        const result = await supabaseService.getFulfillments(start, end, {
+    switch (type) {
+      case 'list': {
+        const result = await supabaseService.getFulfillments(startDate, endDate, {
           carrier,
           country,
-          limit: parsedLimit,
-          offset: parsedOffset,
-          includeTotals: parsedIncludeTotals
+          limit: parseInt(limit),
+          offset: parseInt(offset)
         });
 
-        data = result.data;
-        count = result.totalCount;
-        hasMore = result.hasMore;
-        break;
-
-      case 'analytics':
-      case 'summary':
-        // Get fulfillment analytics
-        if (!startDate || !endDate) {
-          return res.status(400).json({
-            error: 'Missing required parameters: startDate and endDate',
-            example: { startDate: '2024-01-01', endDate: '2024-12-31' }
-          });
-        }
-
-        const analyticsStart = new Date(startDate);
-        const analyticsEnd = new Date(endDate);
-
-        data = await supabaseService.getFulfillmentAnalytics(analyticsStart, analyticsEnd, {
-          groupBy
+        return res.status(200).json({
+          success: true,
+          type: 'list',
+          count: result.data.length,
+          data: result.data,
+          pagination: {
+            limit: parseInt(limit),
+            offset: parseInt(offset),
+            hasMore: result.data.length === parseInt(limit)
+          },
+          period: { startDate, endDate },
+          filters: { carrier: carrier || 'all', country: country || 'all' },
+          timestamp: new Date().toISOString()
         });
-        count = data.summary.totalFulfillments;
-        hasMore = false;
-        break;
+      }
 
-      case 'delivery':
-        // Get delivery analytics with timing
-        if (!startDate || !endDate) {
-          return res.status(400).json({
-            error: 'Missing required parameters: startDate and endDate',
-            example: { startDate: '2024-01-01', endDate: '2024-12-31' }
-          });
-        }
+      case 'analytics': {
+        const result = await supabaseService.getFulfillments(startDate, endDate, {
+          carrier,
+          country,
+          limit: 100000 // Large limit for analytics
+        });
 
-        const deliveryStart = new Date(startDate);
-        const deliveryEnd = new Date(endDate);
+        const analytics = supabaseService.processDeliveryAnalytics(result.data);
 
-        data = await supabaseService.getDeliveryAnalytics(deliveryStart, deliveryEnd);
-        count = data.totalFulfillments;
-        hasMore = false;
-        break;
+        return res.status(200).json({
+          success: true,
+          type: 'analytics',
+          count: result.data.length,
+          data: analytics,
+          period: { startDate, endDate },
+          filters: { carrier: carrier || 'all', country: country || 'all' },
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      case 'enhanced': {
+        const analytics = await supabaseService.getEnhancedDeliveryAnalytics(startDate, endDate);
+
+        return res.status(200).json({
+          success: true,
+          type: 'enhanced',
+          count: analytics.totalFulfillments,
+          data: analytics,
+          period: { startDate, endDate },
+          filters: { carrier: carrier || 'all', country: country || 'all' },
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      case 'cleanup': {
+        const result = await supabaseService.cleanupDuplicateFulfillments();
+
+        return res.status(200).json({
+          success: true,
+          type: 'cleanup',
+          message: 'Duplicate fulfillments cleanup completed',
+          data: result,
+          timestamp: new Date().toISOString()
+        });
+      }
 
       default:
         return res.status(400).json({
           error: 'Invalid type',
-          validTypes: ['list', 'raw', 'analytics', 'summary', 'delivery']
+          validTypes: ['list', 'analytics', 'enhanced', 'cleanup']
         });
     }
 
-    console.log(`✅ Fulfillments completed: ${count} records`);
-
-    // Format response for Google Sheets compatibility
-    let responseData = data;
-
-    if (type === 'list' && Array.isArray(data)) {
-      // Convert to Google Sheets format (array of arrays)
-      responseData = data.map(item => [
-        item.order_id,
-        item.date,
-        item.country,
-        item.carrier,
-        item.item_count
-      ]);
-    }
-
-    // Return success response
-    return res.status(200).json({
-      success: true,
-      type,
-      count,
-      data: responseData,
-      pagination: type === 'list' ? {
-        limit: parsedLimit,
-        offset: parsedOffset,
-        hasMore,
-        totalCount: parsedIncludeTotals ? count : undefined
-      } : undefined,
-      period: startDate && endDate ? {
-        startDate: new Date(startDate).toISOString(),
-        endDate: new Date(endDate).toISOString()
-      } : undefined,
-      filters: {
-        carrier: carrier || 'all',
-        country: country || 'all',
-        groupBy: ['analytics', 'summary'].includes(type) ? groupBy : undefined
-      },
-      timestamp: new Date().toISOString(),
-      ...(type === 'list' && responseData.length > 0 ? {
-        headers: ['Order ID', 'Date', 'Country', 'Carrier', 'Item Count']
-      } : {})
-    });
-
   } catch (error) {
-    console.error('💥 Fulfillments error:', error);
-
+    console.error('❌ Error in fulfillments API:', error);
     return res.status(500).json({
-      error: error.message,
-      type,
-      filters: { carrier: carrier || 'all', country: country || 'all' },
+      error: 'Internal server error',
+      message: error.message,
       timestamp: new Date().toISOString()
     });
   }

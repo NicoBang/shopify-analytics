@@ -95,6 +95,122 @@ class SupabaseService {
 
     return data || [];
   }
+
+  async getDashboardFromSkus(startDate, endDate, shop = null) {
+    // Aggregate dashboard data from SKUs table using same logic as Style Analytics
+    // This fixes the qty calculation issue by using consistent date filtering
+
+    console.log(`📊 Dashboard SKU aggregation: ${startDate.toISOString()} to ${endDate.toISOString()}`);
+
+    // STEP 1: Get SKUs created in period (sales)
+    let salesQuery = this.supabase
+      .from('skus')
+      .select('shop, quantity, cancelled_qty, price_dkk, created_at, refund_date, refunded_qty')
+      .gte('created_at', startDate.toISOString())
+      .lte('created_at', endDate.toISOString());
+
+    if (shop) {
+      salesQuery = salesQuery.eq('shop', shop);
+    }
+
+    const { data: salesData, error: salesError } = await salesQuery;
+    if (salesError) {
+      console.error('❌ Error fetching SKU sales:', salesError);
+      throw salesError;
+    }
+
+    // STEP 2: Get SKUs with refund_date in period (returns)
+    let refundQuery = this.supabase
+      .from('skus')
+      .select('shop, quantity, cancelled_qty, price_dkk, created_at, refund_date, refunded_qty')
+      .not('refund_date', 'is', null)
+      .gte('refund_date', startDate.toISOString())
+      .lte('refund_date', endDate.toISOString());
+
+    if (shop) {
+      refundQuery = refundQuery.eq('shop', shop);
+    }
+
+    const { data: refundData, error: refundError } = await refundQuery;
+    if (refundError) {
+      console.error('❌ Error fetching SKU refunds:', refundError);
+      throw refundError;
+    }
+
+    console.log(`📊 Sales SKUs: ${salesData?.length || 0}, Refund SKUs: ${refundData?.length || 0}`);
+
+    // STEP 3: Aggregate by shop
+    const shopMap = {};
+    const shopNames = ['pompdelux-da.myshopify.com', 'pompdelux-de.myshopify.com', 'pompdelux-nl.myshopify.com', 'pompdelux-int.myshopify.com', 'pompdelux-chf.myshopify.com'];
+
+    shopNames.forEach(s => {
+      shopMap[s] = {
+        stkBrutto: 0,    // quantity - cancelled_qty from sales
+        stkNetto: 0,     // stkBrutto - refunded items from period
+        returQty: 0,     // refunded_qty from period
+        omsætning: 0     // revenue calculation
+      };
+    });
+
+    // Process sales data
+    (salesData || []).forEach(item => {
+      const shop = item.shop;
+      if (!shopMap[shop]) return;
+
+      const quantity = Number(item.quantity) || 0;
+      const cancelled = Number(item.cancelled_qty) || 0;
+      const bruttoQty = Math.max(0, quantity - cancelled);
+
+      shopMap[shop].stkBrutto += bruttoQty;
+      shopMap[shop].stkNetto += bruttoQty; // Start with brutto quantity, then subtract refunds
+
+      // Only count refunds if they happened in the same period
+      const hasRefundInPeriod = item.refund_date &&
+        new Date(item.refund_date) >= startDate &&
+        new Date(item.refund_date) <= endDate;
+
+      if (hasRefundInPeriod) {
+        const refunded = Number(item.refunded_qty) || 0;
+        shopMap[shop].stkNetto -= refunded;
+        shopMap[shop].returQty += refunded;
+      }
+    });
+
+    // Process return data (returns from orders created outside period)
+    (refundData || []).forEach(item => {
+      const shop = item.shop;
+      if (!shopMap[shop]) return;
+
+      // Check if this item was already counted in sales
+      const wasCountedInSales = item.created_at &&
+        new Date(item.created_at) >= startDate &&
+        new Date(item.created_at) <= endDate;
+
+      if (!wasCountedInSales) {
+        // This is a return from an older order - only count the return
+        const refunded = Number(item.refunded_qty) || 0;
+        shopMap[shop].stkNetto -= refunded;
+        shopMap[shop].returQty += refunded;
+      }
+    });
+
+    // Build result array in same format as original Dashboard
+    const result = [];
+
+    shopNames.forEach(shop => {
+      const data = shopMap[shop];
+      result.push({
+        shop: shop,
+        stkBrutto: data.stkBrutto,
+        stkNetto: data.stkNetto,
+        returQty: data.returQty
+      });
+    });
+
+    console.log(`📊 Dashboard SKU result: ${JSON.stringify(result, null, 2)}`);
+
+    return result;
+  }
 }
 
 // Enable CORS and verify API key
@@ -159,6 +275,11 @@ module.exports = async function handler(req, res) {
     let returnRows = [];
 
     switch (type.toLowerCase()) {
+      case 'dashboard-sku':
+        // SKU-based dashboard aggregation for accurate quantity calculations
+        data = await supabaseService.getDashboardFromSkus(start, end, shop);
+        break;
+
       case 'dashboard':
       case 'orders':
         // Get order data for Google Sheets format

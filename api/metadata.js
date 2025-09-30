@@ -272,19 +272,17 @@ class SupabaseService {
 
     console.log(`📅 Style Analytics query: ${adjustedStartDate.toISOString()} to ${adjustedEndDate.toISOString()}`);
 
-    // Fetch ALL data using pagination
-    let allData = [];
+    // STEP 1: Fetch sales data (SKUs created in period) - similar to Dashboard API
+    console.log(`📊 Step 1: Fetching sales data (created_at in period)...`);
+    let salesData = [];
     let hasMore = true;
     let currentOffset = 0;
-    const batchSize = 1000; // Supabase max is 1000 per request
-
-    console.log(`📊 Fetching SKU data in batches of ${batchSize}...`);
+    const batchSize = 1000;
 
     while (hasMore) {
-      // Build a fresh query for each batch
       let batchQuery = this.supabase
         .from('skus')
-        .select('sku, shop, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title')
+        .select('sku, shop, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date')
         .gte('created_at', adjustedStartDate.toISOString())
         .lte('created_at', adjustedEndDate.toISOString())
         .order('created_at', { ascending: false })
@@ -297,30 +295,93 @@ class SupabaseService {
       const { data: batchData, error: batchError } = await batchQuery;
 
       if (batchError) {
-        console.error('❌ Error fetching batch:', batchError);
+        console.error('❌ Error fetching sales batch:', batchError);
         throw batchError;
       }
 
       if (batchData && batchData.length > 0) {
-        allData = allData.concat(batchData);
+        salesData = salesData.concat(batchData);
         currentOffset += batchData.length;
 
-        console.log(`  ✅ Fetched batch: ${batchData.length} records, total: ${allData.length}`);
+        console.log(`  ✅ Sales batch: ${batchData.length} records, total: ${salesData.length}`);
 
-        // Continue if we got exactly the batch size (means there might be more)
-        // Stop if we got less than the batch size (means we reached the end)
         if (batchData.length < batchSize) {
           hasMore = false;
-          console.log(`  ✅ Reached end of data (got ${batchData.length} < ${batchSize})`);
+          console.log(`  ✅ Reached end of sales data (got ${batchData.length} < ${batchSize})`);
         }
       } else {
         hasMore = false;
-        console.log(`  ✅ No more data available`);
+        console.log(`  ✅ No more sales data available`);
       }
     }
 
-    const data = allData;
-    console.log(`📊 Total SKU records fetched: ${data.length}`);
+    console.log(`📊 Total sales records fetched: ${salesData.length}`);
+
+    // STEP 2: Fetch refund data (SKUs with refund_date in period) - matching Dashboard API logic
+    console.log(`📊 Step 2: Fetching refund data (refund_date in period)...`);
+    let refundQuery = this.supabase
+      .from('skus')
+      .select('sku, shop, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date')
+      .not('refund_date', 'is', null)
+      .gte('refund_date', adjustedStartDate.toISOString())
+      .lte('refund_date', adjustedEndDate.toISOString())
+      .order('refund_date', { ascending: false });
+
+    if (shop) {
+      refundQuery = refundQuery.eq('shop', shop);
+    }
+
+    const { data: refundData, error: refundError } = await refundQuery;
+
+    if (refundError) {
+      console.error('❌ Error fetching refund data:', refundError);
+      throw refundError;
+    }
+
+    console.log(`📊 Total refund records fetched: ${refundData?.length || 0}`);
+
+    // STEP 3: Combine sales and refund data correctly
+    // Sales data: Include quantity as sold, but refunded_qty should be 0 unless refund happened in same period
+    // Refund data: Only include refunded_qty, quantity should not be counted as additional sales
+    const combinedData = [];
+
+    // Add sales data (mark refunded_qty as 0 unless refund_date is also in period)
+    salesData.forEach(item => {
+      const hasRefundInPeriod = item.refund_date &&
+        new Date(item.refund_date) >= adjustedStartDate &&
+        new Date(item.refund_date) <= adjustedEndDate;
+
+      combinedData.push({
+        ...item,
+        // For sales: include the quantity sold, but only count refunded_qty if refund happened in period
+        quantity: item.quantity || 0,
+        refunded_qty: hasRefundInPeriod ? (item.refunded_qty || 0) : 0,
+        source: 'sales'
+      });
+    });
+
+    // Add refund data (don't double-count quantities, only add refunds that aren't already counted)
+    refundData.forEach(item => {
+      // Check if this exact item (shop + order_id + sku) is already in sales data
+      const alreadyInSales = salesData.some(salesItem =>
+        salesItem.shop === item.shop &&
+        salesItem.order_id === item.order_id &&
+        salesItem.sku === item.sku
+      );
+
+      if (!alreadyInSales) {
+        // This is a refund for an order created outside the period
+        combinedData.push({
+          ...item,
+          quantity: 0, // Don't count as new sales
+          refunded_qty: item.refunded_qty || 0,
+          source: 'refund_only'
+        });
+      }
+    });
+
+    const data = combinedData;
+    console.log(`📊 Combined total records: ${data.length} (${salesData.length} sales + ${refundData?.length || 0} refunds, with overlap handling)`);
 
     // Extract unique artikelnummer from SKUs (part before backslash) to match metadata
     const uniqueArtikelNummers = [...new Set((data || []).map(item => {
@@ -466,35 +527,98 @@ class SupabaseService {
 
     console.log(`📅 SKU Analytics query: ${adjustedStartDate.toISOString()} to ${adjustedEndDate.toISOString()}`);
 
-    // Get SKU-level data without aggregation
-    let query = this.supabase
+    // STEP 1: Fetch sales data (SKUs created in period)
+    console.log(`📊 Step 1: Fetching SKU sales data (created_at in period)...`);
+    let salesQuery = this.supabase
       .from('skus')
       .select('*')
       .gte('created_at', adjustedStartDate.toISOString())
       .lte('created_at', adjustedEndDate.toISOString());
 
     if (shop) {
-      query = query.eq('shop', shop);
+      salesQuery = salesQuery.eq('shop', shop);
     }
 
-    const { data, error } = await query;
+    const { data: salesData, error: salesError } = await salesQuery;
 
-    if (error) {
-      console.error('❌ Error fetching SKU analytics:', error);
-      throw error;
+    if (salesError) {
+      console.error('❌ Error fetching SKU sales data:', salesError);
+      throw salesError;
     }
+
+    console.log(`📊 Total SKU sales records fetched: ${salesData?.length || 0}`);
+
+    // STEP 2: Fetch refund data (SKUs with refund_date in period)
+    console.log(`📊 Step 2: Fetching SKU refund data (refund_date in period)...`);
+    let refundQuery = this.supabase
+      .from('skus')
+      .select('*')
+      .not('refund_date', 'is', null)
+      .gte('refund_date', adjustedStartDate.toISOString())
+      .lte('refund_date', adjustedEndDate.toISOString());
+
+    if (shop) {
+      refundQuery = refundQuery.eq('shop', shop);
+    }
+
+    const { data: refundData, error: refundError } = await refundQuery;
+
+    if (refundError) {
+      console.error('❌ Error fetching SKU refund data:', refundError);
+      throw refundError;
+    }
+
+    console.log(`📊 Total SKU refund records fetched: ${refundData?.length || 0}`);
+
+    // STEP 3: Combine sales and refund data correctly for SKU-level analysis
+    const combinedData = [];
+
+    // Add sales data (mark refunded_qty as 0 unless refund_date is also in period)
+    (salesData || []).forEach(item => {
+      const hasRefundInPeriod = item.refund_date &&
+        new Date(item.refund_date) >= adjustedStartDate &&
+        new Date(item.refund_date) <= adjustedEndDate;
+
+      combinedData.push({
+        ...item,
+        quantity: item.quantity || 0,
+        refunded_qty: hasRefundInPeriod ? (item.refunded_qty || 0) : 0,
+        source: 'sales'
+      });
+    });
+
+    // Add refund data (don't double-count quantities, only add refunds that aren't already counted)
+    (refundData || []).forEach(item => {
+      // Check if this exact item (shop + order_id + sku) is already in sales data
+      const alreadyInSales = (salesData || []).some(salesItem =>
+        salesItem.shop === item.shop &&
+        salesItem.order_id === item.order_id &&
+        salesItem.sku === item.sku
+      );
+
+      if (!alreadyInSales) {
+        // This is a refund for an order created outside the period
+        combinedData.push({
+          ...item,
+          quantity: 0, // Don't count as new sales
+          refunded_qty: item.refunded_qty || 0,
+          source: 'refund_only'
+        });
+      }
+    });
+
+    const data = combinedData;
+    console.log(`📊 Combined SKU records: ${data.length} (${salesData?.length || 0} sales + ${refundData?.length || 0} refunds, with overlap handling)`);
 
     // Debug: Count data by shop
     const shopCounts = {};
-    (data || []).forEach(item => {
+    data.forEach(item => {
       const shop = item.shop || 'Unknown';
       shopCounts[shop] = (shopCounts[shop] || 0) + 1;
     });
+    console.log(`🏪 Combined data by shop:`, shopCounts);
 
-    console.log(`📊 Found ${data?.length || 0} SKU records for SKU analytics`);
-    console.log(`🏪 Data by shop:`, shopCounts);
-
-    return this.processSkuAnalytics(data || []);
+    return this.processSkuAnalytics(data);
   }
 
   async processBasicStyleAnalytics(salesByArtikelnummer, groupBy, metadataMap = {}, allArtikelNummers = new Set()) {

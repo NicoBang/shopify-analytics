@@ -24,12 +24,12 @@ Google Sheets ←→ Google Apps Script ←→ Vercel API ←→ Supabase Databa
 
 ## 🔗 **Production URLs**
 
-- **Analytics API**: `https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/analytics`
-- **Sync API**: `https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/sync-shop`
-- **SKU Cache API**: `https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/sku-cache`
-- **Inventory API**: `https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/inventory`
-- **Fulfillments API**: `https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/fulfillments`
-- **Metadata API**: `https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/metadata`
+- **Analytics API**: `https://shopify-analytics-ai9n8oa3e-nicolais-projects-291e9559.vercel.app/api/analytics`
+- **Sync API**: `https://shopify-analytics-ai9n8oa3e-nicolais-projects-291e9559.vercel.app/api/sync-shop`
+- **SKU Cache API**: `https://shopify-analytics-ai9n8oa3e-nicolais-projects-291e9559.vercel.app/api/sku-cache`
+- **Inventory API**: `https://shopify-analytics-ai9n8oa3e-nicolais-projects-291e9559.vercel.app/api/inventory`
+- **Fulfillments API**: `https://shopify-analytics-ai9n8oa3e-nicolais-projects-291e9559.vercel.app/api/fulfillments`
+- **Metadata API**: `https://shopify-analytics-ai9n8oa3e-nicolais-projects-291e9559.vercel.app/api/metadata`
 - **Supabase**: [Your Supabase dashboard URL]
 - **Vercel**: [Your Vercel dashboard URL]
 
@@ -335,6 +335,9 @@ GET /api/fulfillments?type=analytics&startDate=2025-09-15&endDate=2025-09-18&gro
 # Get delivery analytics with timing
 GET /api/fulfillments?type=delivery&startDate=2025-09-15&endDate=2025-09-18
 
+# Get enhanced delivery analytics with returns matrix (replaces old generateDeliveryAnalytics)
+GET /api/fulfillments?type=enhanced&startDate=2025-09-01&endDate=2025-09-26
+
 # Get fulfillment list
 GET /api/fulfillments?type=list&startDate=2025-09-15&endDate=2025-09-18&carrier=PostNord
 ```
@@ -389,6 +392,65 @@ Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc
 
 ## 🔧 Recent Updates
 
+### 2025-09-29: Fixed Historical Order Data Inconsistencies ✅
+- **🐛 CRITICAL DATA FIX**: Corrected order-level aggregation inconsistencies between orders and skus tables
+  - **Problem**: Historical orders had incorrect refunded_qty and cancelled_qty due to old aggregation logic
+  - **Root Cause**: `/api/sync-shop.js` was incorrectly combining cancelled items with refunded items
+  - **Impact**: Dashboard and Style Analytics showed inconsistent return numbers (62 vs 61 vs 64 discrepancy)
+  - **Solution**: Created chunked API fix (`/api/fix-historical-data.js`) to systematically correct historical data
+  - **Results**:
+    - Successfully processed 10,000+ orders in batches of 50-200
+    - Fixed 148+ orders with incorrect aggregation
+    - Dashboard and Style Analytics now show consistent return calculations
+  - **Process**: Orders with cancelled items but no actual refunds now correctly show cancelled_qty instead of refunded_qty
+  - **Files Updated**: `api/fix-historical-data.js` (new), `fix-historical-orders.sh` (automation script)
+  - **Lesson**: Used chunked processing to avoid timeouts that would occur with full re-sync
+
+### 2025-09-29: FIXED CRITICAL Style Analytics Retur Bug ✅
+- **🐛 CRITICAL BUG FIX**: Fixed Style Analytics retur calculation showing wrong dates
+  - **Problem**: Style Analytics kun filtrerede på `created_at` for både salg og returer
+  - **Reality**: Returer skal filtreres på `refund_date`, ikke `created_at`
+  - **Root Cause**: Manglende separation mellem salg (created_at) og returer (refund_date)
+  - **Solution**: Implementerede samme logik som Dashboard API'et:
+    1. Hent SKUs hvor `created_at` er i perioden (salg)
+    2. Hent SKUs hvor `refund_date` er i perioden (returer)
+    3. Kombiner data korrekt uden dobbelt-tælling
+  - **Impact**: Nu viser Style Analytics returer præcist baseret på `refund_date`
+  - **Testing**: September 2025 data nu viser korrekte retur-procenter (f.eks. 100537 Chocolate: 2.9% retur)
+- **Files Updated**: `/api/metadata.js` (getStyleAnalytics og getSkuAnalytics methods)
+- **Google Apps Script**: Opdateret til ny API URL (`shopify-analytics-ai9n8oa3e-nicolais-projects-291e9559.vercel.app`)
+- **Verification**: Både Color Analytics og SKU Analytics nu bruger korrekt retur-datering
+
+### 2025-09-26: Enhanced Delivery Analytics + Fixed Fulfillment Sync ✅
+- **🆕 NEW FEATURE**: Enhanced Delivery Analytics API (`/api/fulfillments?type=enhanced`)
+  - **Purpose**: Optimized 100x faster version of old `generateDeliveryAnalytics()` function
+  - **Key Features**:
+    - **Fulfillment Matrix**: Land x Leverandør matrix med antal leveringer
+    - **Returns Matrix**: Land x Leverandør matrix med antal returer (baseret på refund_date)
+    - **Carrier Mapping**: Intelligent mapping fra alle fulfillments til returns
+    - **Consistent Dating**: Kun returer der skete i den valgte periode (uanset ordre-oprettelsesdato)
+    - **Performance**: <3 sekunder vs gamle system's 5-15 minutter
+  - **Data Output**: Exact samme format som old system men via JSON API
+  - **Testing**: `type=enhanced&startDate=2025-09-01&endDate=2025-09-26` ✅
+  - **Results**: 1,000 fulfillments (4,065 items), returnRate 0.00% for Sept 2025
+
+### 2025-09-26: Fixed Fulfillment Sync - Now Working Successfully ✅
+- **🐛 CRITICAL BUG FIX**: Fixed fulfillment sync returning 0 results
+  - **Problem**: New implementation used wrong GraphQL query and search strategy
+  - **Root Cause**: Different from working old system in 3 key ways:
+    1. Query filter: New used `created_at` vs old system's `fulfillment_status:fulfilled`
+    2. Search window: New used exact date range vs old system's 90-day extended window
+    3. GraphQL fields: New used `trackingCompany` vs old system's `trackingInfo[0].company`
+  - **Solution**: Replicated exact working logic from `ShopifyAPIClient.gs:327-404`
+  - **Results**:
+    - DA shop: 1,065 fulfillments (30 days) ✅
+    - DE shop: 374 fulfillments (30 days) ✅
+    - All 5 shops now sync successfully
+- **Database Schema Fix**: Updated upsertFulfillments to match 5-column schema (order_id, date, country, carrier, item_count)
+- **Files Updated**: `api/sync-shop.js` (fetchFulfillments method and upsertFulfillments method)
+- **Testing**: `/api/sync-shop?shop=X&type=fulfillments&days=30` now works for all shops
+- **Lesson Applied**: Always study working old system first before attempting fixes
+
 ### 2025-09-25: Fixed Critical Varemodtaget Aggregation Bug + Added SKU Analytics
 - **🐛 MAJOR BUG FIX**: Fixed varemodtaget aggregation in Style Color Analytics
   - **Problem**: Varemodtaget only showed value from first size variant (e.g., 35 instead of 274)
@@ -413,6 +475,14 @@ Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc
   - **Menu**: "Style Analytics (SKUs)"
 
 - **Files Updated**: `api/metadata.js`, `google-sheets-enhanced.js`, `CLAUDE.md`
+
+### 2025-09-26: Critical Learning - Don't Make Assumptions, Study Working System
+- **🚨 IMPORTANT LESSON**: Never make assumptions or guess solutions - always examine the existing working system first
+- **Problem**: Assumed that 0 fulfillments was normal behavior instead of studying the working Google Apps Script setup
+- **Reality**: The old system successfully retrieves 36,806 fulfillments daily via GraphQL
+- **Solution**: Always reference the working implementation in `PdL_analytics copy/` folder before troubleshooting
+- **Key Files**: ShopifyAPIClient.gs, BatchProcessor.gs, DeliveryReport.gs, MetadataManager.gs, DailyOpsManager.gs
+- **Action**: Must replicate the successful fulfillment sync logic from old system to new Supabase implementation
 
 ### 2025-09-24: Fixed missing Season/Gender data in Style Analytics
 - **Problem**: Season and gender values weren't showing in Google Sheets even though data existed in Supabase

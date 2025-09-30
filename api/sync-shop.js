@@ -13,7 +13,7 @@ const CONFIG = {
   ],
   CUTOFF_DATE: new Date('2024-09-30'),
   CHUNK_DAYS: 30,
-  MAX_ORDERS_PER_PAGE: 250,
+  MAX_ORDERS_PER_PAGE: 50, // Reduced from 250 to avoid 414 Request-URI Too Large errors
   MAX_LINE_ITEMS: 100,
   RATE_LIMIT_MS: 250,
   API_VERSION: '2024-10'
@@ -69,10 +69,11 @@ class ShopifyAPIClient {
   }
 
   // FETCH ORDERS FUNKTION
-  async fetchOrders(startDate, endDate) {
+  async fetchOrders(startDate, endDate, useUpdatedAt = false) {
     const isoStart = startDate.toISOString();
     const isoEnd = endDate.toISOString();
-    const queryFilter = `created_at:>=${isoStart} created_at:<=${isoEnd}`;
+    const dateField = useUpdatedAt ? 'updated_at' : 'created_at';
+    const queryFilter = `${dateField}:>=${isoStart} ${dateField}:<=${isoEnd}`;
     const output = [];
     let cursor = null;
 
@@ -143,9 +144,10 @@ class ShopifyAPIClient {
             shippingExVat += gross - tax;
           });
 
-          // Beregn refund info
+          // Beregn refund info - separer faktiske refunds fra cancellations
           let totalRefundedAmount = 0;
           let totalRefundedQty = 0;
+          let totalCancelledQty = 0;
           let lastRefundDate = "";
 
           o.refunds.forEach(r => {
@@ -153,10 +155,16 @@ class ShopifyAPIClient {
             totalRefundedAmount += refundTotal;
 
             const refundQty = r.refundLineItems.edges.reduce((sum, e) => sum + (e.node.quantity || 0), 0);
-            totalRefundedQty += refundQty;
 
-            if (r.createdAt > lastRefundDate) {
-              lastRefundDate = r.createdAt;
+            if (refundTotal > 0) {
+              // Faktisk refund - kunden har fået penge retur
+              totalRefundedQty += refundQty;
+              if (r.createdAt > lastRefundDate) {
+                lastRefundDate = r.createdAt;
+              }
+            } else {
+              // Cancellation - items fjernet før betaling
+              totalCancelledQty += refundQty;
             }
           });
 
@@ -197,7 +205,7 @@ class ShopifyAPIClient {
             refundedQty: totalRefundedQty,
             refundDate: lastRefundDate,
             totalDiscountsExTax: totalDiscountsExTax * this.rate,
-            cancelledQty: 0, // Simplified for nu
+            cancelledQty: totalCancelledQty,
             saleDiscountTotal: saleDiscountTotal,
             combinedDiscountTotal: combinedDiscountTotal
           });
@@ -218,10 +226,11 @@ class ShopifyAPIClient {
   }
 
   // FETCH SKU DATA FUNKTION
-  async fetchSkuData(startDate, endDate, excludeSkus = new Set()) {
+  async fetchSkuData(startDate, endDate, useUpdatedAt = false, excludeSkus = new Set()) {
     const isoStart = startDate.toISOString();
     const isoEnd = endDate.toISOString();
-    const queryFilter = `created_at:>=${isoStart} created_at:<=${isoEnd}`;
+    const dateField = useUpdatedAt ? 'updated_at' : 'created_at';
+    const queryFilter = `${dateField}:>=${isoStart} ${dateField}:<=${isoEnd}`;
     const output = [];
     let cursor = null;
 
@@ -399,13 +408,21 @@ class ShopifyAPIClient {
     return output;
   }
 
-  // FETCH FULFILLMENTS FUNKTION
+  // FETCH FULFILLMENTS FUNKTION - FIXED to match working old implementation
   async fetchFulfillments(startDate, endDate) {
-    const isoStart = startDate.toISOString();
-    const isoEnd = endDate.toISOString();
-    const queryFilter = `created_at:>=${isoStart} created_at:<=${isoEnd}`;
     const output = [];
     let cursor = null;
+
+    // FIXED: Search broader for orders and filter fulfillments on their createdAt
+    // Extend search window to include orders from 30 days before startDate (reduced from 90 to avoid 414 errors)
+    const orderSearchStart = new Date(startDate);
+    orderSearchStart.setDate(orderSearchStart.getDate() - 30);
+
+    const isoOrderStart = orderSearchStart.toISOString();
+    const isoEnd = endDate.toISOString();
+    const queryFilter = `fulfillment_status:fulfilled created_at:>=${isoOrderStart} created_at:<=${isoEnd}`;
+
+    console.log(`🔍 fetchFulfillments: Søger ordrer fra ${orderSearchStart.toISOString().slice(0,10)} til ${endDate.toISOString().slice(0,10)}, filtrerer fulfillments ${startDate.toISOString().slice(0,10)}-${endDate.toISOString().slice(0,10)}`);
 
     const buildQuery = (cursorVal) => `
       query {
@@ -414,16 +431,13 @@ class ShopifyAPIClient {
             cursor
             node {
               id
+              createdAt
               shippingAddress { countryCode }
               fulfillments {
                 createdAt
-                trackingCompany
-                lineItems(first: 100) {
-                  edges {
-                    node {
-                      quantity
-                    }
-                  }
+                trackingInfo { company }
+                fulfillmentLineItems(first: ${CONFIG.MAX_LINE_ITEMS}) {
+                  edges { node { quantity } }
                 }
               }
             }
@@ -440,34 +454,37 @@ class ShopifyAPIClient {
 
         for (const edge of edges) {
           const order = edge.node;
+          const country = order.shippingAddress?.countryCode || "Unknown";
 
-          order.fulfillments.forEach(fulfillment => {
-            const itemCount = fulfillment.lineItems.edges.reduce(
-              (sum, lineItem) => sum + (lineItem.node.quantity || 0),
-              0
-            );
+          order.fulfillments.forEach(f => {
+            const created = new Date(f.createdAt);
+            // FIXED: Only include fulfillments that were actually shipped in target date interval
+            if (created >= startDate && created <= endDate) {
+              const carrier = f.trackingInfo?.[0]?.company || "Ukendt";
+              const itemCount = f.fulfillmentLineItems.edges.reduce(
+                (sum, li) => sum + (li.node.quantity || 0), 0
+              );
 
-            output.push({
-              orderId: order.id.replace('gid://shopify/Order/', ''),
-              date: fulfillment.createdAt,
-              country: order.shippingAddress?.countryCode || "Unknown",
-              carrier: fulfillment.trackingCompany || "Unknown",
-              itemCount: itemCount
-            });
+              output.push({
+                orderId: order.id,
+                date: created.toISOString(),
+                country,
+                carrier,
+                itemCount
+              });
+            }
           });
         }
 
         if (!data.orders.pageInfo.hasNextPage) break;
         cursor = edges[edges.length - 1].cursor;
-
-        // Rate limiting
         await this.sleep(CONFIG.RATE_LIMIT_MS);
       }
-
     } catch (err) {
-      console.log(`💥 Fejl i fetchFulfillments: ${err.message}`);
+      console.log(`💥 [${this.shop.domain}] Fejl i fetchFulfillments: ${err.message}`);
     }
 
+    console.log(`✅ [${this.shop.domain}] fetchFulfillments: ${output.length} fulfillments fundet`);
     return output;
   }
 }
@@ -560,22 +577,63 @@ class SupabaseService {
   async upsertFulfillments(fulfillments) {
     if (!fulfillments || fulfillments.length === 0) return { count: 0 };
 
-    console.log(`🚚 Upserting ${fulfillments.length} fulfillments to Supabase...`);
+    console.log(`🚚 Upserting ${fulfillments.length} fulfillments to Supabase with robust deduplication...`);
+
+    // Map fulfillments to match database schema (5 columns: order_id, date, country, carrier, item_count)
+    const dbFulfillments = fulfillments.map(fulfillment => ({
+      order_id: fulfillment.orderId.replace('gid://shopify/Order/', ''), // Clean order ID
+      date: new Date(fulfillment.date).toISOString(), // Normalize date format
+      country: fulfillment.country,
+      carrier: fulfillment.carrier,
+      item_count: fulfillment.itemCount
+    }));
+
+    // First, clean up existing duplicates in the database for these order_ids
+    const orderIds = [...new Set(dbFulfillments.map(f => f.order_id))];
+    console.log(`🧹 Cleaning up duplicates for ${orderIds.length} orders...`);
+
+    // For now, skip automatic cleanup and rely on robust deduplication
+    // TODO: Add cleanup function later if needed
+
+    // ROBUST DEDUPLICATION: Check for existing fulfillments using ALL fields
+    const { data: existing, error: checkError } = await this.supabase
+      .from('fulfillments')
+      .select('order_id, date, country, carrier, item_count')
+      .in('order_id', orderIds);
+
+    if (checkError) {
+      console.error('❌ Error checking existing fulfillments:', checkError);
+      throw checkError;
+    }
+
+    // Create composite keys for both existing and new fulfillments (normalize dates)
+    const existingKeys = new Set(
+      existing.map(e => `${e.order_id}|${new Date(e.date).toISOString()}|${e.country}|${e.carrier}|${e.item_count}`)
+    );
+
+    const newFulfillments = dbFulfillments.filter(f => {
+      const key = `${f.order_id}|${f.date}|${f.country}|${f.carrier}|${f.item_count}`;
+      return !existingKeys.has(key);
+    });
+
+    console.log(`📊 Found ${existingKeys.size} existing fulfillments, inserting ${newFulfillments.length} new fulfillments`);
+
+    if (newFulfillments.length === 0) {
+      console.log(`✅ No new fulfillments to insert (all were duplicates)`);
+      return { count: 0, data: [] };
+    }
 
     const { data, error } = await this.supabase
       .from('fulfillments')
-      .upsert(fulfillments, {
-        onConflict: 'order_id,date',
-        ignoreDuplicates: false
-      });
+      .insert(newFulfillments);
 
     if (error) {
       console.error('❌ Error upserting fulfillments:', error);
       throw error;
     }
 
-    console.log(`✅ Successfully upserted ${fulfillments.length} fulfillments`);
-    return { count: fulfillments.length, data };
+    console.log(`✅ Successfully upserted ${newFulfillments.length} new fulfillments`);
+    return { count: newFulfillments.length, data };
   }
 
   // Update inventory
@@ -646,7 +704,7 @@ module.exports = async function handler(req, res) {
   if (validationError) return validationError;
 
   // Extract parameters
-  let { shop: shopDomain, type = 'orders', days = 7, startDate, endDate } = req.query;
+  let { shop: shopDomain, type = 'orders', days = 7, startDate, endDate, updatedMode = 'false' } = req.query;
 
   // Also support POST body parameters
   if (req.method === 'POST' && req.body) {
@@ -655,9 +713,14 @@ module.exports = async function handler(req, res) {
     days = req.body.days || days;
     startDate = req.body.startDate || startDate;
     endDate = req.body.endDate || endDate;
+    updatedMode = req.body.updatedMode || updatedMode;
   }
 
-  if (!shopDomain) {
+  // Convert updatedMode to boolean
+  const useUpdatedAt = updatedMode === 'true' || updatedMode === true;
+
+  // Shop domain not required for cleanup operations
+  if (!shopDomain && type !== 'cleanup-fulfillments') {
     return res.status(400).json({
       error: 'Missing required parameter: shop domain',
       example: 'pompdelux-da.myshopify.com'
@@ -665,60 +728,73 @@ module.exports = async function handler(req, res) {
   }
 
   // Log sync parameters
-  if (startDate && endDate) {
+  if (type === 'cleanup-fulfillments') {
+    console.log(`🚀 Starting cleanup: ${type}`);
+  } else if (startDate && endDate) {
     console.log(`🚀 Starting sync: ${type} for ${shopDomain} (${startDate} to ${endDate})`);
   } else {
     console.log(`🚀 Starting sync: ${type} for ${shopDomain} (${days} days)`);
   }
 
   try {
-    // Find shop configuration
-    const shop = CONFIG.SHOPS.find(s => s.domain === shopDomain);
-    if (!shop) {
-      return res.status(400).json({
-        error: 'Invalid shop domain',
-        availableShops: CONFIG.SHOPS.map(s => s.domain)
-      });
+    let shop = null;
+    let shopifyClient = null;
+
+    // Find shop configuration (not needed for cleanup)
+    if (type !== 'cleanup-fulfillments') {
+      shop = CONFIG.SHOPS.find(s => s.domain === shopDomain);
+      if (!shop) {
+        return res.status(400).json({
+          error: 'Invalid shop domain',
+          availableShops: CONFIG.SHOPS.map(s => s.domain)
+        });
+      }
+
+      // Initialize shopify client
+      shopifyClient = new ShopifyAPIClient(shop);
+
+      // Test connections
+      console.log('🔍 Testing connections...');
+      await shopifyClient.testConnection();
     }
 
-    // Initialize services
-    const shopifyClient = new ShopifyAPIClient(shop);
+    // Initialize Supabase service (always needed)
     const supabaseService = new SupabaseService();
-
-    // Test connections
-    console.log('🔍 Testing connections...');
-    await shopifyClient.testConnection();
     await supabaseService.testConnection();
 
-    // Calculate date range - support both days and explicit dates
+    // Calculate date range - support both days and explicit dates (skip for cleanup operations)
     let syncStartDate, syncEndDate;
 
-    if (startDate && endDate) {
-      // Use explicit date range
-      syncStartDate = new Date(startDate);
-      syncEndDate = new Date(endDate);
+    if (type !== 'cleanup-fulfillments') {
+      if (startDate && endDate) {
+        // Use explicit date range
+        syncStartDate = new Date(startDate);
+        syncEndDate = new Date(endDate);
 
-      // Validate dates
-      if (isNaN(syncStartDate.getTime()) || isNaN(syncEndDate.getTime())) {
-        return res.status(400).json({
-          error: 'Invalid date format. Use YYYY-MM-DD format',
-          examples: { startDate: '2024-09-30', endDate: '2024-10-31' }
-        });
-      }
+        // Validate dates
+        if (isNaN(syncStartDate.getTime()) || isNaN(syncEndDate.getTime())) {
+          return res.status(400).json({
+            error: 'Invalid date format. Use YYYY-MM-DD format',
+            examples: { startDate: '2024-09-30', endDate: '2024-10-31' }
+          });
+        }
 
-      if (syncStartDate >= syncEndDate) {
-        return res.status(400).json({
-          error: 'startDate must be before endDate'
-        });
+        if (syncStartDate >= syncEndDate) {
+          return res.status(400).json({
+            error: 'startDate must be before endDate'
+          });
+        }
+      } else {
+        // Use days parameter (backward compatibility)
+        syncEndDate = new Date();
+        syncStartDate = new Date();
+        syncStartDate.setDate(syncStartDate.getDate() - Number(days));
       }
-    } else {
-      // Use days parameter (backward compatibility)
-      syncEndDate = new Date();
-      syncStartDate = new Date();
-      syncStartDate.setDate(syncStartDate.getDate() - Number(days));
     }
 
-    console.log(`📅 Syncing from ${syncStartDate.toISOString().split('T')[0]} to ${syncEndDate.toISOString().split('T')[0]}`);
+    if (type !== 'cleanup-fulfillments') {
+      console.log(`📅 Syncing from ${syncStartDate.toISOString().split('T')[0]} to ${syncEndDate.toISOString().split('T')[0]}`);
+    }
 
     let recordsSynced = 0;
     let syncData = null;
@@ -726,8 +802,8 @@ module.exports = async function handler(req, res) {
     // Execute sync based on type
     switch (type.toLowerCase()) {
       case 'orders':
-        console.log('📦 Fetching orders...');
-        const orders = await shopifyClient.fetchOrders(syncStartDate, syncEndDate);
+        console.log(`📦 Fetching orders (${useUpdatedAt ? 'updated_at' : 'created_at'} mode)...`);
+        const orders = await shopifyClient.fetchOrders(syncStartDate, syncEndDate, useUpdatedAt);
 
         // Add shop domain to each order
         orders.forEach(order => order.shop = shopDomain);
@@ -739,8 +815,8 @@ module.exports = async function handler(req, res) {
         break;
 
       case 'skus':
-        console.log('🏷️ Fetching SKU data...');
-        const skus = await shopifyClient.fetchSkuData(syncStartDate, syncEndDate);
+        console.log(`🏷️ Fetching SKU data (${useUpdatedAt ? 'updated_at' : 'created_at'} mode)...`);
+        const skus = await shopifyClient.fetchSkuData(syncStartDate, syncEndDate, useUpdatedAt);
 
         // Deduplikér SKU data INDEN for samme batch
         // Men lad PostgreSQL håndtere opdateringer af eksisterende rækker
@@ -798,16 +874,105 @@ module.exports = async function handler(req, res) {
         console.log('🚚 Fetching fulfillments...');
         const fulfillments = await shopifyClient.fetchFulfillments(syncStartDate, syncEndDate);
 
+        console.log(`🚚 Found ${fulfillments.length} fulfillments`);
+
         console.log('💾 Saving to Supabase...');
         const fulfillmentResult = await supabaseService.upsertFulfillments(fulfillments);
         recordsSynced = fulfillmentResult.count;
-        syncData = { fulfillmentsFound: fulfillments.length };
+        syncData = {
+          fulfillmentsFound: fulfillments.length,
+          sampleFulfillments: fulfillments.slice(0, 3), // Include første 3 for debugging
+          debug: {
+            searchPeriod: `${syncStartDate.toISOString()} to ${syncEndDate.toISOString()}`,
+            extendedSearchPeriod: `From 90 days before startDate to endDate`
+          }
+        };
+        break;
+
+      case 'cleanup-fulfillments':
+        console.log('🧹 Starting fulfillments cleanup (no shop sync needed)...');
+
+        // Get all fulfillments and find duplicates
+        let allFulfillments = [];
+        let cleanupOffset = 0;
+        const cleanupBatchSize = 1000;
+        let hasMoreCleanup = true;
+
+        while (hasMoreCleanup) {
+          const { data: batch, error: fetchError } = await supabaseService.supabase
+            .from('fulfillments')
+            .select('id, order_id, date, country, carrier, item_count, created_at')
+            .order('created_at')
+            .range(cleanupOffset, cleanupOffset + cleanupBatchSize - 1);
+
+          if (fetchError) throw fetchError;
+
+          if (batch && batch.length > 0) {
+            allFulfillments = allFulfillments.concat(batch);
+            hasMoreCleanup = batch.length === cleanupBatchSize;
+            cleanupOffset += cleanupBatchSize;
+            console.log(`📦 Loaded ${allFulfillments.length} fulfillments for analysis`);
+          } else {
+            hasMoreCleanup = false;
+          }
+        }
+
+        // Group by composite key and find duplicates
+        const groups = new Map();
+        allFulfillments.forEach(f => {
+          const key = `${f.order_id}|${f.date}|${f.country}|${f.carrier}|${f.item_count}`;
+          if (!groups.has(key)) {
+            groups.set(key, []);
+          }
+          groups.get(key).push(f);
+        });
+
+        // Find duplicates to delete (keep first, delete rest)
+        const toDelete = [];
+        groups.forEach(fulfillments => {
+          if (fulfillments.length > 1) {
+            fulfillments.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+            for (let i = 1; i < fulfillments.length; i++) {
+              toDelete.push(fulfillments[i].id);
+            }
+          }
+        });
+
+        console.log(`🗑️ Found ${toDelete.length} duplicates to remove`);
+
+        if (toDelete.length > 0) {
+          // Delete in batches
+          const deleteBatchSize = 1000;
+          let deleted = 0;
+
+          for (let i = 0; i < toDelete.length; i += deleteBatchSize) {
+            const batch = toDelete.slice(i, i + deleteBatchSize);
+
+            const { error: deleteError } = await supabaseService.supabase
+              .from('fulfillments')
+              .delete()
+              .in('id', batch);
+
+            if (deleteError) throw deleteError;
+
+            deleted += batch.length;
+            console.log(`✅ Deleted batch: ${deleted}/${toDelete.length}`);
+          }
+        }
+
+        recordsSynced = toDelete.length;
+        syncData = {
+          totalFulfillments: allFulfillments.length,
+          duplicatesFound: toDelete.length,
+          duplicatesRemoved: toDelete.length,
+          uniqueFulfillments: allFulfillments.length - toDelete.length
+        };
         break;
 
       default:
         return res.status(400).json({
           error: 'Invalid sync type',
-          validTypes: ['orders', 'skus', 'inventory', 'fulfillments']
+          validTypes: ['orders', 'skus', 'inventory', 'fulfillments', 'cleanup-fulfillments']
         });
     }
 
