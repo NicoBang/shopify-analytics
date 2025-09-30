@@ -45,14 +45,11 @@ class SupabaseService {
         allOrders.push(...data);
         hasMore = data.length === batchSize;
         offset += batchSize;
-
-        console.log(`📊 Fetched ${data.length} orders (total: ${allOrders.length})`);
       } else {
         hasMore = false;
       }
     }
 
-    console.log(`✅ Total orders fetched: ${allOrders.length}`);
     return allOrders;
   }
 
@@ -100,8 +97,6 @@ class SupabaseService {
     // Aggregate dashboard data from SKUs table using same logic as Style Analytics
     // This fixes the qty calculation issue by using consistent date filtering
 
-    console.log(`📊 Dashboard SKU aggregation: ${startDate.toISOString()} to ${endDate.toISOString()}`);
-
     // STEP 1: Get SKUs created in period (sales)
     let salesQuery = this.supabase
       .from('skus')
@@ -137,7 +132,6 @@ class SupabaseService {
       throw refundError;
     }
 
-    console.log(`📊 Sales SKUs: ${salesData?.length || 0}, Refund SKUs: ${refundData?.length || 0}`);
 
     // STEP 3: Aggregate by shop
     const shopMap = {};
@@ -207,8 +201,6 @@ class SupabaseService {
       });
     });
 
-    console.log(`📊 Dashboard SKU result: ${JSON.stringify(result, null, 2)}`);
-
     return result;
   }
 }
@@ -260,7 +252,6 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  console.log(`📊 Analytics request: ${type} from ${startDate} to ${endDate}${shop ? ` for ${shop}` : ''}`);
 
   try {
     const supabaseService = new SupabaseService();
@@ -395,7 +386,6 @@ module.exports = async function handler(req, res) {
         });
     }
 
-    console.log(`✅ Analytics completed: ${count} records`);
 
     // Return success response
     const baseResponse = {

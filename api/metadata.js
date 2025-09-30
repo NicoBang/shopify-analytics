@@ -273,7 +273,6 @@ class SupabaseService {
     console.log(`📅 Style Analytics query: ${adjustedStartDate.toISOString()} to ${adjustedEndDate.toISOString()}`);
 
     // STEP 1: Fetch sales data (SKUs created in period) - similar to Dashboard API
-    console.log(`📊 Step 1: Fetching sales data (created_at in period)...`);
     let salesData = [];
     let hasMore = true;
     let currentOffset = 0;
@@ -315,10 +314,8 @@ class SupabaseService {
       }
     }
 
-    console.log(`📊 Total sales records fetched: ${salesData.length}`);
 
     // STEP 2: Fetch refund data (SKUs with refund_date in period) - matching Dashboard API logic
-    console.log(`📊 Step 2: Fetching refund data (refund_date in period)...`);
     let refundQuery = this.supabase
       .from('skus')
       .select('sku, shop, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date')
@@ -338,7 +335,6 @@ class SupabaseService {
       throw refundError;
     }
 
-    console.log(`📊 Total refund records fetched: ${refundData?.length || 0}`);
 
     // STEP 3: Combine sales and refund data correctly
     // Sales data: Include quantity as sold, but refunded_qty should be 0 unless refund happened in same period
@@ -381,7 +377,6 @@ class SupabaseService {
     });
 
     const data = combinedData;
-    console.log(`📊 Combined total records: ${data.length} (${salesData.length} sales + ${refundData?.length || 0} refunds, with overlap handling)`);
 
     // Extract unique artikelnummer from SKUs (part before backslash) to match metadata
     const uniqueArtikelNummers = [...new Set((data || []).map(item => {
@@ -389,7 +384,6 @@ class SupabaseService {
       return sku.split('\\')[0] || sku; // Extract artikelnummer before backslash
     }).filter(Boolean))];
 
-    console.log(`📋 Found ${uniqueArtikelNummers.length} unique artikelnummer with sales, fetching ALL metadata...`);
 
     // Fetch ALL metadata to show all products, even those without sales
     const metadataMap = {};
@@ -469,23 +463,6 @@ class SupabaseService {
         }
       }
 
-      console.log(`📋 Fetched ${totalFetched} total metadata rows`);
-      console.log(`📋 Found ${Object.keys(metadataMap).length} unique artikelnummer with metadata`);
-      console.log(`📋 Total artikelnummer (including those without sales): ${uniqueArtikelNummers.length}`);
-
-      // Debug: Check if 100537 is now included
-      if (metadataMap['100537']) {
-        console.log(`✅ Artikelnummer 100537 found with season=${metadataMap['100537'].season}, gender=${metadataMap['100537'].gender}`);
-      } else {
-        console.log(`⚠️ Artikelnummer 100537 NOT found in metadata`);
-      }
-
-      // Debug: Log a sample metadata item to verify season and gender are present
-      if (Object.keys(metadataMap).length > 0) {
-        const sampleKey = Object.keys(metadataMap)[0];
-        const sampleMeta = metadataMap[sampleKey];
-        console.log(`📋 Sample metadata for ${sampleKey}: season=${sampleMeta.season}, gender=${sampleMeta.gender}, status=${sampleMeta.status}`);
-      }
     } catch (metaError) {
       console.warn('⚠️ Error fetching metadata, using parsed product titles:', metaError.message);
     }
@@ -500,17 +477,6 @@ class SupabaseService {
       }
       salesByArtikelnummer[artikelnummer].push(item);
     });
-
-    console.log(`📊 Found sales data for ${Object.keys(salesByArtikelnummer).length} artikelnummer`);
-    console.log(`📋 Total artikelnummer in metadata: ${allArtikelNummers.size}`);
-
-    // Debug: Count data by shop
-    const shopCounts = {};
-    (data || []).forEach(item => {
-      const shop = item.shop || 'Unknown';
-      shopCounts[shop] = (shopCounts[shop] || 0) + 1;
-    });
-    console.log(`🏪 Sales data by shop:`, shopCounts);
 
     return await this.processBasicStyleAnalytics(salesByArtikelnummer, groupBy, metadataMap, allArtikelNummers);
   }
@@ -528,7 +494,6 @@ class SupabaseService {
     console.log(`📅 SKU Analytics query: ${adjustedStartDate.toISOString()} to ${adjustedEndDate.toISOString()}`);
 
     // STEP 1: Fetch sales data (SKUs created in period)
-    console.log(`📊 Step 1: Fetching SKU sales data (created_at in period)...`);
     let salesQuery = this.supabase
       .from('skus')
       .select('*')
@@ -546,10 +511,8 @@ class SupabaseService {
       throw salesError;
     }
 
-    console.log(`📊 Total SKU sales records fetched: ${salesData?.length || 0}`);
 
     // STEP 2: Fetch refund data (SKUs with refund_date in period)
-    console.log(`📊 Step 2: Fetching SKU refund data (refund_date in period)...`);
     let refundQuery = this.supabase
       .from('skus')
       .select('*')
@@ -568,7 +531,6 @@ class SupabaseService {
       throw refundError;
     }
 
-    console.log(`📊 Total SKU refund records fetched: ${refundData?.length || 0}`);
 
     // STEP 3: Combine sales and refund data correctly for SKU-level analysis
     const combinedData = [];
@@ -608,15 +570,6 @@ class SupabaseService {
     });
 
     const data = combinedData;
-    console.log(`📊 Combined SKU records: ${data.length} (${salesData?.length || 0} sales + ${refundData?.length || 0} refunds, with overlap handling)`);
-
-    // Debug: Count data by shop
-    const shopCounts = {};
-    data.forEach(item => {
-      const shop = item.shop || 'Unknown';
-      shopCounts[shop] = (shopCounts[shop] || 0) + 1;
-    });
-    console.log(`🏪 Combined data by shop:`, shopCounts);
 
     return this.processSkuAnalytics(data);
   }
@@ -625,19 +578,6 @@ class SupabaseService {
     // Group by style (artikelnummer) extracted from SKU
     // Aggregate all sizes and shops for each style
     // This replicates the original STYLE_COLOR_Analytics.gs logic
-    console.log(`📊 Processing style analytics with ${Object.keys(salesByArtikelnummer).length} artikelnummer with sales`);
-    console.log(`📊 Metadata map has ${Object.keys(metadataMap).length} entries`);
-    console.log(`📊 Total artikelnummer from metadata: ${allArtikelNummers.size}`);
-
-    // Debug specific artikelnummer
-    if (metadataMap['100537']) {
-      console.log(`🔍 DEBUG 100537 metadata:`, {
-        season: metadataMap['100537'].season,
-        gender: metadataMap['100537'].gender,
-        status: metadataMap['100537'].status,
-        hasSales: salesByArtikelnummer['100537'] ? 'YES' : 'NO'
-      });
-    }
 
     const grouped = {};
 

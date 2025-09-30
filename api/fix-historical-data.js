@@ -1,4 +1,25 @@
 // api/fix-historical-data.js
+//
+// PURPOSE: Utility API for fixing historical order aggregation inconsistencies
+//
+// WHEN TO USE:
+// - After discovering discrepancies between orders and skus tables
+// - When refunded_qty or cancelled_qty in orders table doesn't match sum of SKUs
+// - After major data migrations or schema changes
+//
+// HOW TO USE:
+// 1. Call API with batchSize (default 50) and offset (default 0)
+// 2. API returns fixed count, checked count, and hasMore flag
+// 3. Use nextOffset for subsequent calls until hasMore is false
+//
+// EXAMPLE:
+// curl -H "Authorization: Bearer YOUR_KEY" \
+//   "https://your-domain.vercel.app/api/fix-historical-data?batchSize=50&offset=0"
+//
+// HISTORY:
+// - 2025-09-29: Created to fix historical order aggregation issues
+//               (148+ orders had incorrect refunded_qty due to old sync logic)
+//
 const { createClient } = require('@supabase/supabase-js');
 
 class HistoricalDataFixer {

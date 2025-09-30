@@ -58,15 +58,12 @@ class SupabaseService {
     console.log(`🚚 Enhanced Delivery Analytics: ${startDate.toISOString().slice(0,10)} to ${endDate.toISOString().slice(0,10)}`);
 
     // Get ALL fulfillments using chunked pagination (no 1000 limit)
-    console.log(`🚚 Fetching ALL fulfillments for period using chunked pagination`);
     let allFulfillments = [];
     let offset = 0;
     const batchSize = 1000;
     let hasMore = true;
 
     while (hasMore) {
-      console.log(`📦 Fetching fulfillments batch: offset=${offset}, size=${batchSize}`);
-
       const { data: batch, error: batchError } = await this.supabase
         .from('fulfillments')
         .select('*')
@@ -75,7 +72,7 @@ class SupabaseService {
         .range(offset, offset + batchSize - 1);
 
       if (batchError) {
-        console.error('❌ Error in batch fetch:', batchError);
+        console.error('❌ Error fetching fulfillments:', batchError);
         throw batchError;
       }
 
@@ -83,7 +80,6 @@ class SupabaseService {
         allFulfillments = allFulfillments.concat(batch);
         hasMore = batch.length === batchSize;
         offset += batchSize;
-        console.log(`📊 Batch fetched: ${batch.length} fulfillments, total so far: ${allFulfillments.length}`);
       } else {
         hasMore = false;
       }
@@ -95,15 +91,12 @@ class SupabaseService {
     const cacheStartDate = new Date(endDate);
     cacheStartDate.setDate(cacheStartDate.getDate() - 90); // 90 days back like old system
 
-    console.log(`📊 Fetching orders from 90-day window (${cacheStartDate.toISOString().slice(0,10)} to ${endDate.toISOString().slice(0,10)}) like old working system...`);
     let allOrdersData = [];
     let orderOffset = 0;
     const orderBatchSize = 1000;
     let hasMoreOrders = true;
 
     while (hasMoreOrders) {
-      console.log(`📦 Fetching orders batch: offset=${orderOffset}, size=${orderBatchSize}`);
-
       const { data: batch, error: batchError } = await this.supabase
         .from('orders')
         .select('order_id, country, refunded_qty, refund_date')
@@ -112,7 +105,7 @@ class SupabaseService {
         .range(orderOffset, orderOffset + orderBatchSize - 1);
 
       if (batchError) {
-        console.error('❌ Error in orders batch fetch:', batchError);
+        console.error('❌ Error fetching orders:', batchError);
         throw batchError;
       }
 
@@ -120,13 +113,12 @@ class SupabaseService {
         allOrdersData = allOrdersData.concat(batch);
         hasMoreOrders = batch.length === orderBatchSize;
         orderOffset += orderBatchSize;
-        console.log(`📊 Orders batch fetched: ${batch.length} orders, total so far: ${allOrdersData.length}`);
       } else {
         hasMoreOrders = false;
       }
     }
 
-    console.log(`✅ Fetched ${allOrdersData.length} total orders from 90-day cache window (filtering by refund_date in period happens later)`);
+    console.log(`✅ Fetched ${allOrdersData.length} orders from 90-day window`);
 
     // Calculate enhanced metrics with proper carrier mapping
     return this.calculateEnhancedDeliveryMetrics(
@@ -144,8 +136,6 @@ class SupabaseService {
     const countries = new Set();
     let totalFulfillments = 0;
     let totalFulfilledItems = 0;
-
-    console.log(`📊 Processing ${fulfillmentData.length} fulfillments and ${orderData.length} orders with refunds`);
 
     // Process fulfillments (already filtered by date)
     fulfillmentData.forEach(fulfillment => {
@@ -185,50 +175,36 @@ class SupabaseService {
         }
       }
 
-      // Build carrier mapping using direct order_id (THE FIX!)
+      // Build carrier mapping using direct order_id
       allFulfillments.forEach(f => {
         if (f.order_id && f.carrier) {
-          // CRITICAL: Use order_id directly, no extractId transformation
           orderIdToCarrier[f.order_id] = f.carrier;
         }
       });
 
-      console.log(`📊 Carrier mapping: ${Object.keys(orderIdToCarrier).length} orders mapped`);
-
-      // Debug: Show sample mappings
-      const sampleKeys = Object.keys(orderIdToCarrier).slice(0, 3);
-      console.log(`📦 Sample carrier mappings: ${sampleKeys.map(k => `${k}=${orderIdToCarrier[k]}`).join(', ')}`);
-
     } catch (error) {
-      console.log(`⚠️ Could not get comprehensive carrier mapping: ${error.message}`);
+      console.error('⚠️ Could not get comprehensive carrier mapping:', error);
       // Fallback: use period fulfillments only
       fulfillmentData.forEach(fulfillment => {
         orderIdToCarrier[fulfillment.order_id] = fulfillment.carrier;
       });
     }
 
-    // Process returns with FIXED carrier mapping
+    // Process returns with carrier mapping
     const returnsMatrix = {};
     const returnCountries = new Set();
     let totalReturnedItems = 0;
 
     orderData.forEach(order => {
-      // FIXED: Use date-only comparison (not timestamp)
+      // Use date-only comparison (not timestamp)
       const refundDateStr = order.refund_date ? order.refund_date.split('T')[0] : null;
       const startDateStr = startDate.toISOString().split('T')[0];
       const endDateStr = endDate.toISOString().split('T')[0];
 
       if (refundDateStr && refundDateStr >= startDateStr && refundDateStr <= endDateStr) {
-
-        // CRITICAL FIX: Use order_id directly for consistent mapping
         const orderId = order.order_id;
         const carrier = orderIdToCarrier[orderId] || "Ukendt";
         const country = order.country || "Ukendt";
-
-        // Debug first few return mappings
-        if (Object.keys(returnsMatrix).length < 3) {
-          console.log(`🔍 Return mapping: orderId=${orderId}, carrier=${carrier}, found_in_map=${!!orderIdToCarrier[orderId]}`);
-        }
 
         const key = `${country}|${carrier}`;
         returnCountries.add(country);
@@ -239,7 +215,7 @@ class SupabaseService {
     });
 
     const totalReturns = Object.values(returnsMatrix).reduce((a, b) => a + b, 0);
-    console.log(`📊 Enhanced Metrics: ${totalFulfillments} fulfillments (${totalFulfilledItems} items), ${totalReturns} returns (${totalReturnedItems} items)`);
+    console.log(`✅ Processed: ${totalFulfillments} fulfillments, ${totalReturns} returns`);
 
     return {
       fulfillmentMatrix,
@@ -316,8 +292,6 @@ class SupabaseService {
   async upsertFulfillments(fulfillments) {
     if (!fulfillments || fulfillments.length === 0) return { count: 0 };
 
-    console.log(`🚚 Upserting ${fulfillments.length} fulfillments to Supabase with deduplication...`);
-
     // Map fulfillments to database schema
     const dbFulfillments = fulfillments.map(fulfillment => ({
       order_id: fulfillment.orderId.replace('gid://shopify/Order/', ''),
@@ -328,7 +302,7 @@ class SupabaseService {
     }));
 
     try {
-      // ROBUST DEDUPLICATION: Check for existing fulfillments
+      // Check for existing fulfillments (deduplication)
       const orderIds = dbFulfillments.map(f => f.order_id);
       const { data: existing, error: checkError } = await this.supabase
         .from('fulfillments')
@@ -343,10 +317,7 @@ class SupabaseService {
       const existingOrderIds = new Set(existing.map(e => e.order_id));
       const newFulfillments = dbFulfillments.filter(f => !existingOrderIds.has(f.order_id));
 
-      console.log(`📊 Found ${existingOrderIds.size} existing, inserting ${newFulfillments.length} new fulfillments`);
-
       if (newFulfillments.length === 0) {
-        console.log(`✅ No new fulfillments to insert`);
         return { count: 0, data: [] };
       }
 
@@ -356,11 +327,11 @@ class SupabaseService {
         .insert(newFulfillments);
 
       if (error) {
-        console.error('❌ Error inserting new fulfillments:', error);
+        console.error('❌ Error inserting fulfillments:', error);
         throw error;
       }
 
-      console.log(`✅ Successfully inserted ${newFulfillments.length} new fulfillments`);
+      console.log(`✅ Inserted ${newFulfillments.length} new fulfillments`);
       return { count: newFulfillments.length, data };
 
     } catch (error) {
@@ -374,19 +345,13 @@ class SupabaseService {
     console.log('🧹 Starting cleanup of duplicate fulfillments...');
 
     try {
-      // Use a multi-step approach to safely remove duplicates
-      console.log('🔍 Step 1: Identifying duplicate records...');
-
-      // Get ALL fulfillments using pagination (no 1000 limit!)
-      console.log('📊 Fetching ALL fulfillments using pagination...');
+      // Get ALL fulfillments using pagination
       let allFulfillments = [];
       let cleanupOffset = 0;
       const cleanupBatchSize = 1000;
       let hasMoreForCleanup = true;
 
       while (hasMoreForCleanup) {
-        console.log(`📦 Fetching fulfillments batch for cleanup: offset=${cleanupOffset}, size=${cleanupBatchSize}`);
-
         const { data: batch, error: fetchError } = await this.supabase
           .from('fulfillments')
           .select('id, order_id, date, country, carrier, item_count, created_at')
@@ -394,7 +359,7 @@ class SupabaseService {
           .range(cleanupOffset, cleanupOffset + cleanupBatchSize - 1);
 
         if (fetchError) {
-          console.error('❌ Error fetching fulfillments batch for cleanup:', fetchError);
+          console.error('❌ Error fetching fulfillments for cleanup:', fetchError);
           throw fetchError;
         }
 
@@ -402,13 +367,10 @@ class SupabaseService {
           allFulfillments = allFulfillments.concat(batch);
           hasMoreForCleanup = batch.length === cleanupBatchSize;
           cleanupOffset += cleanupBatchSize;
-          console.log(`📊 Cleanup batch fetched: ${batch.length} fulfillments, total so far: ${allFulfillments.length}`);
         } else {
           hasMoreForCleanup = false;
         }
       }
-
-      console.log(`📊 Analyzing ${allFulfillments.length} fulfillments for duplicates...`);
 
       // Group by composite key and find duplicates
       const groups = new Map();
@@ -438,10 +400,8 @@ class SupabaseService {
         }
       });
 
-      console.log(`🔍 Found ${duplicatesFound} duplicate records to remove`);
-
       if (duplicatesFound === 0) {
-        console.log('✅ No duplicates found!');
+        console.log('✅ No duplicates found');
         return {
           totalFulfillments: allFulfillments.length,
           duplicatesFound: 0,
@@ -450,8 +410,7 @@ class SupabaseService {
         };
       }
 
-      // Remove duplicates in batches to avoid timeout
-      console.log('🗑️ Step 2: Removing duplicate records...');
+      // Remove duplicates in batches
       let removedCount = 0;
       const batchSize = 1000;
 
@@ -464,15 +423,14 @@ class SupabaseService {
           .in('id', batch);
 
         if (deleteError) {
-          console.error(`❌ Error deleting batch ${i / batchSize + 1}:`, deleteError);
+          console.error('❌ Error deleting duplicates:', deleteError);
           throw deleteError;
         }
 
         removedCount += batch.length;
-        console.log(`✅ Removed batch ${Math.floor(i / batchSize) + 1}: ${batch.length} duplicates (${removedCount}/${duplicatesFound} total)`);
       }
 
-      console.log(`🎯 Cleanup completed: ${removedCount} duplicates removed`);
+      console.log(`✅ Cleanup completed: ${removedCount} duplicates removed`);
 
       return {
         totalFulfillments: allFulfillments.length,
