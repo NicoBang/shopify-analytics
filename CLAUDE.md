@@ -24,12 +24,12 @@ Google Sheets ←→ Google Apps Script ←→ Vercel API ←→ Supabase Databa
 
 ## 🔗 **Production URLs**
 
-- **Analytics API**: `https://shopify-analytics-j37bf0ijo-nicolais-projects-291e9559.vercel.app/api/analytics`
-- **Sync API**: `https://shopify-analytics-j37bf0ijo-nicolais-projects-291e9559.vercel.app/api/sync-shop`
-- **SKU Cache API**: `https://shopify-analytics-j37bf0ijo-nicolais-projects-291e9559.vercel.app/api/sku-cache`
-- **Inventory API**: `https://shopify-analytics-j37bf0ijo-nicolais-projects-291e9559.vercel.app/api/inventory`
-- **Fulfillments API**: `https://shopify-analytics-j37bf0ijo-nicolais-projects-291e9559.vercel.app/api/fulfillments`
-- **Metadata API**: `https://shopify-analytics-j37bf0ijo-nicolais-projects-291e9559.vercel.app/api/metadata`
+- **Analytics API**: `https://shopify-analytics-qlxndv2am-nicolais-projects-291e9559.vercel.app/api/analytics`
+- **Sync API**: `https://shopify-analytics-qlxndv2am-nicolais-projects-291e9559.vercel.app/api/sync-shop`
+- **SKU Cache API**: `https://shopify-analytics-qlxndv2am-nicolais-projects-291e9559.vercel.app/api/sku-cache`
+- **Inventory API**: `https://shopify-analytics-qlxndv2am-nicolais-projects-291e9559.vercel.app/api/inventory`
+- **Fulfillments API**: `https://shopify-analytics-qlxndv2am-nicolais-projects-291e9559.vercel.app/api/fulfillments`
+- **Metadata API**: `https://shopify-analytics-qlxndv2am-nicolais-projects-291e9559.vercel.app/api/metadata`
 - **Supabase**: [Your Supabase dashboard URL]
 - **Vercel**: [Your Vercel dashboard URL]
 
@@ -398,16 +398,17 @@ Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc
 
 ## 🔧 Recent Updates
 
-### 2025-09-30: CRITICAL FIX - Restored Brutto Calculations in Dashboard ✅
-- **🐛 CRITICAL BUG FIX**: Reverted incorrect netto calculations back to brutto
-  - **Problem**: Ordreværdi and Basket Size were incorrectly using NETTO instead of BRUTTO
-  - **Root Cause**: Code was accidentally reverted to use netto calculations
-  - **Solution**: Fixed google-sheets-enhanced.js lines 181-182 and 220-221
-  - **Impact**: Dashboard now correctly shows:
-    - Ordreværdi = brutto / antal ordrer (NOT netto!)
-    - Basket Size = stkBrutto / antal ordrer (NOT stkNetto!)
-- **Files Updated**: `google-sheets-enhanced.js` (line 181-182, 220-221)
-- **Production URL**: Updated to `shopify-analytics-j37bf0ijo-nicolais-projects-291e9559.vercel.app`
+### 2025-09-30: CRITICAL FIX - Restored ALL Brutto Calculations in Dashboard ✅
+- **🐛 CRITICAL BUG FIX**: Reverted incorrect netto calculations back to brutto for ALL metrics
+  - **Problem**: Gns. stykpris, Ordreværdi, and Basket Size were ALL incorrectly using NETTO instead of BRUTTO
+  - **Root Cause**: Code was accidentally reverted to use netto calculations across all three metrics
+  - **Solution**: Fixed google-sheets-enhanced.js lines 180-182 (per-shop) and 220-222 (totals)
+  - **Impact**: Dashboard now correctly shows ALL brutto-based calculations:
+    - **Gns. stykpris** = brutto / stkBrutto (was: netto / stkNetto)
+    - **Gns. ordreværdi** = brutto / antal ordrer (was: netto / antal ordrer)
+    - **Basket size** = stkBrutto / antal ordrer (was: stkNetto / antal ordrer)
+- **Files Updated**: `google-sheets-enhanced.js` (lines 6, 180-182, 220-222), `CLAUDE.md`
+- **Production URL**: Updated to `shopify-analytics-qlxndv2am-nicolais-projects-291e9559.vercel.app`
 
 ### 2025-09-29: Fixed Historical Order Data Inconsistencies ✅
 - **🐛 CRITICAL DATA FIX**: Corrected order-level aggregation inconsistencies between orders and skus tables
