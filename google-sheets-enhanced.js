@@ -3,7 +3,7 @@
 
 // Configuration
 const CONFIG = {
-  API_BASE: 'https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api',
+  API_BASE: 'https://shopify-analytics-k469442mq-nicolais-projects-291e9559.vercel.app/api',
   API_KEY: 'bda5da3d49fe0e7391fded3895b5c6bc',
   SPREADSHEET_ID: SpreadsheetApp.getActiveSpreadsheet().getId(),
 
@@ -178,8 +178,8 @@ function renderDashboard_(orderRows, returnRows, startDate, endDate) {
     const brutto = o.gross, netto = o.net, fragt = o.shipping;
     const stkBrutto = s.qty, stkNetto = s.qtyNet;
     const stkPris = stkNetto > 0 ? netto / stkNetto : 0;
-    const ordreværdi = orders > 0 ? netto / orders : 0;
-    const basketSize = orders > 0 ? stkNetto / orders : 0;
+    const ordreværdi = orders > 0 ? brutto / orders : 0;  // BRUTTO ordreværdi
+    const basketSize = orders > 0 ? stkBrutto / orders : 0;  // BRUTTO basket size
     const returStkPct = stkBrutto > 0 ? s.refundedQty / stkBrutto : 0;
     const returKrPct = brutto > 0 ? o.refundedAmount / brutto : 0;
     const returOrdrePct = orders > 0 ? o.refundOrders.size / orders : 0;
@@ -217,8 +217,8 @@ function renderDashboard_(orderRows, returnRows, startDate, endDate) {
     totals.stkBrutto,
     totals.stkNetto,
     totals.orders,
-    round2_(totals.orders > 0 ? totals.netto / totals.orders : 0),
-    totals.orders > 0 ? toFixed1_(totals.stkNetto / totals.orders) : '0',
+    round2_(totals.orders > 0 ? totals.brutto / totals.orders : 0),  // BRUTTO ordreværdi
+    totals.orders > 0 ? toFixed1_(totals.stkBrutto / totals.orders) : '0',  // BRUTTO basket size
     round2_(totals.stkNetto > 0 ? totals.netto / totals.stkNetto : 0),
     pctStr_(totals.stkBrutto > 0 ? (totals.returStk / totals.stkBrutto) : 0),
     pctStr_(totals.brutto > 0 ? (totals.returKr / totals.brutto) : 0),

@@ -24,12 +24,12 @@ Google Sheets ←→ Google Apps Script ←→ Vercel API ←→ Supabase Databa
 
 ## 🔗 **Production URLs**
 
-- **Analytics API**: `https://shopify-analytics-ai9n8oa3e-nicolais-projects-291e9559.vercel.app/api/analytics`
-- **Sync API**: `https://shopify-analytics-ai9n8oa3e-nicolais-projects-291e9559.vercel.app/api/sync-shop`
-- **SKU Cache API**: `https://shopify-analytics-ai9n8oa3e-nicolais-projects-291e9559.vercel.app/api/sku-cache`
-- **Inventory API**: `https://shopify-analytics-ai9n8oa3e-nicolais-projects-291e9559.vercel.app/api/inventory`
-- **Fulfillments API**: `https://shopify-analytics-ai9n8oa3e-nicolais-projects-291e9559.vercel.app/api/fulfillments`
-- **Metadata API**: `https://shopify-analytics-ai9n8oa3e-nicolais-projects-291e9559.vercel.app/api/metadata`
+- **Analytics API**: `https://shopify-analytics-j37bf0ijo-nicolais-projects-291e9559.vercel.app/api/analytics`
+- **Sync API**: `https://shopify-analytics-j37bf0ijo-nicolais-projects-291e9559.vercel.app/api/sync-shop`
+- **SKU Cache API**: `https://shopify-analytics-j37bf0ijo-nicolais-projects-291e9559.vercel.app/api/sku-cache`
+- **Inventory API**: `https://shopify-analytics-j37bf0ijo-nicolais-projects-291e9559.vercel.app/api/inventory`
+- **Fulfillments API**: `https://shopify-analytics-j37bf0ijo-nicolais-projects-291e9559.vercel.app/api/fulfillments`
+- **Metadata API**: `https://shopify-analytics-j37bf0ijo-nicolais-projects-291e9559.vercel.app/api/metadata`
 - **Supabase**: [Your Supabase dashboard URL]
 - **Vercel**: [Your Vercel dashboard URL]
 
@@ -116,27 +116,33 @@ vercel --prod --yes
 
 # Test API endpoints
 curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/analytics?startDate=2025-09-15&endDate=2025-09-18"
+  "https://shopify-analytics-k469442mq-nicolais-projects-291e9559.vercel.app/api/analytics?startDate=2025-09-15&endDate=2025-09-18"
 
 # Sync specific store
 curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/sync-shop?shop=pompdelux-da.myshopify.com&type=orders&days=7"
+  "https://shopify-analytics-k469442mq-nicolais-projects-291e9559.vercel.app/api/sync-shop?shop=pompdelux-da.myshopify.com&type=orders&days=7"
 
 # Test SKU analytics (individual SKUs with sizes)
 curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/metadata?type=style&startDate=2025-09-15&endDate=2025-09-18&groupBy=sku"
+  "https://shopify-analytics-k469442mq-nicolais-projects-291e9559.vercel.app/api/metadata?type=style&startDate=2025-09-15&endDate=2025-09-18&groupBy=sku"
 
 # Test color analytics (aggregated by color) - FIXED VAREMODTAGET AGGREGATION
 curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/metadata?type=style&startDate=2025-09-15&endDate=2025-09-18&groupBy=farve"
+  "https://shopify-analytics-k469442mq-nicolais-projects-291e9559.vercel.app/api/metadata?type=style&startDate=2025-09-15&endDate=2025-09-18&groupBy=farve"
 
 # Test inventory management
 curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/inventory?type=analytics&lowStockThreshold=5"
+  "https://shopify-analytics-k469442mq-nicolais-projects-291e9559.vercel.app/api/inventory?type=analytics&lowStockThreshold=5"
 
 # Test fulfillment tracking
 curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-6l178vhof-nicolais-projects-291e9559.vercel.app/api/fulfillments?type=analytics&startDate=2024-09-30&endDate=2024-10-31"
+  "https://shopify-analytics-k469442mq-nicolais-projects-291e9559.vercel.app/api/fulfillments?type=analytics&startDate=2024-09-30&endDate=2024-10-31"
+
+# Sync product metadata (ONLY Danish shop, via cron job recommended)
+# Note: Direct API call may timeout due to 5,000+ products
+# Use cron job endpoint: /api/cron?job=metadata
+curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
+  "https://shopify-analytics-k469442mq-nicolais-projects-291e9559.vercel.app/api/sync-shop?shop=pompdelux-da.myshopify.com&type=metadata"
 ```
 
 ### Database Management
@@ -391,6 +397,17 @@ Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc
 **Migration**: Complete ✅
 
 ## 🔧 Recent Updates
+
+### 2025-09-30: CRITICAL FIX - Restored Brutto Calculations in Dashboard ✅
+- **🐛 CRITICAL BUG FIX**: Reverted incorrect netto calculations back to brutto
+  - **Problem**: Ordreværdi and Basket Size were incorrectly using NETTO instead of BRUTTO
+  - **Root Cause**: Code was accidentally reverted to use netto calculations
+  - **Solution**: Fixed google-sheets-enhanced.js lines 181-182 and 220-221
+  - **Impact**: Dashboard now correctly shows:
+    - Ordreværdi = brutto / antal ordrer (NOT netto!)
+    - Basket Size = stkBrutto / antal ordrer (NOT stkNetto!)
+- **Files Updated**: `google-sheets-enhanced.js` (line 181-182, 220-221)
+- **Production URL**: Updated to `shopify-analytics-j37bf0ijo-nicolais-projects-291e9559.vercel.app`
 
 ### 2025-09-29: Fixed Historical Order Data Inconsistencies ✅
 - **🐛 CRITICAL DATA FIX**: Corrected order-level aggregation inconsistencies between orders and skus tables
