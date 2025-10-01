@@ -54,27 +54,43 @@ class SupabaseService {
   }
 
   async getOrdersRefundedInPeriod(startDate, endDate, shop = null) {
-    // Fetch orders where refund_date falls within the period (returns dated by refund date)
-    let query = this.supabase
-      .from('orders')
-      .select('*')
-      .not('refund_date', 'is', null)
-      .gte('refund_date', startDate.toISOString())
-      .lte('refund_date', endDate.toISOString())
-      .order('refund_date', { ascending: false });
+    // Fetch ALL orders with refund_date in period using pagination
+    const allReturns = [];
+    let offset = 0;
+    const batchSize = 1000;
+    let hasMore = true;
 
-    if (shop) {
-      query = query.eq('shop', shop);
+    while (hasMore) {
+      let query = this.supabase
+        .from('orders')
+        .select('*')
+        .not('refund_date', 'is', null)
+        .gte('refund_date', startDate.toISOString())
+        .lte('refund_date', endDate.toISOString())
+        .order('refund_date', { ascending: false })
+        .range(offset, offset + batchSize - 1);
+
+      if (shop) {
+        query = query.eq('shop', shop);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('❌ Error fetching refunded orders:', error);
+        throw error;
+      }
+
+      if (data && data.length > 0) {
+        allReturns.push(...data);
+        hasMore = data.length === batchSize;
+        offset += batchSize;
+      } else {
+        hasMore = false;
+      }
     }
 
-    const { data, error } = await query;
-
-    if (error) {
-      console.error('❌ Error fetching refunded orders:', error);
-      throw error;
-    }
-
-    return data || [];
+    return allReturns;
   }
 
   async getAnalytics(startDate, endDate) {
