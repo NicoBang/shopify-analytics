@@ -380,21 +380,44 @@ class ShopifyAPIClient {
               });
             });
 
-            // Calculate price in DKK (EX MOMS - divide by 1.25 for 25% VAT)
+            // Get VAT divisor based on shipping country
+            const getVatDivisor = (countryCode) => {
+              const vatRates = {
+                'DK': 1.25,  // Denmark 25%
+                'DE': 1.19,  // Germany 19%
+                'NL': 1.21,  // Netherlands 21%
+                'CH': 1.081, // Switzerland 8.1%
+                'AT': 1.20,  // Austria 20%
+                'BE': 1.21,  // Belgium 21%
+                'SE': 1.25,  // Sweden 25%
+                'NO': 1.25,  // Norway 25%
+                'FI': 1.24,  // Finland 24%
+                'FR': 1.20,  // France 20%
+                'IT': 1.22,  // Italy 22%
+                'ES': 1.21,  // Spain 21%
+                'PL': 1.23,  // Poland 23%
+                'GB': 1.20,  // UK 20%
+              };
+              return vatRates[countryCode] || 1.25; // Default to 25% if unknown
+            };
+
+            const vatDivisor = getVatDivisor(country);
+
+            // Calculate price in DKK (EX MOMS - divide by country-specific VAT rate)
             const unitPrice = parseFloat(item.discountedUnitPriceSet?.shopMoney?.amount || 0);
-            const priceDkk = (unitPrice * this.rate) / 1.25;
+            const priceDkk = (unitPrice * this.rate) / vatDivisor;
             const quantity = item.quantity || 0;
             const lineTotal = unitPrice * quantity;
 
             // Allocate discount proportionally based on line item's share of order total
-            // combinedDiscountTotal er INKL moms, så vi dividerer med 1,25 for EX moms
+            // combinedDiscountTotal er INKL moms, så vi dividerer med country-specific VAT
             let totalDiscountDkk = 0;
             let discountPerUnitDkk = 0;
 
             if (orderTotalDiscountedValue > 0) {
               const lineShareOfOrder = lineTotal / orderTotalDiscountedValue;
               const allocatedDiscount = combinedDiscountTotal * lineShareOfOrder;
-              totalDiscountDkk = (allocatedDiscount * this.rate) / 1.25; // EX MOMS
+              totalDiscountDkk = (allocatedDiscount * this.rate) / vatDivisor; // EX MOMS
               discountPerUnitDkk = quantity > 0 ? totalDiscountDkk / quantity : 0;
             }
 
