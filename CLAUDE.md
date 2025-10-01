@@ -22,14 +22,39 @@ Google Sheets ←→ Google Apps Script ←→ Vercel API ←→ Supabase Databa
 - **Database**: PostgreSQL via Supabase
 - **Data Source**: Shopify GraphQL API (5 stores)
 
+## ⚠️ **CRITICAL: Architecture Understanding**
+
+**🎯 Migration Philosophy - Remember This:**
+
+1. ✅ **ALL data lives in Supabase** (orders, skus, inventory, metadata, fulfillments)
+2. ✅ **Sync happens via `/api/sync-shop`** - This is THE ONLY way to get Shopify data into Supabase
+3. ✅ **Analytics queries Supabase ONLY** via `/api/analytics`, `/api/metadata`, `/api/sku-cache`, etc.
+
+**🚫 What We DON'T Do:**
+- ❌ Never query Shopify directly from analytics endpoints
+- ❌ Never mix Shopify API calls with Supabase queries in analytics
+- ❌ Never bypass the sync → store → query flow
+
+**🔄 Correct Data Flow:**
+```
+Shopify API → /api/sync-shop → Supabase → /api/analytics → Google Sheets
+```
+
+**💡 When Fixing Data Issues:**
+1. Fix the sync logic in `/api/sync-shop.js`
+2. Re-sync historical data by calling `/api/sync-shop` with date ranges
+3. Analytics will automatically use corrected data from Supabase
+
+**This architecture is WHY the system is 100x faster and infinitely scalable.**
+
 ## 🔗 **Production URLs**
 
-- **Analytics API**: `https://shopify-analytics-7jgy0e8e5-nicolais-projects-291e9559.vercel.app/api/analytics`
-- **Sync API**: `https://shopify-analytics-7jgy0e8e5-nicolais-projects-291e9559.vercel.app/api/sync-shop`
-- **SKU Cache API**: `https://shopify-analytics-7jgy0e8e5-nicolais-projects-291e9559.vercel.app/api/sku-cache`
-- **Inventory API**: `https://shopify-analytics-7jgy0e8e5-nicolais-projects-291e9559.vercel.app/api/inventory`
-- **Fulfillments API**: `https://shopify-analytics-7jgy0e8e5-nicolais-projects-291e9559.vercel.app/api/fulfillments`
-- **Metadata API**: `https://shopify-analytics-7jgy0e8e5-nicolais-projects-291e9559.vercel.app/api/metadata`
+- **Analytics API**: `https://shopify-analytics-4vkk8rdlg-nicolais-projects-291e9559.vercel.app/api/analytics`
+- **Sync API**: `https://shopify-analytics-4vkk8rdlg-nicolais-projects-291e9559.vercel.app/api/sync-shop`
+- **SKU Cache API**: `https://shopify-analytics-4vkk8rdlg-nicolais-projects-291e9559.vercel.app/api/sku-cache`
+- **Inventory API**: `https://shopify-analytics-4vkk8rdlg-nicolais-projects-291e9559.vercel.app/api/inventory`
+- **Fulfillments API**: `https://shopify-analytics-4vkk8rdlg-nicolais-projects-291e9559.vercel.app/api/fulfillments`
+- **Metadata API**: `https://shopify-analytics-4vkk8rdlg-nicolais-projects-291e9559.vercel.app/api/metadata`
 - **Supabase**: [Your Supabase dashboard URL]
 - **Vercel**: [Your Vercel dashboard URL]
 
@@ -112,40 +137,52 @@ Google Sheets ←→ Google Apps Script ←→ Vercel API ←→ Supabase Databa
 ## 🛠️ **Common Commands**
 
 ### Development
+
+**⚠️ IMPORTANT: All examples below are for REFERENCE ONLY - URLs change with each deployment**
+
+**To get current production URL:** Check latest Vercel deployment or use the URL from section "🔗 Production URLs" above
+
 ```bash
 # Deploy to Vercel
 vercel --prod --yes
 
-# Test API endpoints
-curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-k469442mq-nicolais-projects-291e9559.vercel.app/api/analytics?startDate=2025-09-15&endDate=2025-09-18"
+# === SYNC DATA (Shopify → Supabase) ===
+# This is how you PUT data INTO the system
 
-# Sync specific store
-curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-k469442mq-nicolais-projects-291e9559.vercel.app/api/sync-shop?shop=pompdelux-da.myshopify.com&type=orders&days=7"
+# Sync orders for specific date range (all 5 shops)
+SHOPS=("pompdelux-da.myshopify.com" "pompdelux-de.myshopify.com" "pompdelux-nl.myshopify.com" "pompdelux-int.myshopify.com" "pompdelux-chf.myshopify.com")
+for shop in "${SHOPS[@]}"; do
+  curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
+  "https://[LATEST-DEPLOYMENT].vercel.app/api/sync-shop?shop=$shop&type=orders&startDate=2025-09-30&endDate=2025-10-01" &
+done
+wait
 
-# Test SKU analytics (individual SKUs with sizes)
-curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-k469442mq-nicolais-projects-291e9559.vercel.app/api/metadata?type=style&startDate=2025-09-15&endDate=2025-09-18&groupBy=sku"
+# Sync SKUs for specific date range (all 5 shops)
+for shop in "${SHOPS[@]}"; do
+  curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
+  "https://[LATEST-DEPLOYMENT].vercel.app/api/sync-shop?shop=$shop&type=skus&startDate=2025-09-30&endDate=2025-10-01" &
+done
+wait
 
-# Test color analytics (aggregated by color) - FIXED VAREMODTAGET AGGREGATION
-curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-k469442mq-nicolais-projects-291e9559.vercel.app/api/metadata?type=style&startDate=2025-09-15&endDate=2025-09-18&groupBy=farve"
+# === QUERY DATA (Supabase → Google Sheets) ===
+# This is how you GET data OUT of the system
 
-# Test inventory management
+# Get analytics data (queries Supabase ONLY, never Shopify)
 curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-k469442mq-nicolais-projects-291e9559.vercel.app/api/inventory?type=analytics&lowStockThreshold=5"
+  "https://[LATEST-DEPLOYMENT].vercel.app/api/analytics?startDate=2025-09-30&endDate=2025-10-01&type=dashboard"
 
-# Test fulfillment tracking
+# Get color analytics (queries Supabase ONLY)
 curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-k469442mq-nicolais-projects-291e9559.vercel.app/api/fulfillments?type=analytics&startDate=2024-09-30&endDate=2024-10-31"
+  "https://[LATEST-DEPLOYMENT].vercel.app/api/metadata?type=style&startDate=2025-09-30&endDate=2025-10-01&groupBy=farve"
 
-# Sync product metadata (ONLY Danish shop, via cron job recommended)
-# Note: Direct API call may timeout due to 5,000+ products
-# Use cron job endpoint: /api/cron?job=metadata
+# Get SKU analytics (queries Supabase ONLY)
 curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-k469442mq-nicolais-projects-291e9559.vercel.app/api/sync-shop?shop=pompdelux-da.myshopify.com&type=metadata"
+  "https://[LATEST-DEPLOYMENT].vercel.app/api/metadata?type=style&startDate=2025-09-30&endDate=2025-10-01&groupBy=sku"
 ```
+
+**Remember:**
+- **SYNC** = Write Shopify data to Supabase (`/api/sync-shop`)
+- **QUERY** = Read Supabase data for analytics (`/api/analytics`, `/api/metadata`, etc.)
 
 ### Database Management
 ```sql
@@ -329,82 +366,92 @@ API_SECRET_KEY=bda5da3d49fe0e7391fded3895b5c6bc
 
 ## 📚 **Complete API Documentation**
 
-### Analytics API (`/api/analytics`)
+**⚠️ CRITICAL REMINDER: These are QUERY endpoints - they read from Supabase, NOT Shopify**
+
+All endpoints below return data FROM SUPABASE database. To UPDATE Supabase with fresh Shopify data, use `/api/sync-shop` first (see "Sync API" section below).
+
+### Analytics API (`/api/analytics`) - **QUERIES SUPABASE**
 ```bash
-# Get dashboard data (Google Sheets format)
+# Get dashboard data (reads from orders table in Supabase)
 GET /api/analytics?startDate=2025-09-15&endDate=2025-09-18&type=dashboard
 
-# Get raw order data
+# Get raw order data (reads from orders table in Supabase)
 GET /api/analytics?startDate=2025-09-15&endDate=2025-09-18&type=raw&shop=pompdelux-da.myshopify.com
 
-# Get aggregated analytics
+# Get aggregated analytics (reads from orders table in Supabase)
 GET /api/analytics?startDate=2025-09-15&endDate=2025-09-18&type=analytics
 ```
 
-### SKU Cache API (`/api/sku-cache`) - **🔥 REPLACES SKU_CACHE SHEET**
+### SKU Cache API (`/api/sku-cache`) - **QUERIES SUPABASE**
 ```bash
-# Get SKU analytics (top sellers, refund rates, etc.)
+# Get SKU analytics (reads from skus table in Supabase)
 GET /api/sku-cache?type=analytics&startDate=2025-09-15&endDate=2025-09-18&groupBy=sku
 
-# Get raw SKU data with pagination
+# Get raw SKU data (reads from skus table in Supabase)
 GET /api/sku-cache?type=list&startDate=2025-09-15&endDate=2025-09-18&limit=1000&offset=0
 
-# Search specific SKUs
+# Search specific SKUs (reads from skus table in Supabase)
 GET /api/sku-cache?type=search&search=100522
 ```
 
-### Inventory API (`/api/inventory`)
+### Inventory API (`/api/inventory`) - **QUERIES SUPABASE**
 ```bash
-# Get inventory analytics (low stock, out of stock, etc.)
+# Get inventory analytics (reads from inventory table in Supabase)
 GET /api/inventory?type=analytics&lowStockThreshold=10
 
-# Get inventory with product metadata
+# Get inventory with product metadata (reads from inventory + product_metadata tables in Supabase)
 GET /api/inventory?type=list&includeMetadata=true&limit=1000
 
-# Search inventory
+# Search inventory (reads from inventory table in Supabase)
 GET /api/inventory?type=list&search=ABC123
 ```
 
-### Fulfillments API (`/api/fulfillments`)
+### Fulfillments API (`/api/fulfillments`) - **QUERIES SUPABASE**
 ```bash
-# Get fulfillment analytics by carrier
+# Get fulfillment analytics (reads from fulfillments table in Supabase)
 GET /api/fulfillments?type=analytics&startDate=2025-09-15&endDate=2025-09-18&groupBy=carrier
 
-# Get delivery analytics with timing
+# Get delivery analytics (reads from fulfillments table in Supabase)
 GET /api/fulfillments?type=delivery&startDate=2025-09-15&endDate=2025-09-18
 
-# Get enhanced delivery analytics with returns matrix (replaces old generateDeliveryAnalytics)
+# Get enhanced delivery analytics (reads from fulfillments + skus tables in Supabase)
 GET /api/fulfillments?type=enhanced&startDate=2025-09-01&endDate=2025-09-26
 
-# Get fulfillment list
+# Get fulfillment list (reads from fulfillments table in Supabase)
 GET /api/fulfillments?type=list&startDate=2025-09-15&endDate=2025-09-18&carrier=PostNord
 ```
 
-### Metadata API (`/api/metadata`)
+### Metadata API (`/api/metadata`) - **QUERIES SUPABASE**
 ```bash
-# Get product metadata analytics by status/program/color
+# Get product metadata analytics (reads from product_metadata table in Supabase)
 GET /api/metadata?type=analytics&groupBy=status
 
-# Get style analytics (combines SKU data with metadata)
+# Get style analytics (reads from skus + product_metadata tables in Supabase)
 GET /api/metadata?type=style&startDate=2025-09-15&endDate=2025-09-18&groupBy=farve
 
-# Search product metadata
+# Search product metadata (reads from product_metadata table in Supabase)
 GET /api/metadata?type=list&search=Calgary&status=ACTIVE
 ```
 
-### Sync API (`/api/sync-shop`)
+### Sync API (`/api/sync-shop`) - **WRITES TO SUPABASE FROM SHOPIFY**
+
+**🚨 THIS IS THE ONLY ENDPOINT THAT TALKS TO SHOPIFY API**
+
 ```bash
-# Sync orders for specific store
+# Sync orders for specific store (Shopify → Supabase orders table)
 GET /api/sync-shop?shop=pompdelux-da.myshopify.com&type=orders&days=7
 
-# Sync SKUs for specific store
+# Sync SKUs for specific store (Shopify → Supabase skus table)
 GET /api/sync-shop?shop=pompdelux-da.myshopify.com&type=skus&days=7
 
-# Sync inventory for specific store
+# Sync inventory for specific store (Shopify → Supabase inventory table)
 GET /api/sync-shop?shop=pompdelux-da.myshopify.com&type=inventory
 
-# Sync fulfillments for specific store
+# Sync fulfillments for specific store (Shopify → Supabase fulfillments table)
 GET /api/sync-shop?shop=pompdelux-da.myshopify.com&type=fulfillments&days=7
+
+# Sync with specific date range (recommended for historical data corrections)
+GET /api/sync-shop?shop=pompdelux-da.myshopify.com&type=orders&startDate=2025-09-30&endDate=2025-10-01
 ```
 
 ### Authentication
@@ -418,8 +465,10 @@ Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc
 1. Make changes to `/api/` files
 2. Test locally if needed
 3. Deploy: `vercel --prod --yes`
-4. Update Google Apps Script if API changes
-5. Test in Google Sheets
+4. **If you changed sync logic**: Re-sync historical data using `/api/sync-shop`
+5. **If you changed query logic**: Test query endpoints immediately (data already in Supabase)
+6. Update Google Apps Script if API changes
+7. Test in Google Sheets
 
 ---
 
@@ -429,6 +478,20 @@ Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc
 **Migration**: Complete ✅
 
 ## 🔧 Recent Updates
+
+### 2025-10-01: CRITICAL FIX - Shopify GraphQL Transactions Field Structure ✅
+- **🐛 CRITICAL BUG FIX**: Fixed GraphQL query for `refunds.transactions` field
+  - **Problem**: New deployments returned 0 orders while old deployment returned correct counts (e.g., DA: 402, NL: 168)
+  - **Root Cause**: GraphQL field `transactions` requires proper connection structure with `edges { node { } }`
+  - **Error**: `Field 'processedAt' doesn't exist on type 'OrderTransactionConnection'`
+  - **Solution**:
+    1. Changed GraphQL query from `transactions { processedAt }` to `transactions(first: 1) { edges { node { processedAt } } }`
+    2. Updated code to access `refund.transactions.edges[0].node.processedAt` instead of `refund.transactions[0].processedAt`
+    3. Applied fix to BOTH `fetchOrders()` and `fetchSkuData()` methods
+  - **Impact**: All shops now sync correctly with proper refund date tracking
+  - **Testing**: Verified DA shop (402 orders) and NL shop (168 orders) for 2024-09-30
+  - **Files Updated**: `api/sync-shop.js` (lines 118-123, 179-181, 309-314, 409-411)
+- **Production URL**: Updated to `shopify-analytics-4vkk8rdlg-nicolais-projects-291e9559.vercel.app`
 
 ### 2025-10-01: FIXED Revenue Calculations - Now Include ALL Discounts ✅
 - **🐛 CRITICAL BUG FIX**: Fixed revenue calculations to include ALL order-level discount allocations

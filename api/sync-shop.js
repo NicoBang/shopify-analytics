@@ -115,8 +115,12 @@ class ShopifyAPIClient {
                     }
                   }
                 }
-                transactions {
-                  processedAt
+                transactions(first: 1) {
+                  edges {
+                    node {
+                      processedAt
+                    }
+                  }
                 }
               }
             }
@@ -128,7 +132,16 @@ class ShopifyAPIClient {
 
     try {
       while (true) {
-        const data = await this.query(buildQuery(cursor));
+        const queryStr = buildQuery(cursor);
+        console.log(`🔍 Query filter: ${queryFilter}`);
+        console.log(`🔍 Full query (first 500 chars):`, queryStr.substring(0, 500));
+
+        const data = await this.query(queryStr);
+        console.log(`📊 Shopify orders response:`, {
+          query: queryFilter,
+          edgeCount: data.orders?.edges?.length || 0,
+          hasNextPage: data.orders?.pageInfo?.hasNextPage
+        });
         const edges = data.orders.edges || [];
 
         for (const edge of edges) {
@@ -157,20 +170,19 @@ class ShopifyAPIClient {
             const refundTotal = parseFloat(r.totalRefundedSet?.shopMoney?.amount || 0);
             totalRefundedAmount += refundTotal;
 
+            // Calculate total quantity FIRST
             const refundQty = r.refundLineItems.edges.reduce((sum, e) => sum + (e.node.quantity || 0), 0);
 
+            // Then check refund total ONCE
             if (refundTotal > 0) {
-              // Faktisk refund - kunden har fået penge retur
               totalRefundedQty += refundQty;
-              // Use processedAt from transactions if available, otherwise fallback to createdAt
-              const refundDate = (r.transactions && r.transactions.length > 0 && r.transactions[0].processedAt)
-                ? r.transactions[0].processedAt
+              const refundDate = (r.transactions?.edges?.[0]?.node?.processedAt)
+                ? r.transactions.edges[0].node.processedAt
                 : r.createdAt;
               if (refundDate > lastRefundDate) {
                 lastRefundDate = refundDate;
               }
             } else {
-              // Cancellation - items fjernet før betaling
               totalCancelledQty += refundQty;
             }
           });
@@ -298,8 +310,12 @@ class ShopifyAPIClient {
                     }
                   }
                 }
-                transactions {
-                  processedAt
+                transactions(first: 1) {
+                  edges {
+                    node {
+                      processedAt
+                    }
+                  }
                 }
               }
             }
@@ -381,26 +397,25 @@ class ShopifyAPIClient {
             order.refunds.forEach(refund => {
               const refundTotal = parseFloat(refund.totalRefundedSet?.shopMoney?.amount || 0);
 
-              refund.refundLineItems.edges.forEach(refundEdge => {
-                if (refundEdge.node.lineItem?.sku === item.sku) {
-                  const qty = refundEdge.node.quantity || 0;
+              // Calculate total quantity for this SKU in this refund FIRST
+              const skuRefundQty = refund.refundLineItems.edges
+                .filter(e => e.node.lineItem?.sku === item.sku)
+                .reduce((sum, e) => sum + (e.node.quantity || 0), 0);
 
-                  if (refundTotal > 0) {
-                    // Faktisk refund - kunden har fået penge retur
-                    refundedQty += qty;
-                    // Use processedAt from transactions if available, otherwise fallback to createdAt
-                    const refundDate = (refund.transactions && refund.transactions.length > 0 && refund.transactions[0].processedAt)
-                      ? refund.transactions[0].processedAt
-                      : refund.createdAt;
-                    if (refundDate > lastRefundDate) {
-                      lastRefundDate = refundDate;
-                    }
-                  } else {
-                    // Cancellation - items fjernet før betaling
-                    cancelledQty += qty;
+              // Then check refund total ONCE
+              if (skuRefundQty > 0) {
+                if (refundTotal > 0) {
+                  refundedQty += skuRefundQty;
+                  const refundDate = (refund.transactions?.edges?.[0]?.node?.processedAt)
+                    ? refund.transactions.edges[0].node.processedAt
+                    : refund.createdAt;
+                  if (refundDate > lastRefundDate) {
+                    lastRefundDate = refundDate;
                   }
+                } else {
+                  cancelledQty += skuRefundQty;
                 }
-              });
+              }
             });
 
             // Calculate price in DKK (EX MOMS)
