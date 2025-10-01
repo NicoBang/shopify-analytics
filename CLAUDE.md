@@ -494,6 +494,22 @@ Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc
 - **Files Updated**: `google-sheets-enhanced.js` (lines 6, 180-182, 220-222), `CLAUDE.md`
 - **Production URL**: Updated to `shopify-analytics-qlxndv2am-nicolais-projects-291e9559.vercel.app`
 
+### 2025-10-01: Fixed Refund Date Inconsistency Between Orders & SKUs Tables ✅
+- **🐛 CRITICAL BUG FIX**: Fixed refund_date inconsistency between orders and skus tables
+  - **Problem**: Orders table showed wrong refund dates (e.g., order 7519885885707: refund_date = 2025-09-30) while SKUs showed correct dates (e.g., refund_date = 2025-09-26 matching Shopify UI)
+  - **Root Cause**: Both syncs used `refund.createdAt` which can be updated when Shopify re-processes refund objects (e.g., during order modifications or re-syncs), making it unstable
+  - **Solution**: Use `refund.transactions[0].processedAt` (the actual refund transaction processing date) which is stable and never changes
+  - **Implementation**:
+    - Added `transactions { processedAt }` to both GraphQL queries (`api/sync-shop.js` lines 108-121, 289-304)
+    - Updated refund date logic in `fetchOrders()` to prioritize `processedAt` over `createdAt` (lines 165-171)
+    - Updated refund date logic in `fetchSkuData()` to prioritize `processedAt` over `createdAt` (lines 391-397)
+    - Both functions now use: `refund.transactions[0].processedAt || refund.createdAt` as fallback
+  - **Impact**: Future syncs will store consistent, stable refund_date values that never change
+  - **Note**: Existing orders in database need re-sync to update their refund_date values with the new logic
+  - **Testing**: Deployed to production but unable to verify immediately as sync operations returned 0 results (requires investigation)
+- **Files Updated**: `api/sync-shop.js` (lines 108-121, 165-171, 289-304, 391-397), `CLAUDE.md`
+- **Production URL**: Updated to `shopify-analytics-8av16oegn-nicolais-projects-291e9559.vercel.app`
+
 ### 2025-09-29: Fixed Historical Order Data Inconsistencies ✅
 - **🐛 CRITICAL DATA FIX**: Corrected order-level aggregation inconsistencies between orders and skus tables
   - **Problem**: Historical orders had incorrect refunded_qty and cancelled_qty due to old aggregation logic

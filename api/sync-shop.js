@@ -115,6 +115,9 @@ class ShopifyAPIClient {
                     }
                   }
                 }
+                transactions {
+                  processedAt
+                }
               }
             }
           }
@@ -159,8 +162,12 @@ class ShopifyAPIClient {
             if (refundTotal > 0) {
               // Faktisk refund - kunden har fået penge retur
               totalRefundedQty += refundQty;
-              if (r.createdAt > lastRefundDate) {
-                lastRefundDate = r.createdAt;
+              // Use processedAt from transactions if available, otherwise fallback to createdAt
+              const refundDate = (r.transactions && r.transactions.length > 0 && r.transactions[0].processedAt)
+                ? r.transactions[0].processedAt
+                : r.createdAt;
+              if (refundDate > lastRefundDate) {
+                lastRefundDate = refundDate;
               }
             } else {
               // Cancellation - items fjernet før betaling
@@ -242,6 +249,7 @@ class ShopifyAPIClient {
             node {
               id
               createdAt
+              taxesIncluded
               shippingAddress { countryCode }
               subtotalPriceSet { shopMoney { amount } }
               totalTaxSet { shopMoney { amount } }
@@ -268,6 +276,13 @@ class ShopifyAPIClient {
                     quantity
                     originalUnitPriceSet { shopMoney { amount } }
                     discountedUnitPriceSet { shopMoney { amount } }
+                    taxLines {
+                      priceSet {
+                        shopMoney {
+                          amount
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -282,6 +297,9 @@ class ShopifyAPIClient {
                       priceSet { shopMoney { amount } }
                     }
                   }
+                }
+                transactions {
+                  processedAt
                 }
               }
             }
@@ -300,6 +318,7 @@ class ShopifyAPIClient {
           const order = edge.node;
           const orderId = order.id.replace('gid://shopify/Order/', '');
           const country = order.shippingAddress?.countryCode || "Unknown";
+          const taxesIncluded = order.taxesIncluded || false;
 
           // Calculate order-level discount info (same logic as fetchOrders)
           const subtotal = parseFloat(order.subtotalPriceSet?.shopMoney?.amount || 0);
@@ -369,8 +388,12 @@ class ShopifyAPIClient {
                   if (refundTotal > 0) {
                     // Faktisk refund - kunden har fået penge retur
                     refundedQty += qty;
-                    if (refund.createdAt > lastRefundDate) {
-                      lastRefundDate = refund.createdAt;
+                    // Use processedAt from transactions if available, otherwise fallback to createdAt
+                    const refundDate = (refund.transactions && refund.transactions.length > 0 && refund.transactions[0].processedAt)
+                      ? refund.transactions[0].processedAt
+                      : refund.createdAt;
+                    if (refundDate > lastRefundDate) {
+                      lastRefundDate = refundDate;
                     }
                   } else {
                     // Cancellation - items fjernet før betaling
@@ -380,44 +403,47 @@ class ShopifyAPIClient {
               });
             });
 
-            // Get VAT divisor based on shipping country
-            const getVatDivisor = (countryCode) => {
-              const vatRates = {
-                'DK': 1.25,  // Denmark 25%
-                'DE': 1.19,  // Germany 19%
-                'NL': 1.21,  // Netherlands 21%
-                'CH': 1.081, // Switzerland 8.1%
-                'AT': 1.20,  // Austria 20%
-                'BE': 1.21,  // Belgium 21%
-                'SE': 1.25,  // Sweden 25%
-                'NO': 1.25,  // Norway 25%
-                'FI': 1.24,  // Finland 24%
-                'FR': 1.20,  // France 20%
-                'IT': 1.22,  // Italy 22%
-                'ES': 1.21,  // Spain 21%
-                'PL': 1.23,  // Poland 23%
-                'GB': 1.20,  // UK 20%
-              };
-              return vatRates[countryCode] || 1.25; // Default to 25% if unknown
-            };
-
-            const vatDivisor = getVatDivisor(country);
-
-            // Calculate price in DKK (EX MOMS - divide by country-specific VAT rate)
+            // Calculate price in DKK (EX MOMS)
+            // CRITICAL: discountedUnitPriceSet includes/excludes tax based on order.taxesIncluded
             const unitPrice = parseFloat(item.discountedUnitPriceSet?.shopMoney?.amount || 0);
-            const priceDkk = (unitPrice * this.rate) / vatDivisor;
             const quantity = item.quantity || 0;
-            const lineTotal = unitPrice * quantity;
 
-            // Allocate discount proportionally based on line item's share of order total
-            // combinedDiscountTotal er INKL moms, så vi dividerer med country-specific VAT
+            // Get line item tax
+            const lineTax = (item.taxLines || []).reduce(
+              (sum, tl) => sum + parseFloat(tl.priceSet?.shopMoney?.amount || 0),
+              0
+            );
+
+            // Calculate EX moms price
+            let unitPriceExTax;
+            if (taxesIncluded) {
+              // Prices include tax - subtract tax to get EX moms
+              unitPriceExTax = unitPrice - (lineTax / quantity);
+            } else {
+              // Prices exclude tax - use directly
+              unitPriceExTax = unitPrice;
+            }
+
+            const priceDkk = unitPriceExTax * this.rate;
+
+            // Calculate line total INCL tax for proportional discount allocation
+            const lineTotalInclTax = (unitPriceExTax + (lineTax / quantity)) * quantity;
+
+            // Allocate order-level discount proportionally
+            // combinedDiscountTotal is INCL moms, so we need to calculate the EX moms portion
             let totalDiscountDkk = 0;
             let discountPerUnitDkk = 0;
 
-            if (orderTotalDiscountedValue > 0) {
-              const lineShareOfOrder = lineTotal / orderTotalDiscountedValue;
-              const allocatedDiscount = combinedDiscountTotal * lineShareOfOrder;
-              totalDiscountDkk = (allocatedDiscount * this.rate) / vatDivisor; // EX MOMS
+            if (orderTotalDiscountedValue > 0 && combinedDiscountTotal > 0) {
+              // Line's share of total order value (INCL tax for accurate allocation)
+              const lineShareOfOrder = lineTotalInclTax / orderTotalDiscountedValue;
+              const allocatedDiscountInclTax = combinedDiscountTotal * lineShareOfOrder;
+
+              // Calculate tax portion of allocated discount
+              const taxRate = lineTax / (unitPriceExTax * quantity);
+              const allocatedDiscountExTax = allocatedDiscountInclTax / (1 + taxRate);
+
+              totalDiscountDkk = allocatedDiscountExTax * this.rate;
               discountPerUnitDkk = quantity > 0 ? totalDiscountDkk / quantity : 0;
             }
 
