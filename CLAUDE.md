@@ -235,6 +235,36 @@ CREATE INDEX idx_orders_created_at ON orders(created_at);
 CREATE INDEX idx_orders_shop_date ON orders(shop, created_at);
 ```
 
+## 💰 **Revenue Calculation Logic**
+
+### Important Understanding
+
+**Orders Table Fields**:
+- `discounted_total`: Total amount customer paid INCLUDING tax and shipping (after all discounts)
+- `tax`: ALL tax (both product tax AND shipping tax)
+- `shipping`: Shipping cost EXCLUDING tax (ex moms)
+
+**Dashboard Bruttoomsætning (Products ex tax)**:
+```javascript
+bruttoomsætning = discounted_total - tax - shipping
+```
+
+**Why this works**:
+- `discounted_total` = products (inkl. moms) + shipping (inkl. moms)
+- `tax` = product tax + shipping tax
+- `shipping` = shipping cost ex moms
+- Result: `discounted_total - tax - shipping` = products ex moms ✅
+
+**SKU Table Revenue Calculation**:
+- `price_dkk`: Unit price after LINE-LEVEL discounts (from Shopify's `discountedUnitPriceSet`)
+- `discount_per_unit_dkk`: ORDER-LEVEL discount allocation per unit
+- Final price paid: `price_dkk - discount_per_unit_dkk`
+
+**Color Analytics / SKU Analytics**:
+```javascript
+revenue = (price_dkk - discount_per_unit_dkk) * quantity
+```
+
 ## 🔐 **Security**
 
 ### Environment Variables (Vercel)
