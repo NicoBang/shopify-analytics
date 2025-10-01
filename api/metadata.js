@@ -894,7 +894,7 @@ class SupabaseService {
         const refunded = item.refunded_qty || 0;
         const cancelled = item.cancelled_qty || 0;
 
-        // Calculate actual price paid per unit
+        // Calculate actual price paid per unit (v2)
         // price_dkk is the discounted unit price (from discountedUnitPriceSet) - includes line-level discounts
         // discount_per_unit_dkk is the order-level discount allocation per unit
         // Final price = price_dkk - discount_per_unit_dkk
@@ -1160,7 +1160,7 @@ class SupabaseService {
         const refunded = item.refunded_qty || 0;
         const cancelled = item.cancelled_qty || 0;
 
-        // Calculate actual price paid per unit
+        // Calculate actual price paid per unit (v2)
         // price_dkk is the discounted unit price (from discountedUnitPriceSet) - includes line-level discounts
         // discount_per_unit_dkk is the order-level discount allocation per unit
         // Final price = price_dkk - discount_per_unit_dkk
