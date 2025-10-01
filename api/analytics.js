@@ -256,8 +256,12 @@ module.exports = async function handler(req, res) {
   try {
     const supabaseService = new SupabaseService();
 
+    // Ensure full day coverage (same logic as sku-raw.js)
     const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+
     const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
 
     // Normalize includeReturns once for use across handler
     const wantsReturns = String(includeReturns) === 'true';
