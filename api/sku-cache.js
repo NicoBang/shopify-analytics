@@ -76,6 +76,7 @@ class SupabaseService {
         quantity,
         refunded_qty,
         price_dkk,
+        discount_per_unit_dkk,
         created_at
       `)
       .gte('created_at', startDate.toISOString())
@@ -125,7 +126,11 @@ class SupabaseService {
       const group = grouped[key];
       group.total_quantity += item.quantity || 0;
       group.total_refunded += item.refunded_qty || 0;
-      group.total_revenue += (item.price_dkk || 0) * (item.quantity || 0);
+      // price_dkk is the discounted unit price (from discountedUnitPriceSet) - includes line-level discounts
+      // discount_per_unit_dkk is the order-level discount allocation per unit
+      // Final price = price_dkk - discount_per_unit_dkk
+      const unitPriceAfterDiscount = (item.price_dkk || 0) - (item.discount_per_unit_dkk || 0);
+      group.total_revenue += unitPriceAfterDiscount * (item.quantity || 0);
       group.order_count += 1;
       group.countries.add(item.country);
       group.shops.add(item.shop);

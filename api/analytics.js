@@ -100,7 +100,7 @@ class SupabaseService {
     // STEP 1: Get SKUs created in period (sales)
     let salesQuery = this.supabase
       .from('skus')
-      .select('shop, quantity, cancelled_qty, price_dkk, created_at, refund_date, refunded_qty')
+      .select('shop, quantity, cancelled_qty, price_dkk, created_at, refund_date, refunded_qty, discount_per_unit_dkk')
       .gte('created_at', startDate.toISOString())
       .lte('created_at', endDate.toISOString());
 
@@ -117,7 +117,7 @@ class SupabaseService {
     // STEP 2: Get SKUs with refund_date in period (returns)
     let refundQuery = this.supabase
       .from('skus')
-      .select('shop, quantity, cancelled_qty, price_dkk, created_at, refund_date, refunded_qty')
+      .select('shop, quantity, cancelled_qty, price_dkk, created_at, refund_date, refunded_qty, discount_per_unit_dkk')
       .not('refund_date', 'is', null)
       .gte('refund_date', startDate.toISOString())
       .lte('refund_date', endDate.toISOString());

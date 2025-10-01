@@ -243,6 +243,22 @@ class ShopifyAPIClient {
               id
               createdAt
               shippingAddress { countryCode }
+              subtotalPriceSet { shopMoney { amount } }
+              totalTaxSet { shopMoney { amount } }
+              totalDiscountsSet { shopMoney { amount } }
+              originalTotalPriceSet { shopMoney { amount } }
+              currentTotalPriceSet { shopMoney { amount } }
+              shippingLines(first: 1) {
+                edges {
+                  node {
+                    price
+                    taxLines {
+                      rate
+                      price
+                    }
+                  }
+                }
+              }
               lineItems(first: ${CONFIG.MAX_LINE_ITEMS}) {
                 edges {
                   node {
@@ -285,6 +301,54 @@ class ShopifyAPIClient {
           const orderId = order.id.replace('gid://shopify/Order/', '');
           const country = order.shippingAddress?.countryCode || "Unknown";
 
+          // Calculate order-level discount info (same logic as fetchOrders)
+          const subtotal = parseFloat(order.subtotalPriceSet?.shopMoney?.amount || 0);
+          const totalTax = parseFloat(order.totalTaxSet?.shopMoney?.amount || 0);
+          const totalDiscountsInclTax = parseFloat(order.totalDiscountsSet?.shopMoney?.amount || 0);
+
+          // Calculate shipping tax to separate product tax
+          const shippingLines = order.shippingLines?.edges || [];
+          let shippingExVat = 0;
+          shippingLines.forEach(line => {
+            const gross = parseFloat(line.node.price || 0);
+            const tax = (line.node.taxLines || []).reduce(
+              (sum, tl) => sum + parseFloat(tl.price || 0),
+              0
+            );
+            shippingExVat += gross - tax;
+          });
+
+          // Calculate discount ex tax (same as orders table)
+          let totalDiscountsExTax = totalDiscountsInclTax;
+          if (subtotal > 0 && totalTax > 0) {
+            const shippingTax = shippingExVat * 0.25;
+            const productTax = totalTax - shippingTax;
+            const productSubtotalExTax = subtotal - productTax;
+
+            if (productSubtotalExTax > 0) {
+              const taxRateOnProducts = productTax / productSubtotalExTax;
+              totalDiscountsExTax = totalDiscountsInclTax / (1 + taxRateOnProducts);
+            }
+          }
+
+          // Calculate sale discount
+          const originalTotal = parseFloat(order.originalTotalPriceSet?.shopMoney?.amount || 0);
+          const currentTotal = parseFloat(order.currentTotalPriceSet?.shopMoney?.amount || 0);
+          const saleDiscountTotal = originalTotal - currentTotal;
+
+          // Combined discount total
+          const combinedDiscountTotal = totalDiscountsInclTax + saleDiscountTotal;
+
+          // Calculate total order value (discounted prices) for proportional allocation
+          let orderTotalDiscountedValue = 0;
+          order.lineItems.edges.forEach(lineItemEdge => {
+            const item = lineItemEdge.node;
+            if (!item.sku || excludeSkus.has(item.sku)) return;
+            const unitPrice = parseFloat(item.discountedUnitPriceSet?.shopMoney?.amount || 0);
+            const quantity = item.quantity || 0;
+            orderTotalDiscountedValue += unitPrice * quantity;
+          });
+
           // Process line items
           order.lineItems.edges.forEach(lineItemEdge => {
             const item = lineItemEdge.node;
@@ -319,6 +383,19 @@ class ShopifyAPIClient {
             // Calculate price in DKK
             const unitPrice = parseFloat(item.discountedUnitPriceSet?.shopMoney?.amount || 0);
             const priceDkk = unitPrice * this.rate;
+            const quantity = item.quantity || 0;
+            const lineTotal = unitPrice * quantity;
+
+            // Allocate discount proportionally based on line item's share of order total
+            let totalDiscountDkk = 0;
+            let discountPerUnitDkk = 0;
+
+            if (orderTotalDiscountedValue > 0) {
+              const lineShareOfOrder = lineTotal / orderTotalDiscountedValue;
+              const allocatedDiscount = combinedDiscountTotal * lineShareOfOrder;
+              totalDiscountDkk = allocatedDiscount * this.rate;
+              discountPerUnitDkk = quantity > 0 ? totalDiscountDkk / quantity : 0;
+            }
 
             output.push({
               shop: this.shop.domain,
@@ -328,11 +405,13 @@ class ShopifyAPIClient {
               country: country,
               product_title: item.product?.title || "",
               variant_title: item.title || "",
-              quantity: item.quantity || 0,
+              quantity: quantity,
               refunded_qty: refundedQty,
               cancelled_qty: cancelledQty,
               price_dkk: priceDkk,
-              refund_date: lastRefundDate || null
+              refund_date: lastRefundDate || null,
+              total_discount_dkk: totalDiscountDkk,
+              discount_per_unit_dkk: discountPerUnitDkk
             });
           });
         }

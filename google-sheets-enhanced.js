@@ -3,7 +3,7 @@
 
 // Configuration
 const CONFIG = {
-  API_BASE: 'https://shopify-analytics-7jgy0e8e5-nicolais-projects-291e9559.vercel.app/api',
+  API_BASE: 'https://shopify-analytics-8m6yn4v06-nicolais-projects-291e9559.vercel.app/api',
   API_KEY: 'bda5da3d49fe0e7391fded3895b5c6bc',
   SPREADSHEET_ID: SpreadsheetApp.getActiveSpreadsheet().getId(),
 

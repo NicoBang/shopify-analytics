@@ -54,7 +54,7 @@ Google Sheets ←→ Google Apps Script ←→ Vercel API ←→ Supabase Databa
 14. `saleDiscountTotal` - Sale discounts in DKK
 15. `combinedDiscountTotal` - Total combined discounts
 
-### SKUs Table (11 columns) - **🆕 REPLACES SKU_CACHE SHEET**
+### SKUs Table (13 columns) - **🆕 REPLACES SKU_CACHE SHEET**
 1. `shop` - Store domain
 2. `order_id` - Shopify order ID
 3. `sku` - Product SKU
@@ -64,8 +64,10 @@ Google Sheets ←→ Google Apps Script ←→ Vercel API ←→ Supabase Databa
 7. `variant_title` - Variant name
 8. `quantity` - Quantity sold
 9. `refunded_qty` - Refunded quantity
-10. `price_dkk` - Price in DKK
+10. `price_dkk` - Discounted unit price in DKK (after product-level discounts)
 11. `refund_date` - Last refund date
+12. `total_discount_dkk` - **🆕** Total discount allocated to this line item in DKK (from Shopify LineItem.totalDiscountSet)
+13. `discount_per_unit_dkk` - **🆕** Discount per unit in DKK (calculated as total_discount_dkk / quantity)
 
 ### Inventory Table (3 columns)
 1. `sku` - Product SKU
@@ -397,6 +399,32 @@ Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc
 **Migration**: Complete ✅
 
 ## 🔧 Recent Updates
+
+### 2025-10-01: FIXED Revenue Calculations - Now Include ALL Discounts ✅
+- **🐛 CRITICAL BUG FIX**: Fixed revenue calculations to include ALL order-level discount allocations
+  - **Problem**: "Omsætning kr" (Revenue) only used `price_dkk` (discounted unit price) but didn't account for order-level discount allocations
+  - **Root Cause**: SKUs only had line-level discount data, not order-level `total_discounts_ex_tax` + `sale_discount_total`
+  - **Solution**:
+    1. Updated GraphQL query to fetch order-level discount fields: `totalDiscountsSet`, `originalTotalPriceSet`, `currentTotalPriceSet`, `subtotalPriceSet`, `totalTaxSet`, `shippingLines`
+    2. Calculate `combinedDiscountTotal` = `totalDiscountsInclTax` + `saleDiscountTotal` (same as orders table)
+    3. Allocate combined discount proportionally to each SKU based on their share of order total
+    4. Added two new columns to skus table: `total_discount_dkk` and `discount_per_unit_dkk`
+    5. Updated revenue calculation: `revenue = (price_dkk - discount_per_unit_dkk) * quantity`
+  - **Impact**: Revenue now reflects actual price paid by customers (including ALL discounts)
+  - **Example**: Order 6886597591379 with 16 items, 444.71 DKK `total_discounts_ex_tax` + 0 `sale_discount_total` = 529.21 DKK combined discount allocated proportionally across all items
+  - **Discount Allocation Logic**:
+    - Calculate each line item's share: `lineTotal / orderTotalDiscountedValue`
+    - Allocate discount: `combinedDiscountTotal * lineShareOfOrder`
+    - This ensures SKU-level discounts match order-level totals
+- **Database Migration**: `migrations/add_discount_columns_to_skus.sql` (run via Supabase)
+- **Files Updated**:
+  - `api/sync-shop.js` (GraphQL query + proportional discount allocation logic)
+  - `api/metadata.js` (3 revenue calculation locations)
+  - `api/sku-cache.js` (revenue aggregation)
+  - `api/sku-raw.js` (total + aggregated revenue)
+  - `api/analytics.js` (SELECT queries to include new columns)
+  - `CLAUDE.md` (schema documentation)
+- **Next Steps**: Deploy to production and sync 1-2 days of data to populate new columns
 
 ### 2025-10-01: Fixed Gender Formatting + Vejl. Pris + Inventory Batching ✅
 - **🐛 CRITICAL BUG FIX**: Fixed three display issues in Style Analytics

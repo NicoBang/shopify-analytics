@@ -117,7 +117,13 @@ module.exports = async function handler(req, res) {
     // Calculate totals without aggregation
     const totalQuantity = data.reduce((sum, item) => sum + (item.quantity || 0), 0);
     const totalRefunded = data.reduce((sum, item) => sum + (item.refunded_qty || 0), 0);
-    const totalRevenue = data.reduce((sum, item) => sum + ((item.price_dkk || 0) * (item.quantity || 0)), 0);
+    const totalRevenue = data.reduce((sum, item) => {
+      // price_dkk is the discounted unit price (from discountedUnitPriceSet) - includes line-level discounts
+      // discount_per_unit_dkk is the order-level discount allocation per unit
+      // Final price = price_dkk - discount_per_unit_dkk
+      const unitPriceAfterDiscount = (item.price_dkk || 0) - (item.discount_per_unit_dkk || 0);
+      return sum + (unitPriceAfterDiscount * (item.quantity || 0));
+    }, 0);
 
     // Optional aggregation
     let aggregatedData = null;
@@ -141,12 +147,15 @@ module.exports = async function handler(req, res) {
 
         grouped[artikelnummer].totalQuantity += item.quantity || 0;
         grouped[artikelnummer].totalRefunded += item.refunded_qty || 0;
-        grouped[artikelnummer].totalRevenue += (item.price_dkk || 0) * (item.quantity || 0);
+        // price_dkk is the discounted unit price (from discountedUnitPriceSet) - includes line-level discounts
+        // discount_per_unit_dkk is the order-level discount allocation per unit
+        const unitPriceAfterDiscount = (item.price_dkk || 0) - (item.discount_per_unit_dkk || 0);
+        grouped[artikelnummer].totalRevenue += unitPriceAfterDiscount * (item.quantity || 0);
         grouped[artikelnummer].skuCount++;
         grouped[artikelnummer].records.push({
           sku: item.sku,
           quantity: item.quantity,
-          price: item.price_dkk,
+          price: item.price_dkk || 0,
           shop: item.shop
         });
       });

@@ -291,7 +291,7 @@ class SupabaseService {
     while (hasMore) {
       let batchQuery = this.supabase
         .from('skus')
-        .select('sku, shop, order_id, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date')
+        .select('sku, shop, order_id, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date, discount_per_unit_dkk')
         .gte('created_at', adjustedStartDate.toISOString())
         .lte('created_at', adjustedEndDate.toISOString())
         .order('created_at', { ascending: false })
@@ -328,7 +328,7 @@ class SupabaseService {
     // STEP 2: Fetch refund data (SKUs with refund_date in period) - matching Dashboard API logic
     let refundQuery = this.supabase
       .from('skus')
-      .select('sku, shop, order_id, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date')
+      .select('sku, shop, order_id, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date, discount_per_unit_dkk')
       .not('refund_date', 'is', null)
       .gte('refund_date', adjustedStartDate.toISOString())
       .lte('refund_date', adjustedEndDate.toISOString())
@@ -516,7 +516,7 @@ class SupabaseService {
     while (hasMore) {
       let batchQuery = this.supabase
         .from('skus')
-        .select('sku, shop, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date')
+        .select('sku, shop, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date, discount_per_unit_dkk')
         .gte('created_at', adjustedStartDate.toISOString())
         .lte('created_at', adjustedEndDate.toISOString())
         .order('created_at', { ascending: false })
@@ -549,7 +549,7 @@ class SupabaseService {
     // STEP 2: Fetch refund data
     let refundQuery = this.supabase
       .from('skus')
-      .select('sku, shop, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date')
+      .select('sku, shop, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date, discount_per_unit_dkk')
       .not('refund_date', 'is', null)
       .gte('refund_date', adjustedStartDate.toISOString())
       .lte('refund_date', adjustedEndDate.toISOString())
@@ -893,7 +893,13 @@ class SupabaseService {
         const quantity = item.quantity || 0;
         const refunded = item.refunded_qty || 0;
         const cancelled = item.cancelled_qty || 0;
-        const revenue = (item.price_dkk || 0) * quantity;
+
+        // Calculate actual price paid per unit
+        // price_dkk is the discounted unit price (from discountedUnitPriceSet) - includes line-level discounts
+        // discount_per_unit_dkk is the order-level discount allocation per unit
+        // Final price = price_dkk - discount_per_unit_dkk
+        const unitPriceAfterDiscount = (item.price_dkk || 0) - (item.discount_per_unit_dkk || 0);
+        const revenue = unitPriceAfterDiscount * quantity;
 
         // Træk cancelled fra solgt direkte, så vi viser netto solgt
         group.solgt += (quantity - cancelled);
@@ -1153,7 +1159,13 @@ class SupabaseService {
         const quantity = item.quantity || 0;
         const refunded = item.refunded_qty || 0;
         const cancelled = item.cancelled_qty || 0;
-        const revenue = (item.price_dkk || 0) * quantity;
+
+        // Calculate actual price paid per unit
+        // price_dkk is the discounted unit price (from discountedUnitPriceSet) - includes line-level discounts
+        // discount_per_unit_dkk is the order-level discount allocation per unit
+        // Final price = price_dkk - discount_per_unit_dkk
+        const unitPriceAfterDiscount = (item.price_dkk || 0) - (item.discount_per_unit_dkk || 0);
+        const revenue = unitPriceAfterDiscount * quantity;
 
         group.solgt += (quantity - cancelled);
         group.retur += refunded;
@@ -1331,7 +1343,9 @@ class SupabaseService {
 
       const quantity = item.quantity || 0;
       const refunded = item.refunded_qty || 0;
-      const revenue = item.price_dkk * quantity || 0;
+      // price_dkk is already the discounted unit price (from discountedUnitPriceSet)
+      // It already includes ALL discounts (line-level + order-level), so we don't subtract discount_per_unit_dkk
+      const revenue = (item.price_dkk || 0) * quantity || 0;
 
       skuData.push({
         sku: sku,
