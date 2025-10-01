@@ -380,20 +380,21 @@ class ShopifyAPIClient {
               });
             });
 
-            // Calculate price in DKK
+            // Calculate price in DKK (EX MOMS - divide by 1.25 for 25% VAT)
             const unitPrice = parseFloat(item.discountedUnitPriceSet?.shopMoney?.amount || 0);
-            const priceDkk = unitPrice * this.rate;
+            const priceDkk = (unitPrice * this.rate) / 1.25;
             const quantity = item.quantity || 0;
             const lineTotal = unitPrice * quantity;
 
             // Allocate discount proportionally based on line item's share of order total
+            // combinedDiscountTotal er INKL moms, så vi dividerer med 1,25 for EX moms
             let totalDiscountDkk = 0;
             let discountPerUnitDkk = 0;
 
             if (orderTotalDiscountedValue > 0) {
               const lineShareOfOrder = lineTotal / orderTotalDiscountedValue;
               const allocatedDiscount = combinedDiscountTotal * lineShareOfOrder;
-              totalDiscountDkk = allocatedDiscount * this.rate;
+              totalDiscountDkk = (allocatedDiscount * this.rate) / 1.25; // EX MOMS
               discountPerUnitDkk = quantity > 0 ? totalDiscountDkk / quantity : 0;
             }
 
