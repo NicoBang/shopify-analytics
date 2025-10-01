@@ -117,6 +117,7 @@ module.exports = async function handler(req, res) {
     // Calculate totals without aggregation
     const totalQuantity = data.reduce((sum, item) => sum + (item.quantity || 0), 0);
     const totalRefunded = data.reduce((sum, item) => sum + (item.refunded_qty || 0), 0);
+    const totalCancelled = data.reduce((sum, item) => sum + (item.cancelled_qty || 0), 0);
     const totalRevenue = data.reduce((sum, item) => {
       // price_dkk is the discounted unit price (from discountedUnitPriceSet) - includes line-level discounts
       // discount_per_unit_dkk is the order-level discount allocation per unit
@@ -174,7 +175,8 @@ module.exports = async function handler(req, res) {
         totalRecords: data.length,
         totalQuantitySold: totalQuantity,
         totalQuantityRefunded: totalRefunded,
-        netQuantitySold: totalQuantity - totalRefunded,
+        totalQuantityCancelled: totalCancelled,
+        netQuantitySold: totalQuantity - totalRefunded - totalCancelled,
         totalRevenue: totalRevenue.toFixed(2),
         uniqueSkus: [...new Set(data.map(item => item.sku))].length,
         uniqueOrders: [...new Set(data.map(item => item.order_id))].length,

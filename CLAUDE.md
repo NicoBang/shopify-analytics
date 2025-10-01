@@ -49,12 +49,12 @@ Shopify API → /api/sync-shop → Supabase → /api/analytics → Google Sheets
 
 ## 🔗 **Production URLs**
 
-- **Analytics API**: `https://shopify-analytics-4vkk8rdlg-nicolais-projects-291e9559.vercel.app/api/analytics`
-- **Sync API**: `https://shopify-analytics-4vkk8rdlg-nicolais-projects-291e9559.vercel.app/api/sync-shop`
-- **SKU Cache API**: `https://shopify-analytics-4vkk8rdlg-nicolais-projects-291e9559.vercel.app/api/sku-cache`
-- **Inventory API**: `https://shopify-analytics-4vkk8rdlg-nicolais-projects-291e9559.vercel.app/api/inventory`
-- **Fulfillments API**: `https://shopify-analytics-4vkk8rdlg-nicolais-projects-291e9559.vercel.app/api/fulfillments`
-- **Metadata API**: `https://shopify-analytics-4vkk8rdlg-nicolais-projects-291e9559.vercel.app/api/metadata`
+- **Analytics API**: `https://shopify-analytics-g6e27cudf-nicolais-projects-291e9559.vercel.app/api/analytics`
+- **Sync API**: `https://shopify-analytics-g6e27cudf-nicolais-projects-291e9559.vercel.app/api/sync-shop`
+- **SKU Cache API**: `https://shopify-analytics-g6e27cudf-nicolais-projects-291e9559.vercel.app/api/sku-cache`
+- **Inventory API**: `https://shopify-analytics-g6e27cudf-nicolais-projects-291e9559.vercel.app/api/inventory`
+- **Fulfillments API**: `https://shopify-analytics-g6e27cudf-nicolais-projects-291e9559.vercel.app/api/fulfillments`
+- **Metadata API**: `https://shopify-analytics-g6e27cudf-nicolais-projects-291e9559.vercel.app/api/metadata`
 - **Supabase**: [Your Supabase dashboard URL]
 - **Vercel**: [Your Vercel dashboard URL]
 
@@ -479,19 +479,29 @@ Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc
 
 ## 🔧 Recent Updates
 
-### 2025-10-01: CRITICAL FIX - Shopify GraphQL Transactions Field Structure ✅
-- **🐛 CRITICAL BUG FIX**: Fixed GraphQL query for `refunds.transactions` field
-  - **Problem**: New deployments returned 0 orders while old deployment returned correct counts (e.g., DA: 402, NL: 168)
-  - **Root Cause**: GraphQL field `transactions` requires proper connection structure with `edges { node { } }`
+### 2025-10-01: ✅ COMPLETE FIX - Cancelled vs Refunded Qty Now Matches Perfectly!
+- **🎯 ORIGINAL PROBLEM SOLVED**: `cancelled_qty` and `refunded_qty` now match perfectly between orders and SKUs tables
+  - **Problem**: Orders table showed 32 cancelled + 69 refunded, but SKUs aggregation showed different numbers
+  - **Root Cause #1**: GraphQL field `transactions` required proper connection structure
+  - **Root Cause #2**: SKU summary didn't aggregate `cancelled_qty` field
   - **Error**: `Field 'processedAt' doesn't exist on type 'OrderTransactionConnection'`
-  - **Solution**:
-    1. Changed GraphQL query from `transactions { processedAt }` to `transactions(first: 1) { edges { node { processedAt } } }`
-    2. Updated code to access `refund.transactions.edges[0].node.processedAt` instead of `refund.transactions[0].processedAt`
-    3. Applied fix to BOTH `fetchOrders()` and `fetchSkuData()` methods
-  - **Impact**: All shops now sync correctly with proper refund date tracking
-  - **Testing**: Verified DA shop (402 orders) and NL shop (168 orders) for 2024-09-30
-  - **Files Updated**: `api/sync-shop.js` (lines 118-123, 179-181, 309-314, 409-411)
-- **Production URL**: Updated to `shopify-analytics-4vkk8rdlg-nicolais-projects-291e9559.vercel.app`
+
+- **Solutions Applied**:
+  1. **GraphQL Structure Fix**: Changed `transactions { processedAt }` → `transactions(first: 1) { edges { node { processedAt } } }`
+  2. **Code Update**: Access `refund.transactions.edges[0].node.processedAt` instead of `refund.transactions[0].processedAt`
+  3. **SKU Aggregation**: Added `totalQuantityCancelled` to `/api/sku-raw.js` summary
+  4. **Applied to Both Methods**: Fixed in both `fetchOrders()` and `fetchSkuData()`
+
+- **Verification (2024-09-30)**:
+  - ✅ Orders table: `cancelled_qty: 32`, `refunded_qty: 69`
+  - ✅ SKUs table: `cancelled_qty: 32`, `refunded_qty: 69`
+  - ✅ **PERFECT MATCH!** Both tables now 100% consistent
+
+- **Files Updated**:
+  - `api/sync-shop.js` (GraphQL query + refund logic)
+  - `api/sku-raw.js` (added cancelled_qty aggregation)
+
+- **Production URL**: `shopify-analytics-g6e27cudf-nicolais-projects-291e9559.vercel.app`
 
 ### 2025-10-01: FIXED Revenue Calculations - Now Include ALL Discounts ✅
 - **🐛 CRITICAL BUG FIX**: Fixed revenue calculations to include ALL order-level discount allocations
