@@ -24,12 +24,12 @@ Google Sheets ←→ Google Apps Script ←→ Vercel API ←→ Supabase Databa
 
 ## 🔗 **Production URLs**
 
-- **Analytics API**: `https://shopify-analytics-qlxndv2am-nicolais-projects-291e9559.vercel.app/api/analytics`
-- **Sync API**: `https://shopify-analytics-qlxndv2am-nicolais-projects-291e9559.vercel.app/api/sync-shop`
-- **SKU Cache API**: `https://shopify-analytics-qlxndv2am-nicolais-projects-291e9559.vercel.app/api/sku-cache`
-- **Inventory API**: `https://shopify-analytics-qlxndv2am-nicolais-projects-291e9559.vercel.app/api/inventory`
-- **Fulfillments API**: `https://shopify-analytics-qlxndv2am-nicolais-projects-291e9559.vercel.app/api/fulfillments`
-- **Metadata API**: `https://shopify-analytics-qlxndv2am-nicolais-projects-291e9559.vercel.app/api/metadata`
+- **Analytics API**: `https://shopify-analytics-7jgy0e8e5-nicolais-projects-291e9559.vercel.app/api/analytics`
+- **Sync API**: `https://shopify-analytics-7jgy0e8e5-nicolais-projects-291e9559.vercel.app/api/sync-shop`
+- **SKU Cache API**: `https://shopify-analytics-7jgy0e8e5-nicolais-projects-291e9559.vercel.app/api/sku-cache`
+- **Inventory API**: `https://shopify-analytics-7jgy0e8e5-nicolais-projects-291e9559.vercel.app/api/inventory`
+- **Fulfillments API**: `https://shopify-analytics-7jgy0e8e5-nicolais-projects-291e9559.vercel.app/api/fulfillments`
+- **Metadata API**: `https://shopify-analytics-7jgy0e8e5-nicolais-projects-291e9559.vercel.app/api/metadata`
 - **Supabase**: [Your Supabase dashboard URL]
 - **Vercel**: [Your Vercel dashboard URL]
 
@@ -397,6 +397,32 @@ Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc
 **Migration**: Complete ✅
 
 ## 🔧 Recent Updates
+
+### 2025-10-01: Fixed Gender Formatting + Vejl. Pris + Inventory Batching ✅
+- **🐛 CRITICAL BUG FIX**: Fixed three display issues in Style Analytics
+  - **Issue 1: Gender Field Formatting** ✅
+    - **Problem**: Gender displayed as `'"Boy"'` and `'"Girl"'` with escaped quotes
+    - **Root Cause**: Gender stored as JSON array string `["Girl"]` in database, getting double-encoded in API response
+    - **Solution**: Parse JSON array string in `/api/metadata.js` before returning, convert to clean format: `"Girl"` or `"Boy, Girl"`
+    - **Impact**: Gender now displays cleanly without extra quotes
+
+  - **Issue 2: Vejl. Pris (Recommended Price) Incorrect** ✅
+    - **Problem**: Vejl. Pris showed wrong values (e.g., 282.73 when database had 279)
+    - **Root Cause**: Code was incorrectly updating vejlPris from actual sale prices (`item.price_dkk`) instead of only using metadata
+    - **Solution**: Removed lines 917-924 in `/api/metadata.js` that incorrectly updated `maxPris` from sales data
+    - **Impact**: Vejl. Pris now correctly comes ONLY from metadata's `price` and `compare_at_price` fields (the highest retail price across all variants)
+
+  - **Issue 3: Lager (Inventory) Showing 0** ✅ **FIXED WITH BATCH FETCHING**
+    - **Problem**: Only 62 out of 1,284 products showed inventory (320 total units)
+    - **Root Cause**: `getInventoryData()` only fetched first 1,000 rows due to Supabase `.range()` limitation
+    - **Reality**: Inventory table has 5,168 SKUs with 2,503 having quantity > 0
+    - **Solution**: Implemented batch fetching in `/api/metadata.js` lines 924-988 to fetch ALL inventory data in chunks of 1,000
+    - **Result**: Now correctly shows 785 products with inventory (87,387 total units) - **1,270% improvement!**
+    - **Top Products**: Sweat Denim Pull-on Jeans (461 units), Langærmet Rib T-shirt (453 units), Tapered Fit Jeans (452 units)
+
+- **Files Updated**: `api/metadata.js` (lines 805-820, 870-890, 906-920, 924-988), `google-sheets-enhanced.js` (line 6), `CLAUDE.md`
+- **Production URL**: Updated to `shopify-analytics-7jgy0e8e5-nicolais-projects-291e9559.vercel.app`
+- **Testing**: September 2025 data verified - all three issues completely resolved
 
 ### 2025-09-30: CRITICAL FIX - Restored ALL Brutto Calculations in Dashboard ✅
 - **🐛 CRITICAL BUG FIX**: Reverted incorrect netto calculations back to brutto for ALL metrics

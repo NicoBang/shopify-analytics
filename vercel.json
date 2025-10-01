@@ -1,10 +1,20 @@
 {
-    "functions": {
-      "api/*.js": {
-        "maxDuration": 60
-      }
-    },
-    "env": {
-      "NODE_ENV": "production"
+  "functions": {
+    "api/*.js": {
+      "maxDuration": 60
     }
-  }
+  },
+  "env": {
+    "NODE_ENV": "production"
+  },
+  "crons": [
+    {
+      "path": "/api/cron?job=morning",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron?job=evening",
+      "schedule": "0 20 * * *"
+    }
+  ]
+}

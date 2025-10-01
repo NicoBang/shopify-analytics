@@ -487,6 +487,151 @@ class ShopifyAPIClient {
     console.log(`✅ [${this.shop.domain}] fetchFulfillments: ${output.length} fulfillments fundet`);
     return output;
   }
+
+  // FETCH METADATA FUNKTION - Chunked fetching to avoid timeout
+  async fetchMetadata(startCursor = null, maxProducts = 500) {
+    const output = [];
+    let cursor = startCursor;
+    const batchSize = 50; // Reduced for query complexity
+    let pageCount = 0;
+    let totalFetched = 0;
+    let hasMore = false;
+    let nextCursor = null;
+
+    console.log(`🇩🇰 Henter metadata (chunked, batch=${batchSize}, max=${maxProducts}, cursor=${startCursor ? 'YES' : 'NO'}): ${this.shop.domain}...`);
+
+    const buildQuery = (cursorVal) => `
+      query {
+        productVariants(first: ${batchSize}${cursorVal ? `, after: "${cursorVal}"` : ""}) {
+          edges {
+            cursor
+            node {
+              sku
+              price
+              compareAtPrice
+              product {
+                title
+                status
+                tags
+                metafields(first: 20, namespace: "custom") {
+                  edges {
+                    node {
+                      key
+                      value
+                    }
+                  }
+                }
+              }
+              title
+              inventoryItem {
+                unitCost {
+                  amount
+                }
+              }
+              metafields(first: 20, namespace: "custom") {
+                edges {
+                  node {
+                    key
+                    value
+                  }
+                }
+              }
+            }
+          }
+          pageInfo { hasNextPage }
+        }
+      }
+    `;
+
+    try {
+      while (true) {
+        const data = await this.query(buildQuery(cursor));
+        const edges = data.productVariants.edges || [];
+        pageCount++;
+
+        console.log(`📦 Page ${pageCount}: ${edges.length} variants`);
+
+        for (const edge of edges) {
+          const variant = edge.node;
+          if (!variant.sku) continue;
+
+          // Kombiner product og variant metafields (variant overskriver product)
+          const metadata = {};
+
+          // Product metafields først
+          variant.product.metafields.edges.forEach(({ node }) => {
+            metadata[node.key] = node.value;
+          });
+
+          // Variant metafields overskriver product hvis der er overlap
+          variant.metafields.edges.forEach(({ node }) => {
+            metadata[node.key] = node.value;
+          });
+
+          // Hent cost fra inventory item
+          const cost = parseFloat(variant.inventoryItem?.unitCost?.amount || 0);
+
+          // Hent price og compareAtPrice
+          const price = parseFloat(variant.price) || 0;
+          const compareAtPrice = parseFloat(variant.compareAtPrice) || 0;
+
+          // Build output record (produkt/farve excluded - parsed from titles in API layer)
+          output.push({
+            sku: variant.sku,
+            product_title: variant.product.title,
+            variant_title: variant.title,
+            status: variant.product.status,
+            cost: cost,
+            program: metadata.program || '',
+            artikelnummer: metadata.artikelnummer || variant.sku,
+            season: metadata.season || '',
+            gender: metadata.gender || '',
+            størrelse: metadata.størrelse || '',
+            varemodtaget: parseInt(metadata.varemodtaget) || 0,
+            kostpris: cost,
+            stamvarenummer: metadata.stamvarenummer || metadata['custom.stamvarenummer'] || '',
+            tags: (variant.product.tags || []).join(', '),
+            price: price,
+            compare_at_price: compareAtPrice
+          });
+
+          totalFetched++;
+
+          // Stop if we've reached maxProducts limit
+          if (totalFetched >= maxProducts) {
+            hasMore = data.productVariants.pageInfo.hasNextPage || edges.indexOf(edge) < edges.length - 1;
+            nextCursor = edge.cursor;
+            break;
+          }
+        }
+
+        // If we hit the limit mid-batch, stop here
+        if (totalFetched >= maxProducts) break;
+
+        // Check if there's more data
+        hasMore = data.productVariants.pageInfo.hasNextPage;
+        if (!hasMore) break;
+
+        cursor = edges[edges.length - 1].cursor;
+        nextCursor = cursor;
+
+        // Increased rate limiting for query complexity
+        await this.sleep(500);
+      }
+
+      console.log(`✅ fetchMetadata complete: ${output.length} products fetched in ${pageCount} pages`);
+      console.log(`📍 Has more: ${hasMore}, Next cursor: ${nextCursor ? 'YES' : 'NO'}`);
+
+      return {
+        metadata: output,
+        hasMore: hasMore,
+        nextCursor: nextCursor
+      };
+    } catch (err) {
+      console.log(`💥 Fejl i fetchMetadata: ${err.message}`);
+      throw err;
+    }
+  }
 }
 
 // Inline SupabaseService for Vercel
@@ -662,6 +807,55 @@ class SupabaseService {
 
     console.log(`✅ Successfully updated ${inventory.length} inventory items`);
     return { count: inventory.length, data };
+  }
+
+  // Update product metadata
+  async upsertMetadata(metadata) {
+    if (!metadata || metadata.length === 0) return { count: 0 };
+
+    console.log(`📋 Upserting ${metadata.length} metadata records to Supabase...`);
+
+    // Helper to convert empty strings to null for numeric fields
+    const toNumericOrNull = (val) => {
+      if (val === '' || val === null || val === undefined) return null;
+      const num = parseFloat(val);
+      return isNaN(num) ? null : num;
+    };
+
+    const dbMetadata = metadata.map(item => ({
+      sku: item.sku,
+      product_title: item.product_title || '',
+      variant_title: item.variant_title || '',
+      status: item.status || 'ACTIVE',
+      cost: toNumericOrNull(item.cost),
+      program: item.program || '',
+      artikelnummer: item.artikelnummer || item.sku,
+      season: item.season || '',
+      gender: item.gender || '',
+      størrelse: item.størrelse || '',
+      varemodtaget: toNumericOrNull(item.varemodtaget),
+      kostpris: toNumericOrNull(item.kostpris),
+      stamvarenummer: item.stamvarenummer || '',
+      tags: item.tags || '',
+      price: toNumericOrNull(item.price),
+      compare_at_price: toNumericOrNull(item.compare_at_price),
+      last_updated: new Date().toISOString()
+    }));
+
+    const { data, error } = await this.supabase
+      .from('product_metadata')
+      .upsert(dbMetadata, {
+        onConflict: 'sku',
+        ignoreDuplicates: false
+      });
+
+    if (error) {
+      console.error('❌ Error upserting metadata:', error);
+      throw error;
+    }
+
+    console.log(`✅ Successfully upserted ${metadata.length} metadata records`);
+    return { count: metadata.length, data };
   }
 
   async logSync(shop, syncType, recordsSynced, errorMessage = null) {
@@ -889,6 +1083,40 @@ module.exports = async function handler(req, res) {
         };
         break;
 
+      case 'metadata':
+        // CRITICAL: Metadata sync ONLY from Danish shop (pompdelux-da.myshopify.com)
+        if (shopDomain !== 'pompdelux-da.myshopify.com') {
+          return res.status(400).json({
+            error: 'Metadata sync only allowed from Danish shop',
+            allowedShop: 'pompdelux-da.myshopify.com',
+            requestedShop: shopDomain
+          });
+        }
+
+        console.log('📋 Fetching product metadata from Danish shop (chunked)...');
+
+        // Get cursor from query params for continuation
+        const startCursor = req.query.cursor || null;
+        const maxProducts = parseInt(req.query.maxProducts) || 500;
+
+        // Fetch chunk of metadata
+        const result = await shopifyClient.fetchMetadata(startCursor, maxProducts);
+        console.log(`✅ Fetched ${result.metadata.length} metadata records`);
+
+        // Upsert this chunk to database
+        console.log('💾 Upserting to Supabase...');
+        const metadataResult = await supabaseService.upsertMetadata(result.metadata);
+
+        recordsSynced = metadataResult.count;
+        syncData = {
+          metadataItems: result.metadata.length,
+          hasMore: result.hasMore,
+          nextCursor: result.nextCursor,
+          sampleMetadata: result.metadata.slice(0, 3),
+          message: result.hasMore ? `Chunk complete. Call again with cursor=${result.nextCursor}` : 'All metadata synced'
+        };
+        break;
+
       case 'cleanup-fulfillments':
         console.log('🧹 Starting fulfillments cleanup (no shop sync needed)...');
 
@@ -972,7 +1200,7 @@ module.exports = async function handler(req, res) {
       default:
         return res.status(400).json({
           error: 'Invalid sync type',
-          validTypes: ['orders', 'skus', 'inventory', 'fulfillments', 'cleanup-fulfillments']
+          validTypes: ['orders', 'skus', 'inventory', 'fulfillments', 'metadata', 'cleanup-fulfillments']
         });
     }
 

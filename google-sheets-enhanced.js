@@ -3,7 +3,7 @@
 
 // Configuration
 const CONFIG = {
-  API_BASE: 'https://shopify-analytics-j37bf0ijo-nicolais-projects-291e9559.vercel.app/api',
+  API_BASE: 'https://shopify-analytics-7jgy0e8e5-nicolais-projects-291e9559.vercel.app/api',
   API_KEY: 'bda5da3d49fe0e7391fded3895b5c6bc',
   SPREADSHEET_ID: SpreadsheetApp.getActiveSpreadsheet().getId(),
 
@@ -19,10 +19,12 @@ const CONFIG = {
  */
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
-  ui.createMenu('Shopify Analytics')
-    .addItem('Update Dashboard (30 days)', 'updateDashboard')
-    .addItem('Style Analytics (Colors)', 'generateStyleColorAnalytics')
-    .addItem('Style Analytics (SKUs)', 'generateStyleSKUAnalytics')
+  ui.createMenu('📊 PdL Analytics')
+    .addItem('📊 Dashboard', 'updateDashboard')
+    .addItem('🎨 Color Analytics', 'generateStyleColorAnalytics')
+    .addItem('🎨 SKU Analytics', 'generateStyleSKUAnalytics')
+    .addItem('🔢 Style Analytics', 'generateStyleNumberAnalytics')
+    .addItem('🚚 Delivery Report', 'generateDeliveryAnalytics')
     .addSeparator()
     .addItem('Test Connection', 'testConnection')
     .addToUi();
@@ -177,13 +179,13 @@ function renderDashboard_(orderRows, returnRows, startDate, endDate) {
     const orders = o.orders.size;
     const brutto = o.gross, netto = o.net, fragt = o.shipping;
     const stkBrutto = s.qty, stkNetto = s.qtyNet;
-    const stkPris = stkBrutto > 0 ? brutto / stkBrutto : 0;  // BRUTTO stykpris
-    const ordreværdi = orders > 0 ? brutto / orders : 0;  // BRUTTO ordreværdi
-    const basketSize = orders > 0 ? stkBrutto / orders : 0;  // BRUTTO basket size
+    const stkPris = stkBrutto > 0 ? brutto / stkBrutto : 0;  // Gns. stykpris = brutto / brutto antal
+    const ordreværdi = orders > 0 ? brutto / orders : 0;     // Gns. ordreværdi = brutto / orders
+    const basketSize = orders > 0 ? stkBrutto / orders : 0;  // Basket size = brutto antal / orders
     const returStkPct = stkBrutto > 0 ? s.refundedQty / stkBrutto : 0;
     const returKrPct = brutto > 0 ? o.refundedAmount / brutto : 0;
     const returOrdrePct = orders > 0 ? o.refundOrders.size / orders : 0;
-    const fragtPct = netto > 0 ? fragt / netto : 0;
+    const fragtPct = brutto > 0 ? fragt / brutto : 0;  // Fragt % af brutto
 
     rows.push([
       shopLabel_(shop),
@@ -217,14 +219,14 @@ function renderDashboard_(orderRows, returnRows, startDate, endDate) {
     totals.stkBrutto,
     totals.stkNetto,
     totals.orders,
-    round2_(totals.orders > 0 ? totals.brutto / totals.orders : 0),  // BRUTTO ordreværdi
-    totals.orders > 0 ? toFixed1_(totals.stkBrutto / totals.orders) : '0',  // BRUTTO basket size
-    round2_(totals.stkBrutto > 0 ? totals.brutto / totals.stkBrutto : 0),  // BRUTTO stykpris
+    round2_(totals.orders > 0 ? totals.brutto / totals.orders : 0),  // Gns. ordreværdi = brutto / orders
+    totals.orders > 0 ? toFixed1_(totals.stkBrutto / totals.orders) : '0',  // Basket size = brutto antal / orders
+    round2_(totals.stkBrutto > 0 ? totals.brutto / totals.stkBrutto : 0),  // Gns. stykpris total = brutto / brutto antal
     pctStr_(totals.stkBrutto > 0 ? (totals.returStk / totals.stkBrutto) : 0),
     pctStr_(totals.brutto > 0 ? (totals.returKr / totals.brutto) : 0),
     pctStr_(totals.orders > 0 ? (totals.returOrdre / totals.orders) : 0),
     round2_(totals.fragt),
-    toFixed2_(totals.netto > 0 ? (totals.fragt / totals.netto * 100) : 0),
+    toFixed2_(totals.brutto > 0 ? (totals.fragt / totals.brutto * 100) : 0),  // Fragt % af brutto
     round2_(totals.rabat),
     totals.cancelled
   ]);
@@ -249,8 +251,8 @@ function generateStyleColorAnalytics() {
     try {
       const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Color_Analytics');
       if (sheet) {
-        const startDateCell = sheet.getRange('A1').getValue();
-        const endDateCell = sheet.getRange('B1').getValue();
+        const startDateCell = sheet.getRange('B1').getValue();
+        const endDateCell = sheet.getRange('B2').getValue();
 
         // Hvis begge celler indeholder gyldige datoer, brug dem
         if (startDateCell instanceof Date && endDateCell instanceof Date) {
@@ -271,19 +273,19 @@ function generateStyleColorAnalytics() {
             const defaultStart = new Date();
             defaultStart.setDate(defaultStart.getDate() - 90);
 
-            // Kun sæt datoer hvis cellerne er helt tomme
-            if (!startDateCell) sheet.getRange('A1').setValue(defaultStart);
-            if (!endDateCell) sheet.getRange('B1').setValue(today);
-            sheet.getRange('C1').setValue('← Rediger disse datoer for at vælge periode');
+            // Setup labels og datoer som Dashboard
+            sheet.getRange('A1').setValue('Startdato:');
+            sheet.getRange('A2').setValue('Slutdato:');
+            sheet.getRange('A1:A2').setFontWeight('bold');
 
-            // Opsæt header i række 3
-            sheet.getRange('A3').setValue('Startdato');
-            sheet.getRange('B3').setValue('Slutdato');
-            sheet.getRange('C3').setValue('Vejledning');
+            // Kun sæt datoer hvis cellerne er helt tomme
+            if (!startDateCell) sheet.getRange('B1').setValue(defaultStart);
+            if (!endDateCell) sheet.getRange('B2').setValue(today);
+            sheet.getRange('B1:B2').setNumberFormat('dd/MM/yyyy');
 
             startDate = startDateCell || defaultStart;
             endDate = endDateCell || today;
-            console.log(`📅 Oprettede standard datoer. Rediger A1 og B1 for at vælge periode.`);
+            console.log(`📅 Oprettede standard datoer. Rediger B1 og B2 for at vælge periode.`);
           }
         }
       }
@@ -382,8 +384,8 @@ function generateStyleSKUAnalytics() {
     try {
       const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('SKU_Analytics');
       if (sheet) {
-        const startDateCell = sheet.getRange('A1').getValue();
-        const endDateCell = sheet.getRange('B1').getValue();
+        const startDateCell = sheet.getRange('B1').getValue();
+        const endDateCell = sheet.getRange('B2').getValue();
 
         // Hvis begge celler indeholder gyldige datoer, brug dem
         if (startDateCell instanceof Date && endDateCell instanceof Date) {
@@ -404,19 +406,19 @@ function generateStyleSKUAnalytics() {
             const defaultStart = new Date();
             defaultStart.setDate(defaultStart.getDate() - 90);
 
-            // Kun sæt datoer hvis cellerne er helt tomme
-            if (!startDateCell) sheet.getRange('A1').setValue(defaultStart);
-            if (!endDateCell) sheet.getRange('B1').setValue(today);
-            sheet.getRange('C1').setValue('← Rediger disse datoer for at vælge periode');
+            // Setup labels og datoer som Dashboard
+            sheet.getRange('A1').setValue('Startdato:');
+            sheet.getRange('A2').setValue('Slutdato:');
+            sheet.getRange('A1:A2').setFontWeight('bold');
 
-            // Opsæt header i række 3
-            sheet.getRange('A3').setValue('Startdato');
-            sheet.getRange('B3').setValue('Slutdato');
-            sheet.getRange('C3').setValue('Vejledning');
+            // Kun sæt datoer hvis cellerne er helt tomme
+            if (!startDateCell) sheet.getRange('B1').setValue(defaultStart);
+            if (!endDateCell) sheet.getRange('B2').setValue(today);
+            sheet.getRange('B1:B2').setNumberFormat('dd/MM/yyyy');
 
             startDate = startDateCell || defaultStart;
             endDate = endDateCell || today;
-            console.log(`📅 Oprettede standard datoer. Rediger A1 og B1 for at vælge periode.`);
+            console.log(`📅 Oprettede standard datoer. Rediger B1 og B2 for at vælge periode.`);
           }
         }
       }
@@ -503,6 +505,381 @@ function generateStyleSKUAnalytics() {
     console.error('💥 Fejl i generateStyleSKUAnalytics:', error);
     throw error;
   }
+}
+
+/**
+ * Style Number Analytics - individuelle stamvarenumre (samler farver)
+ */
+function generateStyleNumberAnalytics() {
+  try {
+    console.log('🔢 Starter stamvarenummer analytics...');
+
+    // Prøv at læse datoer fra Number_Analytics sheet
+    let startDate, endDate;
+
+    try {
+      const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Number_Analytics');
+      if (sheet) {
+        const startDateCell = sheet.getRange('B1').getValue();
+        const endDateCell = sheet.getRange('B2').getValue();
+
+        // Hvis begge celler indeholder gyldige datoer, brug dem
+        if (startDateCell instanceof Date && endDateCell instanceof Date) {
+          startDate = new Date(startDateCell);
+          endDate = new Date(endDateCell);
+
+          // Hvis samme dag valgt, sæt endDate til slutningen af dagen
+          if (startDate.toDateString() === endDate.toDateString()) {
+            endDate.setHours(23, 59, 59, 999);
+            console.log(`📅 Samme dag valgt - analyserer hele dagen: ${formatDate(startDate)}`);
+          } else {
+            console.log(`📅 Bruger brugerdefinerede datoer: ${formatDate(startDate)} til ${formatDate(endDate)}`);
+          }
+        } else {
+          // Opret standard header med dato-eksempler hvis sheet eksisterer men celler er tomme
+          if (!startDateCell || !endDateCell) {
+            const today = new Date();
+            const defaultStart = new Date();
+            defaultStart.setDate(defaultStart.getDate() - 90);
+
+            // Setup labels og datoer som Dashboard
+            sheet.getRange('A1').setValue('Startdato:');
+            sheet.getRange('A2').setValue('Slutdato:');
+            sheet.getRange('A1:A2').setFontWeight('bold');
+
+            // Kun sæt datoer hvis cellerne er helt tomme
+            if (!startDateCell) sheet.getRange('B1').setValue(defaultStart);
+            if (!endDateCell) sheet.getRange('B2').setValue(today);
+            sheet.getRange('B1:B2').setNumberFormat('dd/MM/yyyy');
+
+            startDate = startDateCell || defaultStart;
+            endDate = endDateCell || today;
+            console.log(`📅 Oprettede standard datoer. Rediger B1 og B2 for at vælge periode.`);
+          }
+        }
+      }
+    } catch (sheetError) {
+      console.log('ℹ️ Number_Analytics sheet ikke fundet eller fejl ved læsning af datoer');
+    }
+
+    // Fallback til standard 90-dages periode hvis ingen gyldige datoer blev fundet
+    if (!startDate || !endDate) {
+      endDate = new Date();
+      startDate = new Date();
+      startDate.setDate(startDate.getDate() - 90);
+      console.log(`📅 Bruger standard 90-dages periode: ${formatDate(startDate)} til ${formatDate(endDate)}`);
+    }
+
+    // Hent stamvarenummer-niveau data
+    const data = fetchMetadataData('style', {
+      startDate: formatDateWithTime(startDate, false),
+      endDate: formatDateWithTime(endDate, true),
+      groupBy: 'stamvarenummer'
+    });
+
+    console.log(`📊 API Response: success=${data.success}, count=${data.count}, data length=${data.data ? data.data.length : 'null'}`);
+
+    if (data.success && data.count > 0) {
+      // Headers uden Farve kolonne (stamvarenummer samler farver)
+      const headers = [
+        'Program', 'Produkt', 'Stamvarenummer', 'Sæson', 'Køn',
+        'Beregnet købt', 'Solgt', 'Retur', 'Lager', 'Varemodtaget', 'Difference',
+        'Solgt % af købt', 'Retur % af solgt', 'Kostpris', 'DB', 'Omsætning kr',
+        'Status', 'Vejl. Pris'
+      ];
+      const formattedData = data.data.map(item => [
+        item.program || '',
+        item.produkt || '',
+        item.stamvarenummer || '',
+        item.season || '',
+        convertGenderToDanish(item.gender),
+        item.beregnetKøbt || 0,
+        item.solgt || 0,
+        item.retur || 0,
+        item.lager || 0,
+        item.varemodtaget || 0,
+        item.difference || 0,
+        item.solgtPct || 0,
+        item.returPct || 0,
+        item.kostpris || 0,
+        item.db || 0,
+        item.omsætning || 0,
+        item.status || '',
+        item.vejlPris || 0
+      ]);
+
+      // Opdater sheet med data fra række 4
+      updateSheetWithOffset('Number_Analytics', headers, formattedData, 4);
+      console.log(`✅ Number Analytics opdateret med ${data.count} stamvarenumre for perioden ${formatDate(startDate)} til ${formatDate(endDate)}`);
+    } else {
+      console.log(`⚠️ Ingen data fundet for perioden ${formatDate(startDate)} til ${formatDate(endDate)}`);
+
+      // Vis besked til brugeren hvis ingen data
+      if (data.success && data.count === 0) {
+        const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Number_Analytics');
+        if (sheet) {
+          // Clear data area but keep headers
+          if (sheet.getLastRow() >= 4) {
+            const lastRow = sheet.getLastRow();
+            const lastCol = sheet.getLastColumn();
+            if (lastRow >= 4 && lastCol > 0) {
+              sheet.getRange(4, 1, lastRow - 4 + 1, lastCol).clear();
+            }
+          }
+
+          // Add "No data" message
+          sheet.getRange('A4').setValue(`Ingen data for perioden ${formatDate(startDate)} til ${formatDate(endDate)}`);
+          sheet.getRange('A4').setFontStyle('italic').setFontColor('#666666');
+        }
+      }
+    }
+
+  } catch (error) {
+    console.error('💥 Fejl i generateStyleNumberAnalytics:', error);
+    throw error;
+  }
+}
+
+/**
+ * Delivery Analytics - leveringsrapport med returner
+ */
+function generateDeliveryAnalytics() {
+  try {
+    console.log('🚚 Starter delivery analytics...');
+
+    // Prøv at læse datoer fra Delivery_Analytics sheet
+    let startDate, endDate;
+
+    try {
+      const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Delivery_Analytics');
+      if (sheet) {
+        const startDateCell = sheet.getRange('B1').getValue();
+        const endDateCell = sheet.getRange('B2').getValue();
+
+        if (startDateCell instanceof Date && endDateCell instanceof Date) {
+          startDate = new Date(startDateCell);
+          endDate = new Date(endDateCell);
+
+          if (startDate.toDateString() === endDate.toDateString()) {
+            endDate.setHours(23, 59, 59, 999);
+            console.log(`📅 Samme dag valgt - analyserer hele dagen: ${formatDate(startDate)}`);
+          } else {
+            console.log(`📅 Bruger brugerdefinerede datoer: ${formatDate(startDate)} til ${formatDate(endDate)}`);
+          }
+        } else {
+          if (!startDateCell || !endDateCell) {
+            const today = new Date();
+            const defaultStart = new Date();
+            defaultStart.setDate(defaultStart.getDate() - 30);
+
+            sheet.getRange('A1').setValue('Startdato:');
+            sheet.getRange('A2').setValue('Slutdato:');
+            sheet.getRange('A1:A2').setFontWeight('bold');
+
+            if (!startDateCell) sheet.getRange('B1').setValue(defaultStart);
+            if (!endDateCell) sheet.getRange('B2').setValue(today);
+            sheet.getRange('B1:B2').setNumberFormat('dd/MM/yyyy');
+
+            startDate = startDateCell || defaultStart;
+            endDate = endDateCell || today;
+            console.log(`📅 Oprettede standard datoer. Rediger B1 og B2 for at vælge periode.`);
+          }
+        }
+      }
+    } catch (sheetError) {
+      console.log('ℹ️ Delivery_Analytics sheet ikke fundet eller fejl ved læsning af datoer');
+    }
+
+    if (!startDate || !endDate) {
+      endDate = new Date();
+      startDate = new Date();
+      startDate.setDate(startDate.getDate() - 30);
+      console.log(`📅 Bruger standard 30-dages periode: ${formatDate(startDate)} til ${formatDate(endDate)}`);
+    }
+
+    // Hent enhanced delivery data
+    const url = `${CONFIG.API_BASE}/fulfillments`;
+    const payload = {
+      type: 'enhanced',
+      startDate: formatDateWithTime(startDate, false),
+      endDate: formatDateWithTime(endDate, true)
+    };
+    const response = makeApiRequest(url, payload);
+
+    console.log(`📊 API Response: success=${response.success}, count=${response.count}`);
+
+    if (response.success && response.data) {
+      renderDeliveryAnalytics(response.data, startDate, endDate);
+      console.log(`✅ Delivery Analytics opdateret for perioden ${formatDate(startDate)} til ${formatDate(endDate)}`);
+    } else {
+      console.log(`⚠️ Ingen leveringsdata fundet for perioden ${formatDate(startDate)} til ${formatDate(endDate)}`);
+
+      const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Delivery_Analytics');
+      if (sheet) {
+        if (sheet.getLastRow() >= 4) {
+          const lastRow = sheet.getLastRow();
+          const lastCol = sheet.getLastColumn();
+          if (lastRow >= 4 && lastCol > 0) {
+            sheet.getRange(4, 1, lastRow - 4 + 1, lastCol).clear();
+          }
+        }
+        sheet.getRange('A4').setValue(`Ingen data for perioden ${formatDate(startDate)} til ${formatDate(endDate)}`);
+        sheet.getRange('A4').setFontStyle('italic').setFontColor('#666666');
+      }
+    }
+
+  } catch (error) {
+    console.error('💥 Fejl i generateDeliveryAnalytics:', error);
+    throw error;
+  }
+}
+
+function renderDeliveryAnalytics(data, startDate, endDate) {
+  const sheet = getOrCreateSheet('Delivery_Analytics');
+
+  // Clear fra række 4
+  if (sheet.getLastRow() >= 4) {
+    const lastRow = sheet.getLastRow();
+    const lastCol = Math.max(1, sheet.getLastColumn());
+    sheet.getRange(4, 1, lastRow - 3, lastCol).clear();
+  }
+
+  let currentRow = 4;
+
+  // Title
+  sheet.getRange(currentRow, 1).setValue(`🚚 LEVERINGSRAPPORT: ${formatDate(startDate)} - ${formatDate(endDate)}`);
+  sheet.getRange(currentRow, 1).setFontWeight('bold').setFontSize(14);
+  currentRow += 2;
+
+  // Fulfillment Matrix - konverter fra "country|carrier": count til nested object
+  sheet.getRange(currentRow, 1).setValue('📦 LEVERINGER PER LAND OG LEVERANDØR');
+  sheet.getRange(currentRow, 1).setFontWeight('bold').setFontSize(12);
+  currentRow += 1;
+
+  const rawFulfillmentMatrix = data.fulfillmentMatrix || {};
+  const fulfillmentMatrix = {};
+  const carriers = new Set();
+
+  // Parse "country|carrier": count til nested {country: {carrier: count}}
+  Object.entries(rawFulfillmentMatrix).forEach(([key, count]) => {
+    const [country, carrier] = key.split('|');
+    if (!fulfillmentMatrix[country]) fulfillmentMatrix[country] = {};
+    fulfillmentMatrix[country][carrier] = count;
+    carriers.add(carrier);
+  });
+
+  const countries = Object.keys(fulfillmentMatrix).sort();
+  const carrierList = Array.from(carriers).sort();
+
+  // Headers
+  const headers = ['Land', ...carrierList, 'Total'];
+  sheet.getRange(currentRow, 1, 1, headers.length).setValues([headers]);
+  sheet.getRange(currentRow, 1, 1, headers.length).setFontWeight('bold').setBackground('#E3F2FD');
+  currentRow += 1;
+
+  // Data rows
+  let totalByCarrier = {};
+  carrierList.forEach(c => totalByCarrier[c] = 0);
+  let grandTotal = 0;
+
+  countries.forEach(country => {
+    const row = [country];
+    let countryTotal = 0;
+
+    carrierList.forEach(carrier => {
+      const count = fulfillmentMatrix[country]?.[carrier] || 0;
+      row.push(count);
+      countryTotal += count;
+      totalByCarrier[carrier] += count;
+    });
+
+    row.push(countryTotal);
+    grandTotal += countryTotal;
+    sheet.getRange(currentRow, 1, 1, row.length).setValues([row]);
+    currentRow += 1;
+  });
+
+  // Total row
+  const totalRow = ['Total', ...carrierList.map(c => totalByCarrier[c]), grandTotal];
+  sheet.getRange(currentRow, 1, 1, totalRow.length).setValues([totalRow]);
+  sheet.getRange(currentRow, 1, 1, totalRow.length).setFontWeight('bold').setBackground('#F0F8FF');
+  currentRow += 2;
+
+  // Returns Matrix - konverter fra "country|carrier": count til nested object
+  sheet.getRange(currentRow, 1).setValue('🔄 RETURER PER LAND OG LEVERANDØR');
+  sheet.getRange(currentRow, 1).setFontWeight('bold').setFontSize(12);
+  currentRow += 1;
+
+  const rawReturnMatrix = data.returnsMatrix || {};
+  const returnMatrix = {};
+  const returnCarriers = new Set();
+
+  // Parse "country|carrier": count til nested {country: {carrier: count}}
+  Object.entries(rawReturnMatrix).forEach(([key, count]) => {
+    const [country, carrier] = key.split('|');
+    if (!returnMatrix[country]) returnMatrix[country] = {};
+    returnMatrix[country][carrier] = count;
+    returnCarriers.add(carrier);
+  });
+
+  const returnCountries = Object.keys(returnMatrix).sort();
+  const returnCarrierList = Array.from(returnCarriers).sort();
+
+  // Headers
+  const returnHeaders = ['Land', ...returnCarrierList, 'Total'];
+  sheet.getRange(currentRow, 1, 1, returnHeaders.length).setValues([returnHeaders]);
+  sheet.getRange(currentRow, 1, 1, returnHeaders.length).setFontWeight('bold').setBackground('#FFE0E0');
+  currentRow += 1;
+
+  // Data rows
+  let returnTotalByCarrier = {};
+  returnCarrierList.forEach(c => returnTotalByCarrier[c] = 0);
+  let returnGrandTotal = 0;
+
+  returnCountries.forEach(country => {
+    const row = [country];
+    let countryTotal = 0;
+
+    returnCarrierList.forEach(carrier => {
+      const count = returnMatrix[country]?.[carrier] || 0;
+      row.push(count);
+      countryTotal += count;
+      returnTotalByCarrier[carrier] += count;
+    });
+
+    row.push(countryTotal);
+    returnGrandTotal += countryTotal;
+    sheet.getRange(currentRow, 1, 1, row.length).setValues([row]);
+    currentRow += 1;
+  });
+
+  // Total row
+  const returnTotalRow = ['Total', ...returnCarrierList.map(c => returnTotalByCarrier[c]), returnGrandTotal];
+  sheet.getRange(currentRow, 1, 1, returnTotalRow.length).setValues([returnTotalRow]);
+  sheet.getRange(currentRow, 1, 1, returnTotalRow.length).setFontWeight('bold').setBackground('#F0F8FF');
+  currentRow += 2;
+
+  // Summary stats
+  sheet.getRange(currentRow, 1).setValue('📊 SAMMENDRAG');
+  sheet.getRange(currentRow, 1).setFontWeight('bold').setFontSize(12);
+  currentRow += 1;
+
+  const summary = [
+    ['Antal fulfilled ordrer:', grandTotal],
+    ['Antal fulfilled styk:', data.totalFulfilledItems || 0],
+    ['Antal returneret styk:', data.totalReturnedItems || 0],
+    ['Antal returneret ordrer:', returnGrandTotal],
+    ['Retur rate (ordrer):', grandTotal > 0 ? `${((returnGrandTotal / grandTotal) * 100).toFixed(2)}%` : '0%'],
+    ['Retur rate (styk):', data.totalFulfilledItems > 0 ? `${(((data.totalReturnedItems || 0) / data.totalFulfilledItems) * 100).toFixed(2)}%` : '0%']
+  ];
+
+  summary.forEach(row => {
+    sheet.getRange(currentRow, 1, 1, 2).setValues([row]);
+    currentRow += 1;
+  });
+
+  // Auto-resize
+  sheet.autoResizeColumns(1, Math.max(headers.length, returnHeaders.length));
 }
 
 /**

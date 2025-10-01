@@ -225,14 +225,19 @@ class SupabaseService {
     const metadataMap = {};
 
     if (uniqueArtikelNummers.length > 0) {
+      // Fetch all metadata (since we can't filter by artikelnummer anymore)
       const { data: metadataData } = await this.supabase
         .from('product_metadata')
-        .select('*')
-        .in('artikelnummer', uniqueArtikelNummers);
+        .select('*');
 
       (metadataData || []).forEach(meta => {
-        if (meta.artikelnummer) {
-          metadataMap[meta.artikelnummer] = meta;
+        if (meta.sku) {
+          const baseArtikelNummer = meta.sku.split('\\')[0] || meta.sku;
+          if (uniqueArtikelNummers.includes(baseArtikelNummer)) {
+            if (!metadataMap[baseArtikelNummer]) {
+              metadataMap[baseArtikelNummer] = meta;
+            }
+          }
         }
       });
     }
@@ -263,6 +268,11 @@ class SupabaseService {
   async getStyleAnalytics(startDate, endDate, options = {}) {
     const { groupBy = 'farve', shop = null } = options;
 
+    // Special handling for stamvarenummer grouping
+    if (groupBy === 'stamvarenummer') {
+      return this.getStamvarenummerAnalytics(startDate, endDate, options);
+    }
+
     // Ensure we have the full day range - fix same-day queries
     const adjustedStartDate = new Date(startDate);
     adjustedStartDate.setHours(0, 0, 0, 0);
@@ -281,7 +291,7 @@ class SupabaseService {
     while (hasMore) {
       let batchQuery = this.supabase
         .from('skus')
-        .select('sku, shop, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date')
+        .select('sku, shop, order_id, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date')
         .gte('created_at', adjustedStartDate.toISOString())
         .lte('created_at', adjustedEndDate.toISOString())
         .order('created_at', { ascending: false })
@@ -318,7 +328,7 @@ class SupabaseService {
     // STEP 2: Fetch refund data (SKUs with refund_date in period) - matching Dashboard API logic
     let refundQuery = this.supabase
       .from('skus')
-      .select('sku, shop, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date')
+      .select('sku, shop, order_id, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date')
       .not('refund_date', 'is', null)
       .gte('refund_date', adjustedStartDate.toISOString())
       .lte('refund_date', adjustedEndDate.toISOString())
@@ -334,6 +344,10 @@ class SupabaseService {
       console.error('❌ Error fetching refund data:', refundError);
       throw refundError;
     }
+
+    console.log(`📦 Refund data fetched: ${refundData?.length || 0} rows`);
+    const totalRefundedQty = (refundData || []).reduce((sum, item) => sum + (item.refunded_qty || 0), 0);
+    console.log(`📦 Total refunded_qty from refund query: ${totalRefundedQty}`);
 
 
     // STEP 3: Combine sales and refund data correctly
@@ -402,9 +416,9 @@ class SupabaseService {
       while (hasMore) {
         const { data: chunk, error: metadataError } = await this.supabase
           .from('product_metadata')
-          .select('artikelnummer, program, produkt, farve, season, gender, status, cost, varemodtaget, tags, price, compare_at_price, størrelse, product_title, variant_title')
+          .select('sku, program, season, gender, status, cost, varemodtaget, tags, price, compare_at_price, størrelse, product_title, variant_title, stamvarenummer')
           // Include both ACTIVE and ARCHIVED products to show historical data
-          .order('artikelnummer', { ascending: true })
+          .order('sku', { ascending: true })
           .range(offset, offset + chunkSize - 1);
 
         if (metadataError) {
@@ -417,9 +431,9 @@ class SupabaseService {
 
           // Build metadata map from this chunk
           chunk.forEach(meta => {
-            if (meta.artikelnummer) {
+            if (meta.sku) {
               // Extract the base artikelnummer from the SKU (part before backslash)
-              const baseArtikelNummer = meta.artikelnummer.split('\\')[0] || meta.artikelnummer;
+              const baseArtikelNummer = meta.sku.split('\\')[0] || meta.sku;
 
               if (!metadataMap[baseArtikelNummer]) {
                 // Create new entry with first metadata values
@@ -479,6 +493,199 @@ class SupabaseService {
     });
 
     return await this.processBasicStyleAnalytics(salesByArtikelnummer, groupBy, metadataMap, allArtikelNummers);
+  }
+
+  async getStamvarenummerAnalytics(startDate, endDate, options = {}) {
+    const { shop = null } = options;
+
+    // Ensure we have the full day range
+    const adjustedStartDate = new Date(startDate);
+    adjustedStartDate.setHours(0, 0, 0, 0);
+
+    const adjustedEndDate = new Date(endDate);
+    adjustedEndDate.setHours(23, 59, 59, 999);
+
+    console.log(`📅 Stamvarenummer Analytics query: ${adjustedStartDate.toISOString()} to ${adjustedEndDate.toISOString()}`);
+
+    // STEP 1: Fetch sales data (same as getStyleAnalytics)
+    let salesData = [];
+    let hasMore = true;
+    let currentOffset = 0;
+    const batchSize = 1000;
+
+    while (hasMore) {
+      let batchQuery = this.supabase
+        .from('skus')
+        .select('sku, shop, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date')
+        .gte('created_at', adjustedStartDate.toISOString())
+        .lte('created_at', adjustedEndDate.toISOString())
+        .order('created_at', { ascending: false })
+        .range(currentOffset, currentOffset + batchSize - 1);
+
+      if (shop) {
+        batchQuery = batchQuery.eq('shop', shop);
+      }
+
+      const { data: batchData, error: batchError } = await batchQuery;
+
+      if (batchError) {
+        console.error('❌ Error fetching sales batch:', batchError);
+        throw batchError;
+      }
+
+      if (batchData && batchData.length > 0) {
+        salesData = salesData.concat(batchData);
+        currentOffset += batchData.length;
+        console.log(`  ✅ Sales batch: ${batchData.length} records, total: ${salesData.length}`);
+
+        if (batchData.length < batchSize) {
+          hasMore = false;
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+
+    // STEP 2: Fetch refund data
+    let refundQuery = this.supabase
+      .from('skus')
+      .select('sku, shop, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date')
+      .not('refund_date', 'is', null)
+      .gte('refund_date', adjustedStartDate.toISOString())
+      .lte('refund_date', adjustedEndDate.toISOString())
+      .order('refund_date', { ascending: false });
+
+    if (shop) {
+      refundQuery = refundQuery.eq('shop', shop);
+    }
+
+    const { data: refundData, error: refundError } = await refundQuery;
+
+    if (refundError) {
+      console.error('❌ Error fetching refund data:', refundError);
+      throw refundError;
+    }
+
+    // STEP 3: Combine sales and refund data
+    const combinedData = [];
+
+    salesData.forEach(item => {
+      const hasRefundInPeriod = item.refund_date &&
+        new Date(item.refund_date) >= adjustedStartDate &&
+        new Date(item.refund_date) <= adjustedEndDate;
+
+      combinedData.push({
+        ...item,
+        quantity: item.quantity || 0,
+        refunded_qty: hasRefundInPeriod ? (item.refunded_qty || 0) : 0,
+        source: 'sales'
+      });
+    });
+
+    refundData.forEach(item => {
+      const alreadyInSales = salesData.some(salesItem =>
+        salesItem.shop === item.shop &&
+        salesItem.order_id === item.order_id &&
+        salesItem.sku === item.sku
+      );
+
+      if (!alreadyInSales) {
+        combinedData.push({
+          ...item,
+          quantity: 0,
+          refunded_qty: item.refunded_qty || 0,
+          source: 'refund_only'
+        });
+      }
+    });
+
+    const data = combinedData;
+
+    // Extract unique artikelnummer from SKUs
+    const uniqueArtikelNummers = [...new Set((data || []).map(item => {
+      const sku = item.sku || '';
+      return sku.split('\\')[0] || sku;
+    }).filter(Boolean))];
+
+    // Fetch ALL metadata
+    const metadataMap = {};
+    const allArtikelNummers = new Set();
+    let offset = 0;
+    const chunkSize = 1000;
+    hasMore = true;
+
+    console.log(`📋 Fetching all product metadata in chunks of ${chunkSize}...`);
+
+    while (hasMore) {
+      const { data: chunk, error: metadataError } = await this.supabase
+        .from('product_metadata')
+        .select('sku, stamvarenummer, program, season, gender, status, cost, varemodtaget, tags, price, compare_at_price, størrelse, product_title, variant_title')
+        .order('sku', { ascending: true })
+        .range(offset, offset + chunkSize - 1);
+
+      if (metadataError) {
+        console.warn(`⚠️ Error fetching metadata chunk at offset ${offset}:`, metadataError.message);
+        hasMore = false;
+      } else if (!chunk || chunk.length === 0) {
+        hasMore = false;
+      } else {
+        chunk.forEach(meta => {
+          if (!meta.sku) return;
+
+          const baseArtikelNummer = meta.sku.split('\\')[0] || meta.sku;
+          allArtikelNummers.add(baseArtikelNummer);
+
+          // Store metadata for each artikelnummer
+          if (!metadataMap[baseArtikelNummer]) {
+            metadataMap[baseArtikelNummer] = {
+              artikelnummer: baseArtikelNummer,
+              stamvarenummer: meta.stamvarenummer || '',
+              program: meta.program || '',
+              season: meta.season || '',
+              gender: meta.gender || '',
+              status: meta.status || 'UNKNOWN',
+              cost: parseFloat(meta.cost) || 0,
+              varemodtaget: parseInt(meta.varemodtaget) || 0,
+              tags: meta.tags || '',
+              price: parseFloat(meta.price) || 0,
+              compare_at_price: parseFloat(meta.compare_at_price) || 0,
+              product_title: meta.product_title || '',
+              variant_title: meta.variant_title || ''
+            };
+          } else {
+            // Aggregate varemodtaget across all SKUs for this artikelnummer
+            metadataMap[baseArtikelNummer].varemodtaget += parseInt(meta.varemodtaget) || 0;
+
+            // Keep highest price
+            if (meta.price && parseFloat(meta.price) > metadataMap[baseArtikelNummer].price) {
+              metadataMap[baseArtikelNummer].price = meta.price;
+            }
+            if (meta.compare_at_price && parseFloat(meta.compare_at_price) > metadataMap[baseArtikelNummer].compare_at_price) {
+              metadataMap[baseArtikelNummer].compare_at_price = meta.compare_at_price;
+            }
+          }
+        });
+
+        if (chunk.length < chunkSize) {
+          hasMore = false;
+        } else {
+          offset += chunkSize;
+        }
+      }
+    }
+
+    // Create a map of sales data by artikelnummer
+    const salesByArtikelnummer = {};
+    (data || []).forEach(item => {
+      const sku = item.sku || '';
+      const artikelnummer = sku.split('\\')[0] || sku;
+      if (!salesByArtikelnummer[artikelnummer]) {
+        salesByArtikelnummer[artikelnummer] = [];
+      }
+      salesByArtikelnummer[artikelnummer].push(item);
+    });
+
+    return await this.processStamvarenummerAnalytics(salesByArtikelnummer, metadataMap, allArtikelNummers);
   }
 
   async getSkuAnalytics(startDate, endDate, options = {}) {
@@ -595,6 +802,23 @@ class SupabaseService {
           parsedTitle = this.parseProductTitle(titleToUse);
         }
 
+        // Parse gender field to clean up JSON array strings
+        let cleanGender = '';
+        if (meta.gender) {
+          try {
+            // Try to parse if it's a JSON array string like '["Girl"]' or '["Boy","Girl"]'
+            const parsed = JSON.parse(meta.gender);
+            if (Array.isArray(parsed)) {
+              cleanGender = parsed.join(', ');
+            } else {
+              cleanGender = meta.gender;
+            }
+          } catch (e) {
+            // If parsing fails, use as-is but clean up extra quotes
+            cleanGender = meta.gender.replace(/["\[\]]/g, '');
+          }
+        }
+
         grouped[artikelnummer] = {
           // Use parsed values for produkt/farve (database fields are empty)
           // Use metadata for season/gender/program
@@ -603,7 +827,7 @@ class SupabaseService {
           farve: parsedTitle.farve || '',      // Always from parsed title
           artikelnummer: artikelnummer,
           season: meta.season || '',           // From metadata
-          gender: meta.gender || '',           // From metadata
+          gender: cleanGender,                 // Cleaned gender (from JSON array)
           solgt: 0,
           retur: 0,
           cancelled: 0,
@@ -630,10 +854,40 @@ class SupabaseService {
 
       // Process each sale for this artikelnummer
       salesItems.forEach(item => {
-        const group = grouped[artikelnummer];
+        let group = grouped[artikelnummer];
+
+        // If no metadata exists for this artikelnummer, create a minimal entry
         if (!group) {
-          console.warn(`⚠️ No metadata for artikelnummer ${artikelnummer} with sales`);
-          return;
+          console.warn(`⚠️ No metadata for artikelnummer ${artikelnummer}, creating minimal entry`);
+
+          // Parse product title to extract program/produkt/farve
+          let parsedTitle = { program: '', produkt: '', farve: '' };
+          const titleToUse = item.product_title || item.variant_title || '';
+          if (titleToUse) {
+            parsedTitle = this.parseProductTitle(titleToUse);
+          }
+
+          grouped[artikelnummer] = {
+            program: parsedTitle.program || '',
+            produkt: parsedTitle.produkt || '',
+            farve: parsedTitle.farve || '',
+            artikelnummer: artikelnummer,
+            season: '',
+            gender: '',  // Clean gender (empty for no metadata)
+            solgt: 0,
+            retur: 0,
+            cancelled: 0,
+            omsætning: 0,
+            lager: 0,
+            varemodtaget: 0,
+            kostpris: 0,
+            status: 'NO_METADATA',
+            tags: '',
+            maxPris: 0,
+            shops: new Set(),
+            skus: new Set()
+          };
+          group = grouped[artikelnummer];
         }
 
         const quantity = item.quantity || 0;
@@ -651,6 +905,7 @@ class SupabaseService {
 
         // DON'T update metadata from item - it should come from metadataMap ONLY
         // The SKU table doesn't have season/gender - those only exist in metadata
+        // vejlPris (maxPris) should ONLY come from metadata, not from actual sale prices
         // Only update cost and varemodtaget if they're not set from metadata
         if (item.cost && group.kostpris === 0) {
           group.kostpris = parseFloat(item.cost) || 0;
@@ -659,16 +914,8 @@ class SupabaseService {
           group.varemodtaget = parseInt(item.varemodtaget) || 0;
         }
 
-        // Always update maxPris to get the highest price across all variants
-        if (group.maxPris === undefined) {
-          group.maxPris = 0;
-        }
-        group.maxPris = Math.max(
-          group.maxPris,
-          parseFloat(item.compare_at_price) || 0,
-          parseFloat(item.price_meta) || 0,
-          parseFloat(item.price_dkk) || 0
-        );
+        // Don't update maxPris from sales data - vejlPris should only come from metadata
+        // (item.price_dkk is the actual discounted sale price, not the recommended retail price)
       });
     });
 
@@ -676,27 +923,59 @@ class SupabaseService {
 
     // Second pass: get inventory data for each style
     try {
-      // Get all inventory data for the style analysis
-      const inventoryResult = await this.getInventoryData({
-        limit: 5000,
-        offset: 0,
-        includeTotals: false
-      });
-
-      const inventoryData = inventoryResult?.data || [];
-      console.log(`📦 Retrieved ${inventoryData.length} inventory records`);
-
-      // Aggregate inventory by style
+      // Fetch ALL inventory data in batches (Supabase has a row limit per query)
       const inventoryByStyle = {};
-      inventoryData.forEach(invItem => {
-        const sku = invItem.sku || '';
-        const artikelnummer = sku.split('\\')[0] || sku;
+      let offset = 0;
+      const batchSize = 1000;
+      let hasMoreInventory = true;
+      let totalInventoryRecords = 0;
 
-        if (!inventoryByStyle[artikelnummer]) {
-          inventoryByStyle[artikelnummer] = 0;
+      console.log(`📦 Fetching all inventory data in batches of ${batchSize}...`);
+
+      while (hasMoreInventory) {
+        const { data, error } = await this.supabase
+          .from('inventory')
+          .select('sku, quantity')
+          .range(offset, offset + batchSize - 1);
+
+        if (error) {
+          console.error(`❌ Error fetching inventory batch at offset ${offset}:`, error);
+          break;
         }
-        inventoryByStyle[artikelnummer] += parseInt(invItem.quantity) || 0;
-      });
+
+        if (!data || data.length === 0) {
+          hasMoreInventory = false;
+          break;
+        }
+
+        totalInventoryRecords += data.length;
+
+        // Aggregate this batch by artikelnummer
+        data.forEach(invItem => {
+          const sku = invItem.sku || '';
+          const artikelnummer = sku.split('\\')[0] || sku;
+
+          if (!inventoryByStyle[artikelnummer]) {
+            inventoryByStyle[artikelnummer] = 0;
+          }
+          inventoryByStyle[artikelnummer] += parseInt(invItem.quantity) || 0;
+        });
+
+        console.log(`  ✅ Inventory batch: ${data.length} records, total: ${totalInventoryRecords}`);
+
+        if (data.length < batchSize) {
+          hasMoreInventory = false;
+        } else {
+          offset += batchSize;
+        }
+      }
+
+      console.log(`📦 Retrieved ${totalInventoryRecords} total inventory records`);
+      console.log(`📦 Inventory aggregated for ${Object.keys(inventoryByStyle).length} artikelnummer`);
+
+      if (Object.keys(inventoryByStyle).length === 0) {
+        console.warn('⚠️ No inventory data found in inventory table - run inventory sync first');
+      }
 
       // Update grouped data with inventory
       Object.keys(grouped).forEach(artikelnummer => {
@@ -769,6 +1048,228 @@ class SupabaseService {
     }).sort((a, b) => b.omsætning - a.omsætning);
 
     console.log(`✅ Processed ${results.length} styles with inventory integration`);
+    return results;
+  }
+
+  async processStamvarenummerAnalytics(salesByArtikelnummer, metadataMap = {}, allArtikelNummers = new Set()) {
+    // Group by stamvarenummer, aggregating colors within each master style number
+    // This replicates the original STYLE_NUMBER_Analytics.gs logic
+
+    const grouped = {};
+
+    // Helper function to derive grouping key (stamvarenummer)
+    const deriveStamvarenummer = (artikelnummer) => {
+      const meta = metadataMap[artikelnummer];
+      if (!meta) return artikelnummer;
+
+      // Use stamvarenummer if available
+      if (meta.stamvarenummer && meta.stamvarenummer.trim()) {
+        return meta.stamvarenummer.trim();
+      }
+
+      // Fallback: Extract base product name from product_title
+      // Example: "Boho tunika - Little - Dark Purple" -> "Boho tunika - Little"
+      const productTitle = meta.product_title || '';
+      if (productTitle) {
+        const parts = productTitle.split(' - ');
+        if (parts.length >= 2) {
+          // Find second occurrence of " - "
+          const secondDashIndex = productTitle.indexOf(' - ', productTitle.indexOf(' - ') + 3);
+          if (secondDashIndex > 0) {
+            return productTitle.substring(0, secondDashIndex);
+          }
+        }
+      }
+
+      // Final fallback: use artikelnummer
+      return artikelnummer;
+    };
+
+    // FIRST PASS: Initialize entries for ALL products from metadata
+    if (metadataMap && Object.keys(metadataMap).length > 0) {
+      Object.keys(metadataMap).forEach(artikelnummer => {
+        const meta = metadataMap[artikelnummer];
+        const stamvarenummer = deriveStamvarenummer(artikelnummer);
+
+        // Parse product title for produkt field
+        let parsedTitle = { program: '', produkt: '', farve: '' };
+        const titleToUse = meta.product_title || meta.variant_title || '';
+        if (titleToUse) {
+          parsedTitle = this.parseProductTitle(titleToUse);
+        }
+
+        if (!grouped[stamvarenummer]) {
+          grouped[stamvarenummer] = {
+            program: meta.program || parsedTitle.program || '',
+            produkt: parsedTitle.produkt || '',
+            stamvarenummer: stamvarenummer,
+            season: meta.season || '',
+            gender: meta.gender || '',
+            solgt: 0,
+            retur: 0,
+            cancelled: 0,
+            omsætning: 0,
+            lager: 0,
+            varemodtaget: parseInt(meta.varemodtaget) || 0,
+            kostpris: parseFloat(meta.cost) || 0,
+            status: meta.status || 'UNKNOWN',
+            tags: meta.tags || '',
+            maxPris: Math.max(
+              parseFloat(meta.price) || 0,
+              parseFloat(meta.compare_at_price) || 0
+            ),
+            shops: new Set(),
+            skus: new Set(),
+            artikelnummerCount: 0
+          };
+        } else {
+          // Aggregate varemodtaget across different artikelnummer in same stamvarenummer
+          grouped[stamvarenummer].varemodtaget += parseInt(meta.varemodtaget) || 0;
+
+          // Keep highest price
+          grouped[stamvarenummer].maxPris = Math.max(
+            grouped[stamvarenummer].maxPris,
+            parseFloat(meta.price) || 0,
+            parseFloat(meta.compare_at_price) || 0
+          );
+        }
+
+        grouped[stamvarenummer].artikelnummerCount++;
+      });
+    }
+
+    // SECOND PASS: Aggregate sales data by stamvarenummer
+    Object.keys(salesByArtikelnummer).forEach(artikelnummer => {
+      const salesItems = salesByArtikelnummer[artikelnummer] || [];
+      const stamvarenummer = deriveStamvarenummer(artikelnummer);
+
+      const group = grouped[stamvarenummer];
+      if (!group) {
+        console.warn(`⚠️ No metadata for stamvarenummer ${stamvarenummer} with sales`);
+        return;
+      }
+
+      salesItems.forEach(item => {
+        const quantity = item.quantity || 0;
+        const refunded = item.refunded_qty || 0;
+        const cancelled = item.cancelled_qty || 0;
+        const revenue = (item.price_dkk || 0) * quantity;
+
+        group.solgt += (quantity - cancelled);
+        group.retur += refunded;
+        group.cancelled += cancelled;
+        group.omsætning += revenue;
+        group.shops.add(item.shop);
+        group.skus.add(item.sku);
+      });
+    });
+
+    console.log(`📦 Found ${Object.keys(grouped).length} unique stamvarenummer, fetching inventory...`);
+
+    // THIRD PASS: Add inventory data from separate inventory table
+    const stamvarenummerWithSales = Object.keys(grouped);
+
+    // Get all SKUs from grouped data
+    const allSkus = new Set();
+    Object.values(grouped).forEach(group => {
+      group.skus.forEach(sku => allSkus.add(sku));
+    });
+
+    // Add SKUs from metadataMap even if they don't have sales
+    Object.keys(metadataMap).forEach(artikelnummer => {
+      // Get all sizes for this artikelnummer
+      const sizeVariants = Object.keys(metadataMap).filter(a => a.startsWith(artikelnummer + '\\'));
+      sizeVariants.forEach(variant => allSkus.add(variant));
+    });
+
+    if (allSkus.size > 0) {
+      const skuArray = Array.from(allSkus);
+      console.log(`🔍 Fetching inventory for ${skuArray.length} SKUs...`);
+
+      // Fetch inventory in batches
+      const batchSize = 1000;
+      const inventoryMap = {};
+
+      for (let i = 0; i < skuArray.length; i += batchSize) {
+        const batch = skuArray.slice(i, i + batchSize);
+        const { data: inventoryData, error: inventoryError } = await this.supabase
+          .from('inventory')
+          .select('sku, quantity')
+          .in('sku', batch);
+
+        if (!inventoryError && inventoryData) {
+          inventoryData.forEach(inv => {
+            inventoryMap[inv.sku] = inv.quantity || 0;
+          });
+        }
+      }
+
+      // Aggregate inventory to stamvarenummer level
+      Object.keys(grouped).forEach(stamvarenummer => {
+        const group = grouped[stamvarenummer];
+        let totalInventory = 0;
+
+        // Sum inventory for all SKUs in this stamvarenummer
+        group.skus.forEach(sku => {
+          totalInventory += inventoryMap[sku] || 0;
+        });
+
+        // Also add inventory for SKUs without sales but in same stamvarenummer
+        Object.keys(metadataMap).forEach(artikelnummer => {
+          if (deriveStamvarenummer(artikelnummer) === stamvarenummer) {
+            // Get all size variants
+            const sizeVariants = Object.keys(metadataMap).filter(a => a.startsWith(artikelnummer + '\\'));
+            sizeVariants.forEach(variant => {
+              if (!group.skus.has(variant)) {
+                totalInventory += inventoryMap[variant] || 0;
+              }
+            });
+          }
+        });
+
+        group.lager = totalInventory;
+      });
+    }
+
+    // FOURTH PASS: Calculate metrics and format results
+    const results = Object.keys(grouped).map(stamvarenummer => {
+      const group = grouped[stamvarenummer];
+
+      const købt = group.lager + group.solgt - group.retur;
+      const solgtPct = købt > 0 ? (group.solgt / købt) * 100 : 0;
+      const returPct = group.solgt > 0 ? (group.retur / group.solgt) * 100 : 0;
+      const difference = købt - group.varemodtaget;
+      const db = group.omsætning - (group.kostpris * (group.solgt - group.retur));
+
+      const shopCount = group.shops.size;
+      const skuCount = group.skus.size;
+
+      return {
+        program: group.program,
+        produkt: group.produkt,
+        stamvarenummer: stamvarenummer,
+        season: group.season,
+        gender: group.gender,
+        beregnetKøbt: købt,
+        solgt: group.solgt,
+        retur: group.retur,
+        lager: group.lager,
+        varemodtaget: group.varemodtaget,
+        difference: difference,
+        solgtPct: Math.round(solgtPct * 100) / 100,
+        returPct: Math.round(returPct * 100) / 100,
+        kostpris: Math.round(group.kostpris * 100) / 100,
+        db: Math.round(db * 100) / 100,
+        omsætning: Math.round(group.omsætning * 100) / 100,
+        status: group.status,
+        vejlPris: Math.round(group.maxPris * 100) / 100,
+        artikelnummerCount: group.artikelnummerCount,
+        shopCount: shopCount,
+        skuCount: skuCount
+      };
+    }).sort((a, b) => a.stamvarenummer.localeCompare(b.stamvarenummer));
+
+    console.log(`✅ Processed ${results.length} stamvarenummer with inventory integration`);
     return results;
   }
 
