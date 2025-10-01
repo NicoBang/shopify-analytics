@@ -3,7 +3,7 @@
 
 // Configuration
 const CONFIG = {
-  API_BASE: 'https://shopify-analytics-4c2oj5b1a-nicolais-projects-291e9559.vercel.app/api',
+  API_BASE: 'https://shopify-analytics-nu.vercel.app/api',
   API_KEY: 'bda5da3d49fe0e7391fded3895b5c6bc',
   SPREADSHEET_ID: SpreadsheetApp.getActiveSpreadsheet().getId(),
 
@@ -111,11 +111,16 @@ function renderDashboard_(orderRows, returnRows, startDate, endDate) {
     skuStats[s] = { qty:0, qtyNet:0, refundedQty:0, cancelledQty:0 };
   });
 
+  // Track which returns we've already counted in orderRows
+  const processedReturns = new Set();
+
   // Ordrer oprettet i perioden
   orderRows.forEach(row => {
     if (!row || row.length < 15) return;
     const shop = row[IDX.SHOP];
     if (!shopMap[shop]) return;
+
+    const orderId = row[IDX.ORDER_ID];
 
     const discountedTotal = toNum_(row[IDX.DISCOUNTED_TOTAL]);
     const tax = toNum_(row[IDX.TAX]);
@@ -128,7 +133,7 @@ function renderDashboard_(orderRows, returnRows, startDate, endDate) {
     shopMap[shop].net += brutto;
     shopMap[shop].shipping += shipping;
     shopMap[shop].totalDiscounts += toNum_(row[IDX.COMBINED_DISCOUNT_TOTAL]);
-    shopMap[shop].orders.add(row[IDX.ORDER_ID]);
+    shopMap[shop].orders.add(orderId);
 
     const cancelledQty = toNum_(row[IDX.CANCELLED_QTY]);
     const itemCount = toNum_(row[IDX.ITEM_COUNT]);
@@ -147,6 +152,27 @@ function renderDashboard_(orderRows, returnRows, startDate, endDate) {
       shopMap[shop].gross -= cancelValueExTax;
       shopMap[shop].net -= cancelValueExTax;
     }
+
+    // Håndter returer for ordrer i perioden (undgå dobbelt-træk senere)
+    const refundedAmount = toNum_(row[IDX.REFUNDED_AMOUNT]);
+    const refundedQty = toNum_(row[IDX.REFUNDED_QTY]);
+    const refundDate = row[IDX.REFUND_DATE];
+
+    // KUN tæl returen hvis refund_date er inden for denne periode
+    if (refundDate && refundedAmount > 0) {
+      const refundDateObj = new Date(refundDate);
+      if (refundDateObj >= startDate && refundDateObj <= endDate) {
+        shopMap[shop].net -= refundedAmount;
+        shopMap[shop].refundedAmount += refundedAmount;
+        if (refundedQty > 0) {
+          shopMap[shop].refundOrders.add(orderId);
+        }
+        skuStats[shop].refundedQty += refundedQty;
+        skuStats[shop].qtyNet -= refundedQty;
+        // Mark this return as processed so we don't count it again in returnRows
+        processedReturns.add(orderId);
+      }
+    }
   });
 
   // Returer dateret på refund_date i perioden
@@ -155,15 +181,22 @@ function renderDashboard_(orderRows, returnRows, startDate, endDate) {
     const shop = row[IDX.SHOP];
     if (!shopMap[shop]) return;
 
+    const orderId = row[IDX.ORDER_ID];
     const refundedAmount = toNum_(row[IDX.REFUNDED_AMOUNT]);
     const refundedQty = toNum_(row[IDX.REFUNDED_QTY]);
     const refundDate = row[IDX.REFUND_DATE];
     if (!refundDate) return;
 
+    // Skip if we already counted this return in orderRows
+    if (processedReturns.has(orderId)) {
+      return;
+    }
+
+    // This return is from an order created in an earlier period
+    // Only subtract the return value (order creation not in this period)
     shopMap[shop].net -= refundedAmount;
     shopMap[shop].refundedAmount += refundedAmount;
     if (refundedQty > 0) {
-      const orderId = row[IDX.ORDER_ID] || '';
       shopMap[shop].refundOrders.add(orderId);
     }
     skuStats[shop].refundedQty += refundedQty;
