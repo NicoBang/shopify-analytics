@@ -122,7 +122,6 @@ module.exports = async function handler(req, res) {
       // discount_per_unit_dkk is the order-level discount allocation per unit
       // Final price = price_dkk - discount_per_unit_dkk
       const unitPriceAfterDiscount = (item.price_dkk || 0) - (item.discount_per_unit_dkk || 0);
-      console.log(`[DEBUG] SKU: ${item.sku}, price: ${item.price_dkk}, discount: ${item.discount_per_unit_dkk}, final: ${unitPriceAfterDiscount}`);
       return sum + (unitPriceAfterDiscount * (item.quantity || 0));
     }, 0);
 

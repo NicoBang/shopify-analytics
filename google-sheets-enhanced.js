@@ -3,7 +3,7 @@
 
 // Configuration
 const CONFIG = {
-  API_BASE: 'https://shopify-analytics-8m6yn4v06-nicolais-projects-291e9559.vercel.app/api',
+  API_BASE: 'https://shopify-analytics-edg6camym-nicolais-projects-291e9559.vercel.app/api',
   API_KEY: 'bda5da3d49fe0e7391fded3895b5c6bc',
   SPREADSHEET_ID: SpreadsheetApp.getActiveSpreadsheet().getId(),
 
@@ -120,9 +120,9 @@ function renderDashboard_(orderRows, returnRows, startDate, endDate) {
     const discountedTotal = toNum_(row[IDX.DISCOUNTED_TOTAL]);
     const tax = toNum_(row[IDX.TAX]);
     const shipping = toNum_(row[IDX.SHIPPING]);
-    const shippingTax = shipping * 0.25; // 25% moms på fragt
-    const productTax = tax - shippingTax; // Moms kun på produkter
-    const brutto = discountedTotal - productTax;
+    // shipping er allerede ex moms, og shipping tax er inkluderet i tax
+    // brutto = hvad vi har solgt produkter for ex moms
+    const brutto = discountedTotal - tax - shipping;
 
     shopMap[shop].gross += brutto;
     shopMap[shop].net += brutto;
