@@ -49,12 +49,17 @@ Shopify API → /api/sync-shop → Supabase → /api/analytics → Google Sheets
 
 ## 🔗 **Production URLs**
 
-- **Analytics API**: `https://shopify-analytics-g6e27cudf-nicolais-projects-291e9559.vercel.app/api/analytics`
-- **Sync API**: `https://shopify-analytics-g6e27cudf-nicolais-projects-291e9559.vercel.app/api/sync-shop`
-- **SKU Cache API**: `https://shopify-analytics-g6e27cudf-nicolais-projects-291e9559.vercel.app/api/sku-cache`
-- **Inventory API**: `https://shopify-analytics-g6e27cudf-nicolais-projects-291e9559.vercel.app/api/inventory`
-- **Fulfillments API**: `https://shopify-analytics-g6e27cudf-nicolais-projects-291e9559.vercel.app/api/fulfillments`
-- **Metadata API**: `https://shopify-analytics-g6e27cudf-nicolais-projects-291e9559.vercel.app/api/metadata`
+**🔗 Stable Production Alias** (recommended - auto-updates):
+- **Base URL**: `https://shopify-analytics-nu.vercel.app/api`
+- **Analytics API**: `https://shopify-analytics-nu.vercel.app/api/analytics`
+- **Sync API**: `https://shopify-analytics-nu.vercel.app/api/sync-shop`
+- **SKU Cache API**: `https://shopify-analytics-nu.vercel.app/api/sku-cache`
+- **Inventory API**: `https://shopify-analytics-nu.vercel.app/api/inventory`
+- **Fulfillments API**: `https://shopify-analytics-nu.vercel.app/api/fulfillments`
+- **Metadata API**: `https://shopify-analytics-nu.vercel.app/api/metadata`
+
+**Current Deployment** (for reference only - changes with each deploy):
+- `https://shopify-analytics-1w2lagntu-nicolais-projects-291e9559.vercel.app`
 - **Supabase**: [Your Supabase dashboard URL]
 - **Vercel**: [Your Vercel dashboard URL]
 
@@ -566,6 +571,20 @@ Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc
     - **Basket size** = stkBrutto / antal ordrer (was: stkNetto / antal ordrer)
 - **Files Updated**: `google-sheets-enhanced.js` (lines 6, 180-182, 220-222), `CLAUDE.md`
 - **Production URL**: Updated to `shopify-analytics-qlxndv2am-nicolais-projects-291e9559.vercel.app`
+
+### 2025-10-02: Fixed Non-Deterministic Dashboard Results ✅
+- **🐛 CRITICAL BUG FIX**: Fixed Dashboard showing alternating results for same query
+  - **Problem**: Running same query (30/09/2024 to 30/09/2025) produced alternating results: "Antal stk Brutto" showed 185149, then 185166, then 185149, then 185166...
+  - **Root Cause**: PostgreSQL doesn't guarantee consistent ordering when multiple orders have identical timestamps. When paginating with `.order('created_at')` alone, orders with same timestamp could appear in different batches across executions
+  - **Impact**: 17 orders with identical timestamps (185166 - 185149 = 17) were being included/excluded inconsistently
+  - **Solution**: Added `.order('order_id', { ascending: false })` as secondary sort key in both pagination queries
+  - **Files Updated**:
+    - `api/analytics.js` lines 30-31 (getOrdersForPeriod)
+    - `api/analytics.js` lines 71-72 (getOrdersRefundedInPeriod)
+    - `google-sheets-enhanced.js` line 6 (API_BASE URL)
+    - `CLAUDE.md` (documentation)
+  - **Impact**: Dashboard now produces consistent, reproducible results every time
+- **Production URL**: Updated to `shopify-analytics-1w2lagntu-nicolais-projects-291e9559.vercel.app`
 
 ### 2025-10-01: Fixed Refund Date Inconsistency Between Orders & SKUs Tables ✅
 - **🐛 CRITICAL BUG FIX**: Fixed refund_date inconsistency between orders and skus tables
