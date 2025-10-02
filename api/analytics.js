@@ -28,6 +28,7 @@ class SupabaseService {
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString())
         .order('created_at', { ascending: false })
+        .order('order_id', { ascending: false })
         .range(offset, offset + batchSize - 1);
 
       if (shop) {
@@ -68,6 +69,7 @@ class SupabaseService {
         .gte('refund_date', startDate.toISOString())
         .lte('refund_date', endDate.toISOString())
         .order('refund_date', { ascending: false })
+        .order('order_id', { ascending: false })
         .range(offset, offset + batchSize - 1);
 
       if (shop) {
