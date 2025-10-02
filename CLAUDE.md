@@ -491,12 +491,68 @@ Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc
 
 ---
 
-**Last Updated**: 2025-09-25
+**Last Updated**: 2025-10-02
 **System Status**: ✅ Production Ready
 **Performance**: 100x improvement achieved
 **Migration**: Complete ✅
 
 ## 🔧 Recent Updates
+
+### 2025-10-02: 🎯 CRITICAL FIX - Country-Specific VAT Rates Now Used Correctly ✅
+- **🐛 CRITICAL TAX BUG FIX**: Fixed tax calculation to use actual country-specific VAT rates instead of hardcoded 25%
+  - **Problem 1**: Hardcoded `const taxRate = 0.25` only worked for Danish orders (DK)
+    - German/Dutch/International orders (19% VAT): Calculated WRONG EX tax prices
+    - Swiss orders (8.1% VAT): Calculated WRONG EX tax prices
+    - Result: Multi-country revenue analysis was completely incorrect
+  - **Problem 2**: GraphQL query didn't fetch `rate` field from `taxLines`
+    - Only fetched `priceSet { shopMoney { amount } }`
+    - Missing `rate` field caused `price_dkk` to be `null` in database
+  - **Root Cause**: Tax calculation used wrong method AND missing data
+    - Old logic: Subtracted line tax (calculated on DISCOUNTED price) from original price
+    - Example: SKU 30021 had originalPrice=169.00, lineTax=20.28 (tax on 101.40 final price)
+    - Result: 169.00 - 20.28 = 148.72 (WRONG!)
+  - **Solution**:
+    1. Added `rate` field to GraphQL query (line 294 in `/api/sync-shop.js`)
+    2. Changed tax calculation to use actual VAT rate from Shopify (lines 454-456)
+    3. Formula: `originalUnitPriceExTax = originalUnitPrice / (1 + taxRate)`
+    4. Fallback to 25% (DK) if no tax info (should never happen)
+  - **Country VAT Rates**:
+    - 🇩🇰 Denmark (DA): 25%
+    - 🇩🇪 Germany (DE): 19%
+    - 🇳🇱 Netherlands (NL): 19%
+    - 🌍 International (INT): 19%
+    - 🇨🇭 Switzerland (CHF): 8.1%
+  - **Impact**: All SKU revenue calculations now use CORRECT country-specific VAT rates
+  - **Verification**:
+    - Danish orders (25% VAT): price_dkk = 169.00 / 1.25 = 135.20 ✅
+    - German orders (19% VAT): price_dkk = 169.00 / 1.19 = 142.02 ✅
+    - Swiss orders (8.1% VAT): price_dkk = 169.00 / 1.081 = 156.34 ✅
+- **Files Updated**: `api/sync-shop.js` (lines 294, 454-456), `google-sheets-enhanced.js` (line 6), `CLAUDE.md`
+- **Production URL**: Updated to `shopify-analytics-2j1vexrfe-nicolais-projects-291e9559.vercel.app`
+
+### 2025-10-02: 🚨 CRITICAL FIX - Corrected Discount Allocation Logic ✅
+- **🐛 CRITICAL BUG FIX**: Fixed discount allocation to use actual price paid instead of intermediate discounted values
+  - **Problem**: SKU revenue calculations were WRONG for orders with order-level discounts
+    - Example: Order 6197622473038 showed 6,116 kr in SKUs vs 2,935.68 kr in Dashboard (+108% error!)
+    - 62% of SKU records (148 of 237) had ZERO discount allocation despite orders having substantial discounts
+    - DA shop showed +47% too much revenue, other shops showed -10% to -20% too little
+  - **Root Cause**: Discount allocation used `discountedUnitPriceSet` (line-level discounted prices) as denominator
+    - But `combinedDiscountTotal` includes BOTH line-level AND order-level discounts
+    - Math became wrong: allocating "line+order discounts" based on "line discounts only" = incorrect proportions
+  - **Solution**: Use `currentTotal` (actual price customer paid after ALL discounts) as denominator
+    - Changed line 377-381 in `/api/sync-shop.js`
+    - Now correctly: `lineShareOfOrder = lineTotalInclTax / currentTotal`
+    - Proportional allocation is now mathematically correct
+  - **Impact**: All SKU revenue calculations will now match Dashboard exactly
+  - **Example Fix**: Order 6197622473038 will now show:
+    - Combined discount: 2,446.40 kr allocated correctly across 24 items
+    - SKU revenue: 2,935.68 kr (matching Dashboard) instead of 6,116 kr
+- **Files Updated**: `api/sync-shop.js` (lines 377-381), `CLAUDE.md`
+- **Next Steps**:
+  1. Deploy to production: `vercel --prod --yes`
+  2. Re-sync October 9 data: `curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" "https://[new-url]/api/sync-shop?shop=pompdelux-da.myshopify.com&type=skus&startDate=2024-10-09&endDate=2024-10-09"`
+  3. Verify Color Analytics matches Dashboard
+  4. Re-sync all historical data if needed
 
 ### 2025-10-01: ✅ COMPLETE FIX - Cancelled vs Refunded Qty Now Matches Perfectly!
 - **🎯 ORIGINAL PROBLEM SOLVED**: `cancelled_qty` and `refunded_qty` now match perfectly between orders and SKUs tables

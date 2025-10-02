@@ -901,10 +901,10 @@ class SupabaseService {
         // discount_per_unit_dkk is the order-level discount allocation per unit
         // Final price = price_dkk - discount_per_unit_dkk
         const unitPriceAfterDiscount = (item.price_dkk || 0) - (item.discount_per_unit_dkk || 0);
-        const revenue = unitPriceAfterDiscount * quantity;
+        const bruttoQty = quantity - cancelled; // Brutto = quantity minus cancelled (actual sold items)
+        const revenue = unitPriceAfterDiscount * bruttoQty;
 
-        // Træk cancelled fra solgt direkte, så vi viser netto solgt
-        group.solgt += (quantity - cancelled);
+        group.solgt += bruttoQty;  // Brutto quantity (excludes cancelled)
         group.retur += refunded;
         group.cancelled += cancelled;
         group.omsætning += revenue;
@@ -1168,9 +1168,10 @@ class SupabaseService {
         // discount_per_unit_dkk is the order-level discount allocation per unit
         // Final price = price_dkk - discount_per_unit_dkk
         const unitPriceAfterDiscount = (item.price_dkk || 0) - (item.discount_per_unit_dkk || 0);
-        const revenue = unitPriceAfterDiscount * quantity;
+        const bruttoQty = quantity - cancelled; // Brutto = quantity minus cancelled (actual sold items)
+        const revenue = unitPriceAfterDiscount * bruttoQty;
 
-        group.solgt += (quantity - cancelled);
+        group.solgt += bruttoQty;  // Brutto quantity (excludes cancelled)
         group.retur += refunded;
         group.cancelled += cancelled;
         group.omsætning += revenue;

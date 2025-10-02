@@ -1,0 +1,4287 @@
+{
+  "id": 6197622473038,
+  "admin_graphql_api_id": "gid://shopify/Order/6197622473038",
+  "app_id": 580111,
+  "browser_ip": "172.225.210.16",
+  "buyer_accepts_marketing": true,
+  "cancel_reason": null,
+  "cancelled_at": null,
+  "cart_token": "Z2NwLWV1cm9wZS13ZXN0NDowMUo5Q0NONVdKVlFUWEIzRVkzMktSVjk4Qg",
+  "checkout_id": 44062746345806,
+  "checkout_token": "f761d4c1af1f3ed2c2410e289d8f573e",
+  "client_details": {
+    "accept_language": "en-DK",
+    "browser_height": null,
+    "browser_ip": "172.225.210.16",
+    "browser_width": null,
+    "session_hash": null,
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0.1 Safari/605.1.15"
+  },
+  "closed_at": "2024-10-10T09:51:10+02:00",
+  "company": null,
+  "confirmation_number": "WPU71MCCN",
+  "confirmed": true,
+  "contact_email": "cbalslevj@gmail.com",
+  "created_at": "2024-10-09T20:51:10+02:00",
+  "currency": "DKK",
+  "current_subtotal_price": "3669.60",
+  "current_subtotal_price_set": {
+    "shop_money": {
+      "amount": "3669.60",
+      "currency_code": "DKK"
+    },
+    "presentment_money": {
+      "amount": "3669.60",
+      "currency_code": "DKK"
+    }
+  },
+  "current_total_additional_fees_set": null,
+  "current_total_discounts": "2446.40",
+  "current_total_discounts_set": {
+    "shop_money": {
+      "amount": "2446.40",
+      "currency_code": "DKK"
+    },
+    "presentment_money": {
+      "amount": "2446.40",
+      "currency_code": "DKK"
+    }
+  },
+  "current_total_duties_set": null,
+  "current_total_price": "3669.60",
+  "current_total_price_set": {
+    "shop_money": {
+      "amount": "3669.60",
+      "currency_code": "DKK"
+    },
+    "presentment_money": {
+      "amount": "3669.60",
+      "currency_code": "DKK"
+    }
+  },
+  "current_total_tax": "733.92",
+  "current_total_tax_set": {
+    "shop_money": {
+      "amount": "733.92",
+      "currency_code": "DKK"
+    },
+    "presentment_money": {
+      "amount": "733.92",
+      "currency_code": "DKK"
+    }
+  },
+  "customer_locale": "en-DK",
+  "device_id": null,
+  "discount_codes": [
+    {
+      "code": "PXF6WDNESW7B",
+      "amount": "2446.40",
+      "type": "percentage"
+    }
+  ],
+  "email": "cbalslevj@gmail.com",
+  "estimated_taxes": false,
+  "financial_status": "paid",
+  "fulfillment_status": "fulfilled",
+  "landing_site": "/",
+  "landing_site_ref": null,
+  "location_id": null,
+  "merchant_of_record_app_id": null,
+  "name": "#2133-DA",
+  "note": null,
+  "note_attributes": [],
+  "number": 1133,
+  "order_number": 2133,
+  "order_status_url": "https://pompdelux.dk/85221310798/orders/ce49cec032e96fbb0e14163ab5554407/authenticate?key=c3b6ea0c7b7f8894028408112eaf939d",
+  "original_total_additional_fees_set": null,
+  "original_total_duties_set": null,
+  "payment_gateway_names": [
+    "AltaPay - MobilePay"
+  ],
+  "phone": null,
+  "po_number": null,
+  "presentment_currency": "DKK",
+  "processed_at": "2024-10-09T20:51:08+02:00",
+  "reference": "b632dd6132f294dd30bb13932a2297ef",
+  "referring_site": "",
+  "source_identifier": "b632dd6132f294dd30bb13932a2297ef",
+  "source_name": "web",
+  "source_url": null,
+  "subtotal_price": "3669.60",
+  "subtotal_price_set": {
+    "shop_money": {
+      "amount": "3669.60",
+      "currency_code": "DKK"
+    },
+    "presentment_money": {
+      "amount": "3669.60",
+      "currency_code": "DKK"
+    }
+  },
+  "tags": "",
+  "tax_exempt": false,
+  "tax_lines": [
+    {
+      "price": "733.92",
+      "rate": 0.25,
+      "title": "DK Moms",
+      "price_set": {
+        "shop_money": {
+          "amount": "733.92",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "733.92",
+          "currency_code": "DKK"
+        }
+      },
+      "channel_liable": false
+    }
+  ],
+  "taxes_included": true,
+  "test": false,
+  "token": "ce49cec032e96fbb0e14163ab5554407",
+  "total_discounts": "2446.40",
+  "total_discounts_set": {
+    "shop_money": {
+      "amount": "2446.40",
+      "currency_code": "DKK"
+    },
+    "presentment_money": {
+      "amount": "2446.40",
+      "currency_code": "DKK"
+    }
+  },
+  "total_line_items_price": "6116.00",
+  "total_line_items_price_set": {
+    "shop_money": {
+      "amount": "6116.00",
+      "currency_code": "DKK"
+    },
+    "presentment_money": {
+      "amount": "6116.00",
+      "currency_code": "DKK"
+    }
+  },
+  "total_outstanding": "0.00",
+  "total_price": "3669.60",
+  "total_price_set": {
+    "shop_money": {
+      "amount": "3669.60",
+      "currency_code": "DKK"
+    },
+    "presentment_money": {
+      "amount": "3669.60",
+      "currency_code": "DKK"
+    }
+  },
+  "total_shipping_price_set": {
+    "shop_money": {
+      "amount": "0.00",
+      "currency_code": "DKK"
+    },
+    "presentment_money": {
+      "amount": "0.00",
+      "currency_code": "DKK"
+    }
+  },
+  "total_tax": "733.92",
+  "total_tax_set": {
+    "shop_money": {
+      "amount": "733.92",
+      "currency_code": "DKK"
+    },
+    "presentment_money": {
+      "amount": "733.92",
+      "currency_code": "DKK"
+    }
+  },
+  "total_tip_received": "0.00",
+  "total_weight": 3556,
+  "updated_at": "2024-10-10T09:51:10+02:00",
+  "user_id": null,
+  "billing_address": {
+    "first_name": "Christina",
+    "address1": "Gl Vardevej 190",
+    "phone": "40400943",
+    "city": "Esbjerg N",
+    "zip": "6715",
+    "province": null,
+    "country": "Denmark",
+    "last_name": "Balslev Jespersen Saers",
+    "address2": null,
+    "company": null,
+    "latitude": null,
+    "longitude": null,
+    "name": "Christina Balslev Jespersen Saers",
+    "country_code": "DK",
+    "province_code": null
+  },
+  "customer": {
+    "id": 8393925984590,
+    "created_at": "2024-09-25T15:46:38+02:00",
+    "updated_at": "2025-04-22T13:15:29+02:00",
+    "first_name": "Christina",
+    "last_name": "Balslev Jespersen Saers",
+    "state": "disabled",
+    "note": null,
+    "verified_email": true,
+    "multipass_identifier": null,
+    "tax_exempt": false,
+    "email_marketing_consent": {
+      "state": "subscribed",
+      "opt_in_level": "unknown",
+      "consent_updated_at": "2024-09-25T10:58:52+02:00"
+    },
+    "sms_marketing_consent": {
+      "state": "subscribed",
+      "opt_in_level": "unknown",
+      "consent_updated_at": "2024-11-20T21:56:37+01:00",
+      "consent_collected_from": "OTHER"
+    },
+    "tags": "",
+    "email": "cbalslevj@gmail.com",
+    "phone": "+4540400943",
+    "currency": "DKK",
+    "tax_exemptions": [],
+    "admin_graphql_api_id": "gid://shopify/Customer/8393925984590",
+    "default_address": {
+      "id": 11185633689934,
+      "customer_id": 8393925984590,
+      "first_name": "Christina",
+      "last_name": "Balslev Jespersen Saers",
+      "company": null,
+      "address1": "Gl. Vardevej 190",
+      "address2": null,
+      "city": "Esbjerg N",
+      "province": null,
+      "country": "Denmark",
+      "zip": "6715",
+      "phone": "40400943",
+      "name": "Christina Balslev Jespersen Saers",
+      "province_code": null,
+      "country_code": "DK",
+      "country_name": "Denmark",
+      "default": true
+    }
+  },
+  "discount_applications": [
+    {
+      "target_type": "line_item",
+      "type": "discount_code",
+      "value": "40.0",
+      "value_type": "percentage",
+      "allocation_method": "across",
+      "target_selection": "all",
+      "code": "PXF6WDNESW7B"
+    }
+  ],
+  "fulfillments": [
+    {
+      "id": 5573266211150,
+      "admin_graphql_api_id": "gid://shopify/Fulfillment/5573266211150",
+      "created_at": "2024-10-10T09:51:06+02:00",
+      "location_id": 95466062158,
+      "name": "#2133-DA.1",
+      "order_id": 6197622473038,
+      "origin_address": {},
+      "receipt": {},
+      "service": "manual",
+      "shipment_status": null,
+      "status": "success",
+      "tracking_company": "GLS Pakkeshop",
+      "tracking_number": "01795903060",
+      "tracking_numbers": [
+        "01795903060"
+      ],
+      "tracking_url": "https://gls-group.eu/DK/da/find-pakke?match=01795903060&txtAction=71000",
+      "tracking_urls": [
+        "https://gls-group.eu/DK/da/find-pakke?match=01795903060&txtAction=71000"
+      ],
+      "updated_at": "2024-10-10T09:51:06+02:00",
+      "line_items": [
+        {
+          "id": 15798376071502,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376071502",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 52,
+          "name": "Jersey-leggings m. blomsterprint - Tweens - Blue/Rose - 146/152",
+          "price": "169.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "169.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "169.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764082450766,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30021\\146/152",
+          "taxable": true,
+          "title": "Jersey-leggings m. blomsterprint - Tweens - Blue/Rose",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49385765405006,
+          "variant_inventory_management": "shopify",
+          "variant_title": "146/152",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "20.28",
+              "price_set": {
+                "shop_money": {
+                  "amount": "20.28",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "20.28",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "67.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "67.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "67.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376104270,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376104270",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 194,
+          "name": "Bomuldsstrikvest med bluseærmer - Tweens - Light Beige Melange - 146/152",
+          "price": "299.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "299.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "299.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764064690510,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30029\\146/152",
+          "taxable": true,
+          "title": "Bomuldsstrikvest med bluseærmer - Tweens - Light Beige Melange",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49385693053262,
+          "variant_inventory_management": "shopify",
+          "variant_title": "146/152",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "35.88",
+              "price_set": {
+                "shop_money": {
+                  "amount": "35.88",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "35.88",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "119.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "119.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "119.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376137038,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376137038",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 56,
+          "name": "Smock-kjole med blomsterprint i taljen - Tweens - Blue/Rose - 146/152",
+          "price": "379.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "379.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "379.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764115710286,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30056\\146/152",
+          "taxable": true,
+          "title": "Smock-kjole med blomsterprint i taljen - Tweens - Blue/Rose",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49385901949262,
+          "variant_inventory_management": "shopify",
+          "variant_title": "146/152",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "45.48",
+              "price_set": {
+                "shop_money": {
+                  "amount": "45.48",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "45.48",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "151.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "151.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "151.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376169806,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376169806",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 156,
+          "name": "Fyzzy Strikket lang cardigan  - Tweens - Dark Beige Melange - 134/140",
+          "price": "319.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "319.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "319.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764074979662,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30150\\134/140",
+          "taxable": true,
+          "title": "Fyzzy Strikket lang cardigan  - Tweens - Dark Beige Melange",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49385732964686,
+          "variant_inventory_management": "shopify",
+          "variant_title": "134/140",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "38.28",
+              "price_set": {
+                "shop_money": {
+                  "amount": "38.28",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "38.28",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "127.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "127.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "127.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376202574,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376202574",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 106,
+          "name": "Poplin-nederdel med naturskønt print - Tweens - Moonlight/Purple - 146/152",
+          "price": "229.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "229.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "229.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764101849422,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30048\\146/152",
+          "taxable": true,
+          "title": "Poplin-nederdel med naturskønt print - Tweens - Moonlight/Purple",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49385832481102,
+          "variant_inventory_management": "shopify",
+          "variant_title": "146/152",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "27.48",
+              "price_set": {
+                "shop_money": {
+                  "amount": "27.48",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "27.48",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "91.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "91.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "91.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376235342,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376235342",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 373,
+          "name": "Denim-overshirt - Tweens - Dark Blue Denim - 158/164",
+          "price": "399.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "399.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "399.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764070981966,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30116\\158/164",
+          "taxable": true,
+          "title": "Denim-overshirt - Tweens - Dark Blue Denim",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49385718907214,
+          "variant_inventory_management": "shopify",
+          "variant_title": "158/164",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "47.88",
+              "price_set": {
+                "shop_money": {
+                  "amount": "47.88",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "47.88",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "159.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "159.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "159.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376268110,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376268110",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 175,
+          "name": "Strømpebukser 2-pak - Tweens - Navy/Vintage Blue - 146/152",
+          "price": "199.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "199.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "199.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764124066126,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30068\\146/152",
+          "taxable": true,
+          "title": "Strømpebukser 2-pak - Tweens - Navy/Vintage Blue",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49385942647118,
+          "variant_inventory_management": "shopify",
+          "variant_title": "146/152",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "23.88",
+              "price_set": {
+                "shop_money": {
+                  "amount": "23.88",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "23.88",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "79.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "79.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "79.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376300878,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376300878",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 64,
+          "name": "Strømpebukser 2-pak - Tweens - Moonlight/Dark Beige - 146/152",
+          "price": "199.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "199.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "199.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764124000590,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30065\\146/152",
+          "taxable": true,
+          "title": "Strømpebukser 2-pak - Tweens - Moonlight/Dark Beige",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49385942384974,
+          "variant_inventory_management": "shopify",
+          "variant_title": "146/152",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "23.88",
+              "price_set": {
+                "shop_money": {
+                  "amount": "23.88",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "23.88",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "79.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "79.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "79.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376333646,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376333646",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 305,
+          "name": "Hættetrøje med sidelomme - Tweens - Dark Green - 158/164",
+          "price": "319.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "319.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "319.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764075929934,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30089\\158/164",
+          "taxable": true,
+          "title": "Hættetrøje med sidelomme - Tweens - Dark Green",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49385735651662,
+          "variant_inventory_management": "shopify",
+          "variant_title": "158/164",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "38.28",
+              "price_set": {
+                "shop_money": {
+                  "amount": "38.28",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "38.28",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "127.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "127.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "127.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376366414,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376366414",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 150,
+          "name": "Colorblock Teddy-jakke - Tweens - Green/Beige/Dark Earth - 158/164",
+          "price": "429.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "429.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "429.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764069343566,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30040\\158/164",
+          "taxable": true,
+          "title": "Colorblock Teddy-jakke - Tweens - Green/Beige/Dark Earth",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49385714057550,
+          "variant_inventory_management": "shopify",
+          "variant_title": "158/164",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "51.48",
+              "price_set": {
+                "shop_money": {
+                  "amount": "51.48",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "51.48",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "171.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "171.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "171.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376399182,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376399182",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 147,
+          "name": "Basic Modal langærmet Rib T-shirt - Tweens - Vintage Blue - 134/140",
+          "price": "139.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "139.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "139.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764050141518,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30121\\134/140",
+          "taxable": true,
+          "title": "Basic Modal langærmet Rib T-shirt - Tweens - Vintage Blue",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49385623486798,
+          "variant_inventory_management": "shopify",
+          "variant_title": "134/140",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "16.68",
+              "price_set": {
+                "shop_money": {
+                  "amount": "16.68",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "16.68",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "55.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "55.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "55.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376431950,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376431950",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 155,
+          "name": "Joggers med brede ben - Tweens - Vintage Blue - 134/140",
+          "price": "279.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "279.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "279.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764089463118,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30077\\134/140",
+          "taxable": true,
+          "title": "Joggers med brede ben - Tweens - Vintage Blue",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49385788932430,
+          "variant_inventory_management": "shopify",
+          "variant_title": "134/140",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "33.48",
+              "price_set": {
+                "shop_money": {
+                  "amount": "33.48",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "33.48",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "111.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "111.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "111.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376464718,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376464718",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 80,
+          "name": "Poplin-nederdel med naturskønt print - Tweens - Blue/Rose - 146/152",
+          "price": "229.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "229.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "229.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764101685582,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30047\\146/152",
+          "taxable": true,
+          "title": "Poplin-nederdel med naturskønt print - Tweens - Blue/Rose",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49385832251726,
+          "variant_inventory_management": "shopify",
+          "variant_title": "146/152",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "27.48",
+              "price_set": {
+                "shop_money": {
+                  "amount": "27.48",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "27.48",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "91.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "91.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "91.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376497486,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376497486",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 120,
+          "name": "Basic Modal Rib Leggings - Tweens - Vintage Blue - 140",
+          "price": "139.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "139.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "139.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764054630734,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30126\\140",
+          "taxable": true,
+          "title": "Basic Modal Rib Leggings - Tweens - Vintage Blue",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49385643999566,
+          "variant_inventory_management": "shopify",
+          "variant_title": "140",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "16.68",
+              "price_set": {
+                "shop_money": {
+                  "amount": "16.68",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "16.68",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "55.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "55.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "55.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376530254,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376530254",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 90,
+          "name": "Jerseybluse med flæseærmer - Tweens - Vintage Blue - 146/152",
+          "price": "199.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "199.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "199.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764087267662,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30058\\146/152",
+          "taxable": true,
+          "title": "Jerseybluse med flæseærmer - Tweens - Vintage Blue",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49385780871502,
+          "variant_inventory_management": "shopify",
+          "variant_title": "146/152",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "23.88",
+              "price_set": {
+                "shop_money": {
+                  "amount": "23.88",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "23.88",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "79.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "79.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "79.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376563022,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376563022",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 163,
+          "name": "Bluse med T-hals i plysjersey - Tweens - Beige Melange - 134/140",
+          "price": "259.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "259.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "259.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764057710926,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30105\\134/140",
+          "taxable": true,
+          "title": "Bluse med T-hals i plysjersey - Tweens - Beige Melange",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49385654223182,
+          "variant_inventory_management": "shopify",
+          "variant_title": "134/140",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "31.08",
+              "price_set": {
+                "shop_money": {
+                  "amount": "31.08",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "31.08",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "103.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "103.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "103.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376595790,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376595790",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 80,
+          "name": "Undertrøje med stropper 2-pak - Tweens - Navy/Blue - 146/152",
+          "price": "199.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "199.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "199.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764138156366,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30011\\146/152",
+          "taxable": true,
+          "title": "Undertrøje med stropper 2-pak - Tweens - Navy/Blue",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49386029121870,
+          "variant_inventory_management": "shopify",
+          "variant_title": "146/152",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "23.88",
+              "price_set": {
+                "shop_money": {
+                  "amount": "23.88",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "23.88",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "79.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "79.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "79.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376628558,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376628558",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 104,
+          "name": "Undertrøje med stropper 2-pak - Tweens - Moonlight/Purple - 146/152",
+          "price": "199.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "199.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "199.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764138058062,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30012\\146/152",
+          "taxable": true,
+          "title": "Undertrøje med stropper 2-pak - Tweens - Moonlight/Purple",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49386028826958,
+          "variant_inventory_management": "shopify",
+          "variant_title": "146/152",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "23.88",
+              "price_set": {
+                "shop_money": {
+                  "amount": "23.88",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "23.88",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "79.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "79.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "79.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376661326,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376661326",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 80,
+          "name": "Hipster 3-pak - Tweens - Navy/Blue - 146/152",
+          "price": "199.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "199.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "199.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764078321998,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30009\\146/152",
+          "taxable": true,
+          "title": "Hipster 3-pak - Tweens - Navy/Blue",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49385749250382,
+          "variant_inventory_management": "shopify",
+          "variant_title": "146/152",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "23.88",
+              "price_set": {
+                "shop_money": {
+                  "amount": "23.88",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "23.88",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "79.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "79.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "79.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376694094,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376694094",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 80,
+          "name": "Hipster 3-pak - Tweens - Moonlight/Purple - 146/152",
+          "price": "199.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "199.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "199.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764078158158,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30010\\146/152",
+          "taxable": true,
+          "title": "Hipster 3-pak - Tweens - Moonlight/Purple",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49385748857166,
+          "variant_inventory_management": "shopify",
+          "variant_title": "146/152",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "23.88",
+              "price_set": {
+                "shop_money": {
+                  "amount": "23.88",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "23.88",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "79.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "79.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "79.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376726862,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376726862",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 76,
+          "name": "Leggings i plysjersey - Tweens - Beige Melange - 134/140",
+          "price": "229.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "229.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "229.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764095852878,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30102\\134/140",
+          "taxable": true,
+          "title": "Leggings i plysjersey - Tweens - Beige Melange",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49385817211214,
+          "variant_inventory_management": "shopify",
+          "variant_title": "134/140",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "27.48",
+              "price_set": {
+                "shop_money": {
+                  "amount": "27.48",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "27.48",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "91.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "91.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "91.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376759630,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376759630",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 155,
+          "name": "Joggers med brede ben - Tweens - Moonlight - 134/140",
+          "price": "279.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "279.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "279.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9765498913102,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30075\\134/140",
+          "taxable": true,
+          "title": "Joggers med brede ben - Tweens - Moonlight",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49392794829134,
+          "variant_inventory_management": "shopify",
+          "variant_title": "134/140",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "33.48",
+              "price_set": {
+                "shop_money": {
+                  "amount": "33.48",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "33.48",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "111.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "111.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "111.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376792398,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376792398",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 445,
+          "name": "Teddy-jakke - Tweens - Beige - 146/152",
+          "price": "429.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "429.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "429.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764133634382,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30036\\146/152",
+          "taxable": true,
+          "title": "Teddy-jakke - Tweens - Beige",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49386017030478,
+          "variant_inventory_management": "shopify",
+          "variant_title": "146/152",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "51.48",
+              "price_set": {
+                "shop_money": {
+                  "amount": "51.48",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "51.48",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "171.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "171.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "171.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        },
+        {
+          "id": 15798376825166,
+          "admin_graphql_api_id": "gid://shopify/LineItem/15798376825166",
+          "attributed_staffs": [],
+          "current_quantity": 1,
+          "fulfillable_quantity": 0,
+          "fulfillment_service": "manual",
+          "fulfillment_status": "fulfilled",
+          "gift_card": false,
+          "grams": 150,
+          "name": "Jerseybluse med flæseærmer - Tweens - Moonlight - 146/152",
+          "price": "199.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "199.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "199.00",
+              "currency_code": "DKK"
+            }
+          },
+          "product_exists": true,
+          "product_id": 9764087103822,
+          "properties": [],
+          "quantity": 1,
+          "requires_shipping": true,
+          "sku": "30059\\146/152",
+          "taxable": true,
+          "title": "Jerseybluse med flæseærmer - Tweens - Moonlight",
+          "total_discount": "0.00",
+          "total_discount_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "variant_id": 49385780576590,
+          "variant_inventory_management": "shopify",
+          "variant_title": "146/152",
+          "vendor": "POMPdeLUX-DA",
+          "tax_lines": [
+            {
+              "channel_liable": false,
+              "price": "23.88",
+              "price_set": {
+                "shop_money": {
+                  "amount": "23.88",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "23.88",
+                  "currency_code": "DKK"
+                }
+              },
+              "rate": 0.25,
+              "title": "DK Moms"
+            }
+          ],
+          "duties": [],
+          "discount_allocations": [
+            {
+              "amount": "79.60",
+              "amount_set": {
+                "shop_money": {
+                  "amount": "79.60",
+                  "currency_code": "DKK"
+                },
+                "presentment_money": {
+                  "amount": "79.60",
+                  "currency_code": "DKK"
+                }
+              },
+              "discount_application_index": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "line_items": [
+    {
+      "id": 15798376071502,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376071502",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 52,
+      "name": "Jersey-leggings m. blomsterprint - Tweens - Blue/Rose - 146/152",
+      "price": "169.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "169.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "169.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764082450766,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30021\\146/152",
+      "taxable": true,
+      "title": "Jersey-leggings m. blomsterprint - Tweens - Blue/Rose",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49385765405006,
+      "variant_inventory_management": "shopify",
+      "variant_title": "146/152",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "20.28",
+          "price_set": {
+            "shop_money": {
+              "amount": "20.28",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "20.28",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "67.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "67.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "67.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376104270,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376104270",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 194,
+      "name": "Bomuldsstrikvest med bluseærmer - Tweens - Light Beige Melange - 146/152",
+      "price": "299.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "299.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "299.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764064690510,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30029\\146/152",
+      "taxable": true,
+      "title": "Bomuldsstrikvest med bluseærmer - Tweens - Light Beige Melange",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49385693053262,
+      "variant_inventory_management": "shopify",
+      "variant_title": "146/152",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "35.88",
+          "price_set": {
+            "shop_money": {
+              "amount": "35.88",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "35.88",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "119.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "119.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "119.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376137038,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376137038",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 56,
+      "name": "Smock-kjole med blomsterprint i taljen - Tweens - Blue/Rose - 146/152",
+      "price": "379.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "379.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "379.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764115710286,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30056\\146/152",
+      "taxable": true,
+      "title": "Smock-kjole med blomsterprint i taljen - Tweens - Blue/Rose",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49385901949262,
+      "variant_inventory_management": "shopify",
+      "variant_title": "146/152",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "45.48",
+          "price_set": {
+            "shop_money": {
+              "amount": "45.48",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "45.48",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "151.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "151.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "151.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376169806,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376169806",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 156,
+      "name": "Fyzzy Strikket lang cardigan  - Tweens - Dark Beige Melange - 134/140",
+      "price": "319.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "319.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "319.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764074979662,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30150\\134/140",
+      "taxable": true,
+      "title": "Fyzzy Strikket lang cardigan  - Tweens - Dark Beige Melange",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49385732964686,
+      "variant_inventory_management": "shopify",
+      "variant_title": "134/140",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "38.28",
+          "price_set": {
+            "shop_money": {
+              "amount": "38.28",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "38.28",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "127.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "127.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "127.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376202574,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376202574",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 106,
+      "name": "Poplin-nederdel med naturskønt print - Tweens - Moonlight/Purple - 146/152",
+      "price": "229.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "229.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "229.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764101849422,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30048\\146/152",
+      "taxable": true,
+      "title": "Poplin-nederdel med naturskønt print - Tweens - Moonlight/Purple",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49385832481102,
+      "variant_inventory_management": "shopify",
+      "variant_title": "146/152",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "27.48",
+          "price_set": {
+            "shop_money": {
+              "amount": "27.48",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "27.48",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "91.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "91.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "91.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376235342,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376235342",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 373,
+      "name": "Denim-overshirt - Tweens - Dark Blue Denim - 158/164",
+      "price": "399.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "399.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "399.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764070981966,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30116\\158/164",
+      "taxable": true,
+      "title": "Denim-overshirt - Tweens - Dark Blue Denim",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49385718907214,
+      "variant_inventory_management": "shopify",
+      "variant_title": "158/164",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "47.88",
+          "price_set": {
+            "shop_money": {
+              "amount": "47.88",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "47.88",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "159.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "159.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "159.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376268110,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376268110",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 175,
+      "name": "Strømpebukser 2-pak - Tweens - Navy/Vintage Blue - 146/152",
+      "price": "199.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "199.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "199.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764124066126,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30068\\146/152",
+      "taxable": true,
+      "title": "Strømpebukser 2-pak - Tweens - Navy/Vintage Blue",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49385942647118,
+      "variant_inventory_management": "shopify",
+      "variant_title": "146/152",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "23.88",
+          "price_set": {
+            "shop_money": {
+              "amount": "23.88",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "23.88",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "79.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "79.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "79.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376300878,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376300878",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 64,
+      "name": "Strømpebukser 2-pak - Tweens - Moonlight/Dark Beige - 146/152",
+      "price": "199.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "199.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "199.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764124000590,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30065\\146/152",
+      "taxable": true,
+      "title": "Strømpebukser 2-pak - Tweens - Moonlight/Dark Beige",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49385942384974,
+      "variant_inventory_management": "shopify",
+      "variant_title": "146/152",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "23.88",
+          "price_set": {
+            "shop_money": {
+              "amount": "23.88",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "23.88",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "79.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "79.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "79.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376333646,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376333646",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 305,
+      "name": "Hættetrøje med sidelomme - Tweens - Dark Green - 158/164",
+      "price": "319.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "319.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "319.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764075929934,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30089\\158/164",
+      "taxable": true,
+      "title": "Hættetrøje med sidelomme - Tweens - Dark Green",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49385735651662,
+      "variant_inventory_management": "shopify",
+      "variant_title": "158/164",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "38.28",
+          "price_set": {
+            "shop_money": {
+              "amount": "38.28",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "38.28",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "127.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "127.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "127.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376366414,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376366414",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 150,
+      "name": "Colorblock Teddy-jakke - Tweens - Green/Beige/Dark Earth - 158/164",
+      "price": "429.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "429.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "429.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764069343566,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30040\\158/164",
+      "taxable": true,
+      "title": "Colorblock Teddy-jakke - Tweens - Green/Beige/Dark Earth",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49385714057550,
+      "variant_inventory_management": "shopify",
+      "variant_title": "158/164",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "51.48",
+          "price_set": {
+            "shop_money": {
+              "amount": "51.48",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "51.48",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "171.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "171.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "171.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376399182,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376399182",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 147,
+      "name": "Basic Modal langærmet Rib T-shirt - Tweens - Vintage Blue - 134/140",
+      "price": "139.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "139.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "139.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764050141518,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30121\\134/140",
+      "taxable": true,
+      "title": "Basic Modal langærmet Rib T-shirt - Tweens - Vintage Blue",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49385623486798,
+      "variant_inventory_management": "shopify",
+      "variant_title": "134/140",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "16.68",
+          "price_set": {
+            "shop_money": {
+              "amount": "16.68",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "16.68",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "55.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "55.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "55.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376431950,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376431950",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 155,
+      "name": "Joggers med brede ben - Tweens - Vintage Blue - 134/140",
+      "price": "279.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "279.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "279.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764089463118,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30077\\134/140",
+      "taxable": true,
+      "title": "Joggers med brede ben - Tweens - Vintage Blue",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49385788932430,
+      "variant_inventory_management": "shopify",
+      "variant_title": "134/140",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "33.48",
+          "price_set": {
+            "shop_money": {
+              "amount": "33.48",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "33.48",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "111.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "111.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "111.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376464718,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376464718",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 80,
+      "name": "Poplin-nederdel med naturskønt print - Tweens - Blue/Rose - 146/152",
+      "price": "229.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "229.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "229.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764101685582,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30047\\146/152",
+      "taxable": true,
+      "title": "Poplin-nederdel med naturskønt print - Tweens - Blue/Rose",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49385832251726,
+      "variant_inventory_management": "shopify",
+      "variant_title": "146/152",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "27.48",
+          "price_set": {
+            "shop_money": {
+              "amount": "27.48",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "27.48",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "91.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "91.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "91.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376497486,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376497486",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 120,
+      "name": "Basic Modal Rib Leggings - Tweens - Vintage Blue - 140",
+      "price": "139.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "139.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "139.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764054630734,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30126\\140",
+      "taxable": true,
+      "title": "Basic Modal Rib Leggings - Tweens - Vintage Blue",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49385643999566,
+      "variant_inventory_management": "shopify",
+      "variant_title": "140",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "16.68",
+          "price_set": {
+            "shop_money": {
+              "amount": "16.68",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "16.68",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "55.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "55.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "55.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376530254,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376530254",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 90,
+      "name": "Jerseybluse med flæseærmer - Tweens - Vintage Blue - 146/152",
+      "price": "199.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "199.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "199.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764087267662,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30058\\146/152",
+      "taxable": true,
+      "title": "Jerseybluse med flæseærmer - Tweens - Vintage Blue",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49385780871502,
+      "variant_inventory_management": "shopify",
+      "variant_title": "146/152",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "23.88",
+          "price_set": {
+            "shop_money": {
+              "amount": "23.88",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "23.88",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "79.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "79.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "79.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376563022,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376563022",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 163,
+      "name": "Bluse med T-hals i plysjersey - Tweens - Beige Melange - 134/140",
+      "price": "259.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "259.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "259.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764057710926,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30105\\134/140",
+      "taxable": true,
+      "title": "Bluse med T-hals i plysjersey - Tweens - Beige Melange",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49385654223182,
+      "variant_inventory_management": "shopify",
+      "variant_title": "134/140",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "31.08",
+          "price_set": {
+            "shop_money": {
+              "amount": "31.08",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "31.08",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "103.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "103.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "103.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376595790,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376595790",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 80,
+      "name": "Undertrøje med stropper 2-pak - Tweens - Navy/Blue - 146/152",
+      "price": "199.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "199.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "199.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764138156366,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30011\\146/152",
+      "taxable": true,
+      "title": "Undertrøje med stropper 2-pak - Tweens - Navy/Blue",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49386029121870,
+      "variant_inventory_management": "shopify",
+      "variant_title": "146/152",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "23.88",
+          "price_set": {
+            "shop_money": {
+              "amount": "23.88",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "23.88",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "79.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "79.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "79.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376628558,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376628558",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 104,
+      "name": "Undertrøje med stropper 2-pak - Tweens - Moonlight/Purple - 146/152",
+      "price": "199.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "199.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "199.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764138058062,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30012\\146/152",
+      "taxable": true,
+      "title": "Undertrøje med stropper 2-pak - Tweens - Moonlight/Purple",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49386028826958,
+      "variant_inventory_management": "shopify",
+      "variant_title": "146/152",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "23.88",
+          "price_set": {
+            "shop_money": {
+              "amount": "23.88",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "23.88",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "79.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "79.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "79.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376661326,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376661326",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 80,
+      "name": "Hipster 3-pak - Tweens - Navy/Blue - 146/152",
+      "price": "199.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "199.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "199.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764078321998,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30009\\146/152",
+      "taxable": true,
+      "title": "Hipster 3-pak - Tweens - Navy/Blue",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49385749250382,
+      "variant_inventory_management": "shopify",
+      "variant_title": "146/152",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "23.88",
+          "price_set": {
+            "shop_money": {
+              "amount": "23.88",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "23.88",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "79.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "79.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "79.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376694094,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376694094",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 80,
+      "name": "Hipster 3-pak - Tweens - Moonlight/Purple - 146/152",
+      "price": "199.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "199.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "199.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764078158158,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30010\\146/152",
+      "taxable": true,
+      "title": "Hipster 3-pak - Tweens - Moonlight/Purple",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49385748857166,
+      "variant_inventory_management": "shopify",
+      "variant_title": "146/152",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "23.88",
+          "price_set": {
+            "shop_money": {
+              "amount": "23.88",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "23.88",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "79.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "79.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "79.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376726862,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376726862",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 76,
+      "name": "Leggings i plysjersey - Tweens - Beige Melange - 134/140",
+      "price": "229.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "229.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "229.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764095852878,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30102\\134/140",
+      "taxable": true,
+      "title": "Leggings i plysjersey - Tweens - Beige Melange",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49385817211214,
+      "variant_inventory_management": "shopify",
+      "variant_title": "134/140",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "27.48",
+          "price_set": {
+            "shop_money": {
+              "amount": "27.48",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "27.48",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "91.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "91.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "91.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376759630,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376759630",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 155,
+      "name": "Joggers med brede ben - Tweens - Moonlight - 134/140",
+      "price": "279.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "279.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "279.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9765498913102,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30075\\134/140",
+      "taxable": true,
+      "title": "Joggers med brede ben - Tweens - Moonlight",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49392794829134,
+      "variant_inventory_management": "shopify",
+      "variant_title": "134/140",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "33.48",
+          "price_set": {
+            "shop_money": {
+              "amount": "33.48",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "33.48",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "111.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "111.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "111.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376792398,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376792398",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 445,
+      "name": "Teddy-jakke - Tweens - Beige - 146/152",
+      "price": "429.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "429.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "429.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764133634382,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30036\\146/152",
+      "taxable": true,
+      "title": "Teddy-jakke - Tweens - Beige",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49386017030478,
+      "variant_inventory_management": "shopify",
+      "variant_title": "146/152",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "51.48",
+          "price_set": {
+            "shop_money": {
+              "amount": "51.48",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "51.48",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "171.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "171.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "171.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 15798376825166,
+      "admin_graphql_api_id": "gid://shopify/LineItem/15798376825166",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 0,
+      "fulfillment_service": "manual",
+      "fulfillment_status": "fulfilled",
+      "gift_card": false,
+      "grams": 150,
+      "name": "Jerseybluse med flæseærmer - Tweens - Moonlight - 146/152",
+      "price": "199.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "199.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "199.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 9764087103822,
+      "properties": [],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "30059\\146/152",
+      "taxable": true,
+      "title": "Jerseybluse med flæseærmer - Tweens - Moonlight",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 49385780576590,
+      "variant_inventory_management": "shopify",
+      "variant_title": "146/152",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "23.88",
+          "price_set": {
+            "shop_money": {
+              "amount": "23.88",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "23.88",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "79.60",
+          "amount_set": {
+            "shop_money": {
+              "amount": "79.60",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "79.60",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    }
+  ],
+  "payment_terms": {
+    "id": 48341811534,
+    "created_at": "2024-10-09T20:51:11+02:00",
+    "due_in_days": null,
+    "payment_schedules": [
+      {
+        "id": 50442666318,
+        "amount": "0.00",
+        "currency": "DKK",
+        "issued_at": null,
+        "due_at": "2024-10-10T09:51:07+02:00",
+        "completed_at": "2024-10-10T09:51:10+02:00",
+        "created_at": "2024-10-10T09:51:07+02:00",
+        "updated_at": "2024-10-10T09:51:10+02:00"
+      }
+    ],
+    "payment_terms_name": "Due on fulfillment",
+    "payment_terms_type": "fulfillment",
+    "updated_at": "2024-10-09T20:51:11+02:00"
+  },
+  "refunds": [],
+  "shipping_address": {
+    "first_name": "Christina",
+    "address1": "Gl Vardevej 190",
+    "phone": "40400943",
+    "city": "Esbjerg N",
+    "zip": "6715",
+    "province": null,
+    "country": "Denmark",
+    "last_name": "Balslev Jespersen Saers",
+    "address2": null,
+    "company": null,
+    "latitude": 55.50379179999999,
+    "longitude": 8.449139299999999,
+    "name": "Christina Balslev Jespersen Saers",
+    "country_code": "DK",
+    "province_code": null
+  },
+  "shipping_lines": [
+    {
+      "id": 5215110627662,
+      "carrier_identifier": "197b25a306ef6056c4b92b926bbbb838",
+      "code": "{\"shipping_rate_id\":15,\"reference\":\"PDL\",\"drop_point\":{\"drop_point_id\":\"97074\",\"name\":\"Silvan Esbjerg\",\"address_1\":\"Østre Gjesingvej 10\",\"zip\":\"6715\",\"city\":\"Esbjerg N\",\"state\":null,\"country_code\":\"DK\",\"distance\":0.3655025031588674}}",
+      "discounted_price": "0.00",
+      "discounted_price_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "is_removed": false,
+      "phone": null,
+      "price": "0.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "requested_fulfillment_service_id": null,
+      "source": "Webshipper Rate Provider",
+      "title": "GLS Pakkeshop 1-3 dage - Silvan Esbjerg",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "0.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "discount_allocations": []
+    }
+  ]
+}

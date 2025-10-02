@@ -14,7 +14,7 @@ const CONFIG = {
   CUTOFF_DATE: new Date('2024-09-30'),
   CHUNK_DAYS: 30,
   MAX_ORDERS_PER_PAGE: 50, // Reduced from 250 to avoid 414 Request-URI Too Large errors
-  MAX_LINE_ITEMS: 100,
+  MAX_LINE_ITEMS: 250,
   RATE_LIMIT_MS: 250,
   API_VERSION: '2024-10'
 };
@@ -205,11 +205,11 @@ class ShopifyAPIClient {
             }
           }
 
-          // Beregn sale discount og combined discount
-          const originalTotal = parseFloat(o.originalTotalPriceSet?.shopMoney?.amount || 0);
-          const currentTotal = parseFloat(o.currentTotalPriceSet?.shopMoney?.amount || 0);
-          const saleDiscountTotal = (originalTotal - currentTotal) * this.rate;
-          const combinedDiscountTotal = (totalDiscountsInclTax + saleDiscountTotal) * this.rate;
+          // Beregn combined discount (totalDiscountsSet already includes all discounts)
+          // Note: We don't use currentTotal as it changes with refunds (dynamic value)
+          // Shopify's totalDiscountsSet is static and captures all discounts at order creation
+          const saleDiscountTotal = 0; // Not needed - totalDiscountsSet captures everything
+          const combinedDiscountTotal = totalDiscountsInclTax * this.rate;
 
           // Tilføj til output array
           output.push({
@@ -252,10 +252,12 @@ class ShopifyAPIClient {
     const queryFilter = `${dateField}:>=${isoStart} ${dateField}:<=${isoEnd}`;
     const output = [];
     let cursor = null;
+    let totalOrdersProcessed = 0;
+    let totalSkusAdded = 0;
 
     const buildQuery = (cursorVal) => `
       query {
-        orders(first: ${CONFIG.MAX_ORDERS_PER_PAGE}${cursorVal ? `, after: "${cursorVal}"` : ""}, query: "${queryFilter}") {
+        orders(first: 1${cursorVal ? `, after: "${cursorVal}"` : ""}, query: "${queryFilter}") {
           edges {
             cursor
             node {
@@ -289,6 +291,7 @@ class ShopifyAPIClient {
                     originalUnitPriceSet { shopMoney { amount } }
                     discountedUnitPriceSet { shopMoney { amount } }
                     taxLines {
+                      rate
                       priceSet {
                         shopMoney {
                           amount
@@ -329,12 +332,14 @@ class ShopifyAPIClient {
       while (true) {
         const data = await this.query(buildQuery(cursor));
         const edges = data.orders.edges || [];
+        console.log(`📦 fetchSkuData found ${edges.length} orders in this batch`);
 
         for (const edge of edges) {
           const order = edge.node;
           const orderId = order.id.replace('gid://shopify/Order/', '');
           const country = order.shippingAddress?.countryCode || "Unknown";
           const taxesIncluded = order.taxesIncluded || false;
+          totalOrdersProcessed++;
 
           // Calculate order-level discount info (same logic as fetchOrders)
           const subtotal = parseFloat(order.subtotalPriceSet?.shopMoney?.amount || 0);
@@ -366,28 +371,38 @@ class ShopifyAPIClient {
             }
           }
 
-          // Calculate sale discount
-          const originalTotal = parseFloat(order.originalTotalPriceSet?.shopMoney?.amount || 0);
-          const currentTotal = parseFloat(order.currentTotalPriceSet?.shopMoney?.amount || 0);
-          const saleDiscountTotal = originalTotal - currentTotal;
-
-          // Combined discount total
-          const combinedDiscountTotal = totalDiscountsInclTax + saleDiscountTotal;
-
-          // Calculate total order value (discounted prices) for proportional allocation
-          let orderTotalDiscountedValue = 0;
-          order.lineItems.edges.forEach(lineItemEdge => {
-            const item = lineItemEdge.node;
-            if (!item.sku || excludeSkus.has(item.sku)) return;
-            const unitPrice = parseFloat(item.discountedUnitPriceSet?.shopMoney?.amount || 0);
-            const quantity = item.quantity || 0;
-            orderTotalDiscountedValue += unitPrice * quantity;
+          // Calculate order total BEFORE discounts (sum of original prices INCL tax)
+          // This is used as denominator for proportional discount allocation
+          let orderTotalOriginalValue = 0;
+          order.lineItems.edges.forEach(edge => {
+            const item = edge.node;
+            const originalPrice = parseFloat(item.originalUnitPriceSet?.shopMoney?.amount || 0);
+            const qty = item.quantity || 0;
+            orderTotalOriginalValue += originalPrice * qty;
           });
 
+          // Combined discount total (use EX TAX for allocation to match EX TAX prices)
+          const saleDiscountTotal = 0; // Not needed
+          const combinedDiscountTotal = totalDiscountsExTax;
+
           // Process line items
+          const lineItemCount = order.lineItems.edges.length;
+          console.log(`  Order ${orderId}: ${lineItemCount} line items, orderTotalOriginalValue=${orderTotalOriginalValue}`);
+
+          // DEBUG: Log specific order we're tracking
+          if (orderId === '6197622473038') {
+            console.log(`🔍 DEBUG Order 6197622473038:`);
+            console.log(`   Total line items in GraphQL response: ${lineItemCount}`);
+            console.log(`   ALL SKUs in response: ${order.lineItems.edges.map(e => e.node.sku).join(', ')}`);
+          }
+
+          let skusAddedForThisOrder = 0;
           order.lineItems.edges.forEach(lineItemEdge => {
             const item = lineItemEdge.node;
-            if (!item.sku || excludeSkus.has(item.sku)) return;
+            if (!item.sku || excludeSkus.has(item.sku)) {
+              console.log(`  ⏭️  Skipping SKU: ${item.sku || 'NO_SKU'} (excluded: ${excludeSkus.has(item.sku)})`);
+              return;
+            }
 
             // Calculate refunded and cancelled quantities for this SKU
             let refundedQty = 0;
@@ -419,8 +434,10 @@ class ShopifyAPIClient {
             });
 
             // Calculate price in DKK (EX MOMS)
-            // CRITICAL: discountedUnitPriceSet includes/excludes tax based on order.taxesIncluded
-            const unitPrice = parseFloat(item.discountedUnitPriceSet?.shopMoney?.amount || 0);
+            // Use originalUnitPriceSet for proportion calculation (before line-level discounts)
+            // Use discountedUnitPriceSet for final price display
+            const originalUnitPrice = parseFloat(item.originalUnitPriceSet?.shopMoney?.amount || 0);
+            const discountedUnitPrice = parseFloat(item.discountedUnitPriceSet?.shopMoney?.amount || 0);
             const quantity = item.quantity || 0;
 
             // Get line item tax
@@ -429,34 +446,40 @@ class ShopifyAPIClient {
               0
             );
 
-            // Calculate EX moms price
-            let unitPriceExTax;
+            // Calculate EX moms prices
+            let originalUnitPriceExTax, discountedUnitPriceExTax;
             if (taxesIncluded) {
-              // Prices include tax - subtract tax to get EX moms
-              unitPriceExTax = unitPrice - (lineTax / quantity);
+              // Prices include tax - divide by (1 + taxRate) to get EX moms
+              // NOTE: Cannot subtract lineTax because tax was calculated on DISCOUNTED price, not original
+              // Get actual tax rate from line item (different per country: DK=25%, DE/NL/INT=19%, CHF=8.1%)
+              const taxRate = (item.taxLines && item.taxLines.length > 0)
+                ? parseFloat(item.taxLines[0].rate)
+                : 0.25; // Fallback to DK if no tax info
+              originalUnitPriceExTax = originalUnitPrice / (1 + taxRate);
+              discountedUnitPriceExTax = discountedUnitPrice / (1 + taxRate);
             } else {
               // Prices exclude tax - use directly
-              unitPriceExTax = unitPrice;
+              originalUnitPriceExTax = originalUnitPrice;
+              discountedUnitPriceExTax = discountedUnitPrice;
             }
 
-            const priceDkk = unitPriceExTax * this.rate;
+            // Store discounted price (after line-level discounts, before order-level discounts)
+            const priceDkk = discountedUnitPriceExTax * this.rate;
 
-            // Calculate line total INCL tax for proportional discount allocation
-            const lineTotalInclTax = (unitPriceExTax + (lineTax / quantity)) * quantity;
+            // Calculate line total INCL tax using ORIGINAL prices for correct proportion
+            const lineTotalInclTax = originalUnitPrice * quantity;
 
-            // Allocate order-level discount proportionally
-            // combinedDiscountTotal is INCL moms, so we need to calculate the EX moms portion
+            // Allocate order-level discount proportionally based on ORIGINAL prices
+            // combinedDiscountTotal is already EX tax
             let totalDiscountDkk = 0;
             let discountPerUnitDkk = 0;
 
-            if (orderTotalDiscountedValue > 0 && combinedDiscountTotal > 0) {
-              // Line's share of total order value (INCL tax for accurate allocation)
-              const lineShareOfOrder = lineTotalInclTax / orderTotalDiscountedValue;
-              const allocatedDiscountInclTax = combinedDiscountTotal * lineShareOfOrder;
+            if (orderTotalOriginalValue > 0 && combinedDiscountTotal > 0) {
+              // Line's share of total order value (using ORIGINAL prices INCL tax)
+              const lineShareOfOrder = lineTotalInclTax / orderTotalOriginalValue;
 
-              // Calculate tax portion of allocated discount
-              const taxRate = lineTax / (unitPriceExTax * quantity);
-              const allocatedDiscountExTax = allocatedDiscountInclTax / (1 + taxRate);
+              // Allocate discount EX tax (combinedDiscountTotal is already EX tax)
+              const allocatedDiscountExTax = combinedDiscountTotal * lineShareOfOrder;
 
               totalDiscountDkk = allocatedDiscountExTax * this.rate;
               discountPerUnitDkk = quantity > 0 ? totalDiscountDkk / quantity : 0;
@@ -478,7 +501,16 @@ class ShopifyAPIClient {
               total_discount_dkk: totalDiscountDkk,
               discount_per_unit_dkk: discountPerUnitDkk
             });
+            totalSkusAdded++;
+            skusAddedForThisOrder++;
           });
+
+          // DEBUG: Log how many SKUs were actually added for this order
+          if (orderId === '6197622473038') {
+            console.log(`🔍 DEBUG: Added ${skusAddedForThisOrder} SKUs to output array for order 6197622473038`);
+            console.log(`🔍 DEBUG: Total output array length is now: ${output.length}`);
+            console.log(`🔍 DEBUG: Last 3 SKUs in output: ${output.slice(-3).map(s => s.sku).join(', ')}`);
+          }
         }
 
         if (!data.orders.pageInfo.hasNextPage) break;
@@ -492,6 +524,7 @@ class ShopifyAPIClient {
       console.log(`💥 Fejl i fetchSkuData: ${err.message}`);
     }
 
+    console.log(`✅ fetchSkuData complete: ${totalOrdersProcessed} orders processed, ${totalSkusAdded} SKUs added to output`);
     return output;
   }
 
@@ -849,6 +882,12 @@ class SupabaseService {
 
     console.log(`📝 Upserting ${skus.length} SKUs to Supabase...`);
 
+    // 🔍 DEBUG: Log what we're about to upsert
+    console.log(`📊 Upsert details:`);
+    console.log(`   - Input array length: ${skus.length}`);
+    console.log(`   - First SKU: ${JSON.stringify(skus[0])}`);
+    console.log(`   - Last SKU: ${JSON.stringify(skus[skus.length - 1])}`);
+
     const { data, error } = await this.supabase
       .from('skus')
       .upsert(skus, {
@@ -858,8 +897,14 @@ class SupabaseService {
 
     if (error) {
       console.error('❌ Error upserting SKUs:', error);
+      console.error('❌ Error details:', JSON.stringify(error, null, 2));
       throw error;
     }
+
+    // 🔍 DEBUG: Log what Supabase returned
+    console.log(`📊 Supabase response:`);
+    console.log(`   - Data returned: ${data ? data.length : 'null'}`);
+    console.log(`   - Error: ${error || 'none'}`);
 
     console.log(`✅ Successfully upserted ${skus.length} SKUs`);
     return { count: skus.length, data };
@@ -1191,8 +1236,18 @@ module.exports = async function handler(req, res) {
           console.log(`✨ Removed ${duplicatesInBatch} duplicates within batch`);
         }
 
+        // 🔍 DEBUG: Track exact counts before upsert
+        console.log(`📊 Data flow check:`);
+        console.log(`   - Total SKUs from GraphQL: ${skus.length}`);
+        console.log(`   - After deduplication: ${uniqueSkus.length}`);
+        console.log(`   - Sample SKUs (first 3): ${uniqueSkus.slice(0, 3).map(s => `${s.sku} (${s.order_id})`).join(', ')}`);
+        console.log(`   - Last 3 SKUs: ${uniqueSkus.slice(-3).map(s => `${s.sku} (${s.order_id})`).join(', ')}`);
+
         console.log('💾 Upserting to Supabase (will update existing records)...');
         const skuResult = await supabaseService.upsertSkus(uniqueSkus);
+
+        // 🔍 DEBUG: Verify what upsert returned
+        console.log(`📊 Upsert result: ${skuResult.count} SKUs reported as upserted`);
         recordsSynced = skuResult.count;
         syncData = {
           skusFound: skus.length,

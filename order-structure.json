@@ -1,0 +1,526 @@
+{
+  "id": 7851382374734,
+  "admin_graphql_api_id": "gid://shopify/Order/7851382374734",
+  "app_id": 580111,
+  "browser_ip": "62.107.18.0",
+  "buyer_accepts_marketing": true,
+  "cancel_reason": null,
+  "cancelled_at": null,
+  "cart_token": "hWN3euie33gYm9JnTH7Lzyux",
+  "checkout_id": 45874381390158,
+  "checkout_token": "049a4ffc3f5783b03e1ce0e15c77a392",
+  "client_details": {
+    "accept_language": "da-DK",
+    "browser_height": null,
+    "browser_ip": "62.107.18.0",
+    "browser_width": null,
+    "session_hash": null,
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15"
+  },
+  "closed_at": null,
+  "company": null,
+  "confirmation_number": "R5TX848LF",
+  "confirmed": true,
+  "contact_email": "nicklasfalkboll@gmail.com",
+  "created_at": "2025-10-02T20:18:58+02:00",
+  "currency": "DKK",
+  "current_subtotal_price": "1230.80",
+  "current_subtotal_price_set": {
+    "shop_money": {
+      "amount": "1230.80",
+      "currency_code": "DKK"
+    },
+    "presentment_money": {
+      "amount": "1230.80",
+      "currency_code": "DKK"
+    }
+  },
+  "current_total_additional_fees_set": null,
+  "current_total_discounts": "217.20",
+  "current_total_discounts_set": {
+    "shop_money": {
+      "amount": "217.20",
+      "currency_code": "DKK"
+    },
+    "presentment_money": {
+      "amount": "217.20",
+      "currency_code": "DKK"
+    }
+  },
+  "current_total_duties_set": null,
+  "current_total_price": "1230.80",
+  "current_total_price_set": {
+    "shop_money": {
+      "amount": "1230.80",
+      "currency_code": "DKK"
+    },
+    "presentment_money": {
+      "amount": "1230.80",
+      "currency_code": "DKK"
+    }
+  },
+  "current_total_tax": "246.16",
+  "current_total_tax_set": {
+    "shop_money": {
+      "amount": "246.16",
+      "currency_code": "DKK"
+    },
+    "presentment_money": {
+      "amount": "246.16",
+      "currency_code": "DKK"
+    }
+  },
+  "customer_locale": "da-DK",
+  "device_id": null,
+  "discount_codes": [
+    {
+      "code": "Welcome15%",
+      "amount": "217.20",
+      "type": "percentage"
+    }
+  ],
+  "email": "nicklasfalkboll@gmail.com",
+  "estimated_taxes": false,
+  "financial_status": "authorized",
+  "fulfillment_status": null,
+  "landing_site": null,
+  "landing_site_ref": null,
+  "location_id": null,
+  "merchant_of_record_app_id": null,
+  "name": "18969-DA",
+  "note": null,
+  "note_attributes": [
+    {
+      "name": "vat_in_nok",
+      "value": "0.00 NOK / exchange rate: null"
+    }
+  ],
+  "number": 17969,
+  "order_number": 18969,
+  "order_status_url": "https://pompdelux.dk/85221310798/orders/2c133537b4d21f7282aac6d4f2d72526/authenticate?key=f23a46e6fac0f1f680c8f7dc8f62d2fa",
+  "original_total_additional_fees_set": null,
+  "original_total_duties_set": null,
+  "payment_gateway_names": [
+    "shopify_payments"
+  ],
+  "phone": null,
+  "po_number": null,
+  "presentment_currency": "DKK",
+  "processed_at": "2025-10-02T20:18:54+02:00",
+  "reference": null,
+  "referring_site": null,
+  "source_identifier": null,
+  "source_name": "web",
+  "source_url": null,
+  "subtotal_price": "1230.80",
+  "subtotal_price_set": {
+    "shop_money": {
+      "amount": "1230.80",
+      "currency_code": "DKK"
+    },
+    "presentment_money": {
+      "amount": "1230.80",
+      "currency_code": "DKK"
+    }
+  },
+  "tags": "",
+  "tax_exempt": false,
+  "tax_lines": [
+    {
+      "price": "246.16",
+      "rate": 0.25,
+      "title": "DK Moms",
+      "price_set": {
+        "shop_money": {
+          "amount": "246.16",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "246.16",
+          "currency_code": "DKK"
+        }
+      },
+      "channel_liable": false
+    }
+  ],
+  "taxes_included": true,
+  "test": false,
+  "token": "2c133537b4d21f7282aac6d4f2d72526",
+  "total_discounts": "217.20",
+  "total_discounts_set": {
+    "shop_money": {
+      "amount": "217.20",
+      "currency_code": "DKK"
+    },
+    "presentment_money": {
+      "amount": "217.20",
+      "currency_code": "DKK"
+    }
+  },
+  "total_line_items_price": "1448.00",
+  "total_line_items_price_set": {
+    "shop_money": {
+      "amount": "1448.00",
+      "currency_code": "DKK"
+    },
+    "presentment_money": {
+      "amount": "1448.00",
+      "currency_code": "DKK"
+    }
+  },
+  "total_outstanding": "0.00",
+  "total_price": "1230.80",
+  "total_price_set": {
+    "shop_money": {
+      "amount": "1230.80",
+      "currency_code": "DKK"
+    },
+    "presentment_money": {
+      "amount": "1230.80",
+      "currency_code": "DKK"
+    }
+  },
+  "total_shipping_price_set": {
+    "shop_money": {
+      "amount": "0.00",
+      "currency_code": "DKK"
+    },
+    "presentment_money": {
+      "amount": "0.00",
+      "currency_code": "DKK"
+    }
+  },
+  "total_tax": "246.16",
+  "total_tax_set": {
+    "shop_money": {
+      "amount": "246.16",
+      "currency_code": "DKK"
+    },
+    "presentment_money": {
+      "amount": "246.16",
+      "currency_code": "DKK"
+    }
+  },
+  "total_tip_received": "0.00",
+  "total_weight": 1375,
+  "updated_at": "2025-10-02T20:18:59+02:00",
+  "user_id": null,
+  "billing_address": {
+    "first_name": "Nicklas Falkbøll",
+    "address1": "Louisehaven 3",
+    "phone": null,
+    "city": "Herfølge",
+    "zip": "4681",
+    "province": null,
+    "country": "Denmark",
+    "last_name": "Christiansen",
+    "address2": null,
+    "company": null,
+    "latitude": 55.4071734,
+    "longitude": 12.1453782,
+    "name": "Nicklas Falkbøll Christiansen",
+    "country_code": "DK",
+    "province_code": null
+  },
+  "customer": {
+    "id": 9943686119758,
+    "created_at": "2025-10-02T20:09:42+02:00",
+    "updated_at": "2025-10-02T20:18:59+02:00",
+    "first_name": "Nicklas Falkbøll",
+    "last_name": "Christiansen",
+    "state": "disabled",
+    "note": null,
+    "verified_email": true,
+    "multipass_identifier": null,
+    "tax_exempt": false,
+    "email_marketing_consent": {
+      "state": "subscribed",
+      "opt_in_level": "unknown",
+      "consent_updated_at": "2025-10-02T20:05:56+02:00"
+    },
+    "sms_marketing_consent": null,
+    "tags": "",
+    "email": "Nicklasfalkboll@gmail.com",
+    "phone": null,
+    "currency": "DKK",
+    "tax_exemptions": [],
+    "admin_graphql_api_id": "gid://shopify/Customer/9943686119758",
+    "default_address": {
+      "id": 11711272386894,
+      "customer_id": 9943686119758,
+      "first_name": "Nicklas Falkbøll",
+      "last_name": "Christiansen",
+      "company": null,
+      "address1": "Louisehaven 3",
+      "address2": null,
+      "city": "Herfølge",
+      "province": null,
+      "country": "Denmark",
+      "zip": "4681",
+      "phone": "+4528691747",
+      "name": "Nicklas Falkbøll Christiansen",
+      "province_code": null,
+      "country_code": "DK",
+      "country_name": "Denmark",
+      "default": true
+    }
+  },
+  "discount_applications": [
+    {
+      "target_type": "line_item",
+      "type": "discount_code",
+      "value": "15.0",
+      "value_type": "percentage",
+      "allocation_method": "each",
+      "target_selection": "entitled",
+      "code": "Welcome15%"
+    }
+  ],
+  "fulfillments": [],
+  "line_items": [
+    {
+      "id": 18448099606862,
+      "admin_graphql_api_id": "gid://shopify/LineItem/18448099606862",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 1,
+      "fulfillment_service": "manual",
+      "fulfillment_status": null,
+      "gift_card": false,
+      "grams": 650,
+      "name": "Skibukser - Tween - Chocolate | 100515 Calgary - 128",
+      "price": "599.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "599.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "599.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 10716731375950,
+      "properties": [
+        {
+          "name": "_Ex VAT",
+          "value": "Ex VAT: 479.20"
+        }
+      ],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "100515\\216/128",
+      "taxable": true,
+      "title": "Skibukser - Tween - Chocolate | 100515 Calgary",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 54515816268110,
+      "variant_inventory_management": "shopify",
+      "variant_title": "128",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "101.83",
+          "price_set": {
+            "shop_money": {
+              "amount": "101.83",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "101.83",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "89.85",
+          "amount_set": {
+            "shop_money": {
+              "amount": "89.85",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "89.85",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    },
+    {
+      "id": 18448099639630,
+      "admin_graphql_api_id": "gid://shopify/LineItem/18448099639630",
+      "attributed_staffs": [],
+      "current_quantity": 1,
+      "fulfillable_quantity": 1,
+      "fulfillment_service": "manual",
+      "fulfillment_status": null,
+      "gift_card": false,
+      "grams": 725,
+      "name": "Vinterjakke - Tween - Navy | 100543 Victor - 128",
+      "price": "849.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "849.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "849.00",
+          "currency_code": "DKK"
+        }
+      },
+      "product_exists": true,
+      "product_id": 10716732555598,
+      "properties": [
+        {
+          "name": "_Ex VAT",
+          "value": "Ex VAT: 679.20"
+        }
+      ],
+      "quantity": 1,
+      "requires_shipping": true,
+      "sku": "100543\\224/128",
+      "taxable": true,
+      "title": "Vinterjakke - Tween - Navy | 100543 Victor",
+      "total_discount": "0.00",
+      "total_discount_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "variant_id": 54515822362958,
+      "variant_inventory_management": "shopify",
+      "variant_title": "128",
+      "vendor": "POMPdeLUX-DA",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "144.33",
+          "price_set": {
+            "shop_money": {
+              "amount": "144.33",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "144.33",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "duties": [],
+      "discount_allocations": [
+        {
+          "amount": "127.35",
+          "amount_set": {
+            "shop_money": {
+              "amount": "127.35",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "127.35",
+              "currency_code": "DKK"
+            }
+          },
+          "discount_application_index": 0
+        }
+      ]
+    }
+  ],
+  "payment_terms": null,
+  "refunds": [],
+  "shipping_address": {
+    "first_name": "Nicklas Falkbøll",
+    "address1": "Louisehaven 3",
+    "phone": "+4528691747",
+    "city": "Herfølge",
+    "zip": "4681",
+    "province": null,
+    "country": "Denmark",
+    "last_name": "Christiansen",
+    "address2": null,
+    "company": null,
+    "latitude": 55.4071734,
+    "longitude": 12.1453782,
+    "name": "Nicklas Falkbøll Christiansen",
+    "country_code": "DK",
+    "province_code": null
+  },
+  "shipping_lines": [
+    {
+      "id": 5796419502414,
+      "carrier_identifier": "197b25a306ef6056c4b92b926bbbb838",
+      "code": "{\"shipping_rate_id\":15,\"reference\":\"PDL\",\"drop_point\":{\"drop_point_id\":\"96636\",\"name\":\"SuperBrugsen Herfølge\",\"address_1\":\"Billesborgvej 26\",\"zip\":\"4681\",\"city\":\"Herfølge\",\"state\":null,\"country_code\":\"DK\",\"distance\":0.97}}",
+      "discounted_price": "0.00",
+      "discounted_price_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "is_removed": false,
+      "phone": null,
+      "price": "0.00",
+      "price_set": {
+        "shop_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        },
+        "presentment_money": {
+          "amount": "0.00",
+          "currency_code": "DKK"
+        }
+      },
+      "requested_fulfillment_service_id": null,
+      "source": "Webshipper Rate Provider",
+      "title": "GLS Pakkeshop 1-3 hverdage - SuperBrugsen Herfølge",
+      "tax_lines": [
+        {
+          "channel_liable": false,
+          "price": "0.00",
+          "price_set": {
+            "shop_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            },
+            "presentment_money": {
+              "amount": "0.00",
+              "currency_code": "DKK"
+            }
+          },
+          "rate": 0.25,
+          "title": "DK Moms"
+        }
+      ],
+      "discount_allocations": []
+    }
+  ]
+}

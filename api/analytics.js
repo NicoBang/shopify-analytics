@@ -115,39 +115,72 @@ class SupabaseService {
     // Aggregate dashboard data from SKUs table using same logic as Style Analytics
     // This fixes the qty calculation issue by using consistent date filtering
 
-    // STEP 1: Get SKUs created in period (sales)
-    let salesQuery = this.supabase
-      .from('skus')
-      .select('shop, quantity, cancelled_qty, price_dkk, created_at, refund_date, refunded_qty, discount_per_unit_dkk')
-      .gte('created_at', startDate.toISOString())
-      .lte('created_at', endDate.toISOString());
+    // STEP 1: Get ALL SKUs created in period (sales) - WITH PAGINATION
+    const salesData = [];
+    let salesOffset = 0;
+    const batchSize = 1000;
+    let hasMoreSales = true;
 
-    if (shop) {
-      salesQuery = salesQuery.eq('shop', shop);
+    while (hasMoreSales) {
+      let salesQuery = this.supabase
+        .from('skus')
+        .select('shop, quantity, cancelled_qty, price_dkk, created_at, refund_date, refunded_qty, discount_per_unit_dkk')
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .order('created_at', { ascending: false })
+        .range(salesOffset, salesOffset + batchSize - 1);
+
+      if (shop) {
+        salesQuery = salesQuery.eq('shop', shop);
+      }
+
+      const { data: salesBatch, error: salesError } = await salesQuery;
+      if (salesError) {
+        console.error('❌ Error fetching SKU sales:', salesError);
+        throw salesError;
+      }
+
+      if (salesBatch && salesBatch.length > 0) {
+        salesData.push(...salesBatch);
+        hasMoreSales = salesBatch.length === batchSize;
+        salesOffset += batchSize;
+      } else {
+        hasMoreSales = false;
+      }
     }
 
-    const { data: salesData, error: salesError } = await salesQuery;
-    if (salesError) {
-      console.error('❌ Error fetching SKU sales:', salesError);
-      throw salesError;
-    }
+    // STEP 2: Get ALL SKUs with refund_date in period (returns) - WITH PAGINATION
+    const refundData = [];
+    let refundOffset = 0;
+    let hasMoreRefunds = true;
 
-    // STEP 2: Get SKUs with refund_date in period (returns)
-    let refundQuery = this.supabase
-      .from('skus')
-      .select('shop, quantity, cancelled_qty, price_dkk, created_at, refund_date, refunded_qty, discount_per_unit_dkk')
-      .not('refund_date', 'is', null)
-      .gte('refund_date', startDate.toISOString())
-      .lte('refund_date', endDate.toISOString());
+    while (hasMoreRefunds) {
+      let refundQuery = this.supabase
+        .from('skus')
+        .select('shop, quantity, cancelled_qty, price_dkk, created_at, refund_date, refunded_qty, discount_per_unit_dkk')
+        .not('refund_date', 'is', null)
+        .gte('refund_date', startDate.toISOString())
+        .lte('refund_date', endDate.toISOString())
+        .order('refund_date', { ascending: false })
+        .range(refundOffset, refundOffset + batchSize - 1);
 
-    if (shop) {
-      refundQuery = refundQuery.eq('shop', shop);
-    }
+      if (shop) {
+        refundQuery = refundQuery.eq('shop', shop);
+      }
 
-    const { data: refundData, error: refundError } = await refundQuery;
-    if (refundError) {
-      console.error('❌ Error fetching SKU refunds:', refundError);
-      throw refundError;
+      const { data: refundBatch, error: refundError } = await refundQuery;
+      if (refundError) {
+        console.error('❌ Error fetching SKU refunds:', refundError);
+        throw refundError;
+      }
+
+      if (refundBatch && refundBatch.length > 0) {
+        refundData.push(...refundBatch);
+        hasMoreRefunds = refundBatch.length === batchSize;
+        refundOffset += batchSize;
+      } else {
+        hasMoreRefunds = false;
+      }
     }
 
 
@@ -171,7 +204,7 @@ class SupabaseService {
 
       const quantity = Number(item.quantity) || 0;
       const cancelled = Number(item.cancelled_qty) || 0;
-      const bruttoQty = Math.max(0, quantity - cancelled);
+      const bruttoQty = quantity - cancelled;  // Brutto = quantity minus cancelled
 
       shopMap[shop].stkBrutto += bruttoQty;
       shopMap[shop].stkNetto += bruttoQty; // Start with brutto quantity, then subtract refunds

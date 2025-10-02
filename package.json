@@ -1,7 +1,7 @@
 {
   "name": "shopify-analytics",
   "version": "1.0.2",
-  "description": "",
+  "description": "A fast, robust, and secure replacement for Google Apps Script-based Shopify analytics.",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -11,10 +11,11 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@supabase/supabase-js": "^2.57.4",
+    "@supabase/supabase-js": "^2.58.0",
     "axios": "^1.12.2",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.2",
+    "node-fetch": "^2.7.0",
     "vercel": "^48.1.4"
   },
   "devDependencies": {
@@ -22,5 +23,13 @@
     "@vercel/node": "^5.3.22",
     "nodemon": "^3.1.10",
     "typescript": "^5.9.2"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NicoBang/shopify-analytics.git"
+  },
+  "bugs": {
+    "url": "https://github.com/NicoBang/shopify-analytics/issues"
+  },
+  "homepage": "https://github.com/NicoBang/shopify-analytics#readme"
 }
