@@ -1335,10 +1335,8 @@ class SupabaseService {
       const artikelnummer = sku.split('\\')[0] || sku;
       const størrelse = this.parseSizeFromSku(sku);
 
-      // Get metadata for this artikelnummer to use correct Danish title
-      const meta = metadataMap[artikelnummer] || {};
-      // Use metadata title instead of SKU title to ensure Danish language
-      const titleToUse = meta.product_title || meta.variant_title || item.product_title || '';
+      // Use product title from SKU data (Danish language from SKU table)
+      const titleToUse = item.product_title || '';
       const parsedTitle = this.parseProductTitle(titleToUse);
 
       const quantity = item.quantity || 0;
