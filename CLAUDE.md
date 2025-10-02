@@ -59,7 +59,7 @@ Shopify API → /api/sync-shop → Supabase → /api/analytics → Google Sheets
 - **Metadata API**: `https://shopify-analytics-nu.vercel.app/api/metadata`
 
 **Current Deployment** (for reference only - changes with each deploy):
-- `https://shopify-analytics-1w2lagntu-nicolais-projects-291e9559.vercel.app`
+- `https://shopify-analytics-dzcf9e0ww-nicolais-projects-291e9559.vercel.app`
 - **Supabase**: [Your Supabase dashboard URL]
 - **Vercel**: [Your Vercel dashboard URL]
 
