@@ -548,6 +548,45 @@ Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc
   - `CLAUDE.md` (schema documentation)
 - **Next Steps**: Deploy to production and sync 1-2 days of data to populate new columns
 
+### 2025-10-02: AUTOMATED DAILY SYNCS + Updated Orders/SKUs for Refunds ✅
+- **🚀 NEW FEATURE**: Fully automated daily syncs via Vercel Cron Jobs
+  - **Morning Sync (08:00 CET)**: `/api/cron?job=morning`
+    - Syncs NEW orders (created yesterday) for all 5 shops
+    - Syncs UPDATED orders (last 3 days) for all 5 shops → **CAPTURES REFUNDS!**
+    - Syncs NEW SKUs (created yesterday) for all 5 shops
+    - Syncs UPDATED SKUs (last 3 days) for all 5 shops → **CAPTURES REFUNDS!**
+    - Syncs fulfillments (last 1 day) for all 5 shops
+  - **Evening Sync (20:00 CET)**: `/api/cron?job=evening`
+    - Syncs inventory levels for all 5 shops
+    - Syncs product metadata (ONLY active products) from Danish shop
+
+- **🐛 CRITICAL FIX**: Updated orders/SKUs sync for refund data
+  - **Problem**: Only syncing created orders missed refunds that happened later
+  - **Solution**: Added `updatedMode=true` parameter to sync BOTH created AND updated orders/SKUs
+  - **Impact**: System now captures ALL refunds, cancellations, and order modifications
+  - **Implementation**:
+    - `fetchOrders(startDate, endDate, useUpdatedAt)` supports both `created_at` and `updated_at` filtering
+    - `fetchSkuData(startDate, endDate, useUpdatedAt)` supports both `created_at` and `updated_at` filtering
+    - Morning cron syncs updated orders/SKUs from last 3 days to capture recent refunds
+
+- **🆕 NEW FEATURE**: Metadata status filtering for daily active products sync
+  - **Problem**: Syncing all 5,000+ products daily would be too heavy
+  - **Solution**: Added `status` parameter to filter products by status (active, draft, archived)
+  - **Implementation**:
+    - Updated `fetchMetadata(startCursor, maxProducts, statusFilter)` to accept status filter
+    - GraphQL query now includes `query: "status:active"` when statusFilter is provided
+    - Evening cron syncs only active products daily (reduces load significantly)
+  - **API Usage**: `/api/sync-shop?shop=pompdelux-da.myshopify.com&type=metadata&status=active`
+
+- **Files Updated**:
+  - `api/sync-shop.js` (status filtering in fetchMetadata, line 636-648)
+  - `api/cron.js` (active products metadata sync, line 121-146, 162-173)
+  - `vercel.json` (already had cron jobs configured)
+  - `CLAUDE.md` (maintenance tasks documentation)
+  - `google-sheets-enhanced.js` (new deployment URL)
+
+- **Production URL**: `https://shopify-analytics-hr7rfsq6h-nicolais-projects-291e9559.vercel.app`
+
 ### 2025-10-01: Fixed Gender Formatting + Vejl. Pris + Inventory Batching ✅
 - **🐛 CRITICAL BUG FIX**: Fixed three display issues in Style Analytics
   - **Issue 1: Gender Field Formatting** ✅
