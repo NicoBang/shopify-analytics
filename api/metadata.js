@@ -828,6 +828,7 @@ class SupabaseService {
           artikelnummer: artikelnummer,
           season: meta.season || '',           // From metadata
           gender: cleanGender,                 // Cleaned gender (from JSON array)
+          variantTitle: meta.variant_title || '',  // Variant title for størrelse
           solgt: 0,
           retur: 0,
           cancelled: 0,
@@ -874,6 +875,7 @@ class SupabaseService {
             artikelnummer: artikelnummer,
             season: '',
             gender: '',  // Clean gender (empty for no metadata)
+            variantTitle: '',  // Empty variant title for no metadata
             solgt: 0,
             retur: 0,
             cancelled: 0,
@@ -1033,6 +1035,7 @@ class SupabaseService {
         artikelnummer: group.artikelnummer,
         season: group.season,
         gender: group.gender,
+        størrelse: groupBy === 'sku' ? (group.variantTitle || '') : '',  // variant_title when grouping by SKU
         beregnetKøbt: Math.round(beregnetKøbt),
         solgt: group.solgt,
         retur: group.retur,
