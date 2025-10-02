@@ -118,9 +118,10 @@ async function inventorySync() {
   return results;
 }
 
-async function metadataSync() {
-  // Weekly sync (Sunday 03:00) - Product metadata (ONLY from Danish shop)
-  console.log('📋 Starting weekly metadata sync (Danish shop only)...');
+async function metadataSync(statusFilter = null) {
+  // Daily sync for active products, weekly sync for all products
+  const filterLabel = statusFilter ? `(status: ${statusFilter})` : '(all products)';
+  console.log(`📋 Starting metadata sync ${filterLabel} (Danish shop only)...`);
 
   const results = { shops: [] };
 
@@ -128,12 +129,14 @@ async function metadataSync() {
   const danskShop = 'pompdelux-da.myshopify.com';
 
   try {
-    const metadata = await syncShop(danskShop, 'metadata');
+    const params = statusFilter ? { status: statusFilter } : {};
+    const metadata = await syncShop(danskShop, 'metadata', params);
 
     results.shops.push({
       shop: danskShop,
       metadata_items: metadata.recordsSynced || 0,
-      status: 'success'
+      status: 'success',
+      filter: statusFilter || 'all'
     });
   } catch (error) {
     results.shops.push({ shop: danskShop, status: 'failed', error: error.message });
@@ -157,11 +160,11 @@ async function morningSync() {
 }
 
 async function eveningSync() {
-  // Combined evening sync: inventory + metadata (daily)
-  console.log('🌙 Starting evening sync (inventory + metadata)...');
+  // Combined evening sync: inventory + metadata (active products only for daily sync)
+  console.log('🌙 Starting evening sync (inventory + active products metadata)...');
 
   const inventoryResults = await inventorySync();
-  const metadataResults = await metadataSync();
+  const metadataResults = await metadataSync('active'); // Only sync active products daily
 
   return {
     inventory: inventoryResults,

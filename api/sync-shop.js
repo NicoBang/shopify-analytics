@@ -633,7 +633,7 @@ class ShopifyAPIClient {
   }
 
   // FETCH METADATA FUNKTION - Chunked fetching to avoid timeout
-  async fetchMetadata(startCursor = null, maxProducts = 500) {
+  async fetchMetadata(startCursor = null, maxProducts = 500, statusFilter = null) {
     const output = [];
     let cursor = startCursor;
     const batchSize = 50; // Reduced for query complexity
@@ -642,11 +642,14 @@ class ShopifyAPIClient {
     let hasMore = false;
     let nextCursor = null;
 
-    console.log(`🇩🇰 Henter metadata (chunked, batch=${batchSize}, max=${maxProducts}, cursor=${startCursor ? 'YES' : 'NO'}): ${this.shop.domain}...`);
+    console.log(`🇩🇰 Henter metadata (chunked, batch=${batchSize}, max=${maxProducts}, cursor=${startCursor ? 'YES' : 'NO'}, status=${statusFilter || 'ALL'}): ${this.shop.domain}...`);
+
+    // Build query filter for status if provided
+    const queryFilter = statusFilter ? `, query: "status:${statusFilter}"` : '';
 
     const buildQuery = (cursorVal) => `
       query {
-        productVariants(first: ${batchSize}${cursorVal ? `, after: "${cursorVal}"` : ""}) {
+        productVariants(first: ${batchSize}${cursorVal ? `, after: "${cursorVal}"` : ""}${queryFilter}) {
           edges {
             cursor
             node {
@@ -1242,10 +1245,11 @@ module.exports = async function handler(req, res) {
         // Get cursor from query params for continuation
         const startCursor = req.query.cursor || null;
         const maxProducts = parseInt(req.query.maxProducts) || 500;
+        const statusFilter = req.query.status || null; // 'active', 'draft', 'archived', or null for all
 
-        // Fetch chunk of metadata
-        const result = await shopifyClient.fetchMetadata(startCursor, maxProducts);
-        console.log(`✅ Fetched ${result.metadata.length} metadata records`);
+        // Fetch chunk of metadata with optional status filter
+        const result = await shopifyClient.fetchMetadata(startCursor, maxProducts, statusFilter);
+        console.log(`✅ Fetched ${result.metadata.length} metadata records (status: ${statusFilter || 'ALL'})`);
 
         // Upsert this chunk to database
         console.log('💾 Upserting to Supabase...');

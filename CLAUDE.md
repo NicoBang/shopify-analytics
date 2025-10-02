@@ -59,7 +59,7 @@ Shopify API → /api/sync-shop → Supabase → /api/analytics → Google Sheets
 - **Metadata API**: `https://shopify-analytics-nu.vercel.app/api/metadata`
 
 **Current Deployment** (for reference only - changes with each deploy):
-- `https://shopify-analytics-dzcf9e0ww-nicolais-projects-291e9559.vercel.app`
+- `https://shopify-analytics-hr7rfsq6h-nicolais-projects-291e9559.vercel.app`
 - **Supabase**: [Your Supabase dashboard URL]
 - **Vercel**: [Your Vercel dashboard URL]
 
@@ -227,9 +227,23 @@ createDailyTrigger()         // Setup automatic daily updates
 
 ## 📋 **Maintenance Tasks**
 
-### Daily (Automated)
-- ✅ Automatic dashboard update at 08:00
-- ✅ Error logging to sync_log table
+### Daily (Automated) - Vercel Cron Jobs
+
+**🌅 Morning Sync (08:00 CET)** - `/api/cron?job=morning`
+- ✅ Sync NEW orders (created yesterday) for all 5 shops
+- ✅ Sync UPDATED orders (last 3 days - captures refunds!) for all 5 shops
+- ✅ Sync NEW SKUs (created yesterday) for all 5 shops
+- ✅ Sync UPDATED SKUs (last 3 days - captures refunds!) for all 5 shops
+- ✅ Sync fulfillments (last 1 day) for all 5 shops
+
+**🌙 Evening Sync (20:00 CET)** - `/api/cron?job=evening`
+- ✅ Sync inventory levels for all 5 shops
+- ✅ Sync product metadata (ONLY active products) from Danish shop
+
+**🔄 CRITICAL: Updated Orders Sync**
+- Both `created_at` AND `updated_at` syncs ensure refund data is captured
+- `updatedMode=true` parameter syncs orders modified in last 3 days
+- This captures ALL refunds, cancellations, and order modifications
 
 ### Weekly (Manual)
 - 📊 Review sync_log for any failures
