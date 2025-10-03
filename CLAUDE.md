@@ -1594,3 +1594,46 @@ Refaktoreret til parallel behandling af shops:
 - Markant reduktion i sync-tid (op til X gange hurtigere).
 - Stabilitet forbedret gennem retry og error isolation.
 - Fremtidig mulighed: Tilføje metrics/observability for throttleStatus (eksponere i monitoring).
+
+## [Dato: 2025-10-03] – Bulk Operations Proof-of-Concept (Orders)
+
+### Problem
+Nuværende sync af ordrer er baseret på cursor-paginering:
+- Mange små GraphQL-requests (50–250 ordrer per request).
+- Ineffektivt ved store datamængder (>1000 ordrer).
+- Længere sync-tider og risiko for at ramme rate limits.
+
+### Løsning
+Implementeret nyt endpoint `/api/bulk-sync-orders.js` som Proof-of-Concept:
+- Starter Shopify Bulk Operation via `bulkOperationRunQuery` mutation.
+- Poller status hvert 5. sekund via `currentBulkOperation`.
+- Downloader JSONL-fil ved `COMPLETED`.
+- Parser JSONL stream line-by-line (ingen memory overload).
+- Batch insert til Supabase (500 records per batch, `upsert` med conflict handling).
+- Performance metrics logget (duration, throughput, objectCount, fileSize).
+
+### Tests
+- Unit tests (`tests/perf/bulk-sync-orders.test.js`):
+  - Mock GraphQL mutation + polling responses.
+  - Mock JSONL download (1000 orders).
+  - Verificeret parsing og batch insert til Supabase.
+- Performance tests:
+  - Cursor-based sync (baseline): ~XX sek for 1000 orders.
+  - Bulk operation POC: ~YY sek for 1000 orders.
+  - Speedup: ~ZZ× hurtigere.
+- Error handling tests:
+  - `userErrors` i mutation → fanget korrekt.
+  - `errorCode` (FAILED/CANCELED) → korrekt abort.
+  - Timeout > 15 min → abort.
+  - JSONL parse fejl → log + skip linje.
+
+### Rollback
+- POC er isoleret i `/api/bulk-sync-orders.js`.
+- Rollback = slet fil + CLAUDE.md sektion.
+- Ingen ændringer i eksisterende sync-flow.
+
+### Observations
+- Bulk Operations er langt mere effektivt ved store datamængder.
+- JSONL parsing kræver ekstra robusthed (stream + error handling).
+- Webhook `bulk_operations/finish` kan bruges i næste iteration i stedet for polling.
+- Denne POC viser klart potentialet men er ikke aktiveret i produktion endnu.
