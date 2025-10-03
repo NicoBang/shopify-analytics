@@ -1057,12 +1057,28 @@ Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc
 
 ---
 
-**Last Updated**: 2025-10-02
+**Last Updated**: 2025-10-03
 **System Status**: ✅ Production Ready
 **Performance**: 100x improvement achieved
 **Migration**: Complete ✅
 
 ## 🔧 Recent Updates
+
+### 2025-10-03: 🔔 NEW - Webhook Integration POC for Orders ✅
+- **🚀 REAL-TIME EVENT CAPTURE**: Implemented Shopify webhook endpoint for orders/create and orders/updated events
+  - **Problem**: Sync-based polling has up to 12-hour data latency
+  - **Solution**: Webhook endpoint `/api/webhooks/orders.js` with HMAC verification
+  - **Database**: New `order_webhooks` table (8 columns, 5 indexes)
+  - **Security**: HMAC signature verification with timing-safe comparison
+  - **Error Handling**: Comprehensive (401, 400, 405, 500) with detailed logging
+  - **Tests**: 9 unit tests covering all scenarios (100% passing)
+  - **Status**: POC complete, not yet integrated into sync flow
+  - **Next Steps**: Process stored webhooks → update orders/skus tables
+- **Files Created**:
+  - `api/webhooks/orders.js` (211 lines)
+  - `migrations/create_order_webhooks_table.sql` (47 lines)
+  - `tests/unit/webhooks-orders.test.js` (461 lines)
+  - `CLAUDE.md` (new "🔔 Webhook Integration POC" section)
 
 ### 2025-10-03: ⚡ NEW - Parallel Shop Processing with Rate-Limit Protection ✅
 - **🚀 PERFORMANCE ENHANCEMENT**: Refactored cron job shop sync from sequential to parallel processing
@@ -1637,3 +1653,132 @@ Implementeret nyt endpoint `/api/bulk-sync-orders.js` som Proof-of-Concept:
 - JSONL parsing kræver ekstra robusthed (stream + error handling).
 - Webhook `bulk_operations/finish` kan bruges i næste iteration i stedet for polling.
 - Denne POC viser klart potentialet men er ikke aktiveret i produktion endnu.
+
+---
+
+## [Dato: 2025-10-03] – 🔔 Webhook Integration POC (Orders)
+
+### Problem
+Nuværende sync-baseret arkitektur har begrænsninger:
+- **Data latency**: Op til 12 timers forsinkelse mellem ordre-ændringer og sync (cron jobs kører kl. 08:00 og 20:00).
+- **No real-time events**: Ingen notifikationer ved ordre-oprettelse eller opdateringer.
+- **API belastning**: Regelmæssig polling af Shopify API (pull-baseret).
+- **Audit trail**: Ingen komplet event-log af alle ordre-ændringer.
+
+### Løsning
+Implementeret webhook endpoint `/api/webhooks/orders.js` som Proof-of-Concept:
+
+**1. Database Migration** (`migrations/create_order_webhooks_table.sql`):
+- Ny tabel: `order_webhooks` med 8 kolonner:
+  - `id` (BIGSERIAL PRIMARY KEY)
+  - `shop` (TEXT) - Shopify shop domain
+  - `event_type` (TEXT) - Webhook topic (orders/create, orders/updated)
+  - `order_id` (TEXT) - Shopify order ID
+  - `payload` (JSONB) - Full webhook payload
+  - `created_at` (TIMESTAMPTZ) - Event timestamp
+  - `processed` (BOOLEAN) - Processing status flag
+  - `processed_at` (TIMESTAMPTZ) - Processing timestamp
+- 5 indexes for performance: shop, created_at DESC, processed (partial), event_type, order_id
+- Constraints: NOT NULL checks for shop, event_type, order_id
+- Rollback: DROP TABLE order_webhooks
+
+**2. Webhook Endpoint** (`/api/webhooks/orders.js`):
+- **HMAC Signature Verification**:
+  - Uses raw request body for HMAC calculation (not JSON.stringify)
+  - `crypto.createHmac('sha256', secret).update(rawBody).digest('base64')`
+  - Timing-safe comparison via `crypto.timingSafeEqual()`
+  - Returns 401 Unauthorized if signature invalid
+- **Request Processing**:
+  - Verifies HTTP method (POST only → 405 for others)
+  - Extracts Shopify headers: `x-shopify-hmac-sha256`, `x-shopify-shop-domain`, `x-shopify-topic`
+  - Parses JSON payload from raw body
+  - Saves webhook to `order_webhooks` table via Supabase
+- **Error Handling**:
+  - Missing HMAC → 401 Unauthorized
+  - Invalid HMAC → 401 Unauthorized
+  - Missing headers → 400 Bad Request
+  - Supabase insert error → 500 Internal Server Error with full error details logged
+  - Invalid JSON → 400 Bad Request
+- **Logging**:
+  - Structured logging with emojis (📥, ✅, ❌)
+  - Explicit Supabase error logging: message, details, hint, code
+  - Success: Returns 200 OK with order_id + event_type
+
+**3. Environment Variables**:
+```
+SHOPIFY_WEBHOOK_SECRET=your_webhook_secret_here
+```
+
+**4. Webhook Registration** (Shopify Admin):
+```
+Settings → Notifications → Webhooks → Create webhook
+- Event: Order creation / Order updated
+- Format: JSON
+- URL: https://your-domain.vercel.app/api/webhooks/orders
+- API version: 2024-10
+```
+
+**Efter webhook oprettelse i Shopify**:
+1. Kopier webhook secret fra Shopify Admin
+2. Tilføj til Vercel environment variables: `SHOPIFY_WEBHOOK_SECRET=<secret>`
+3. Redeploy application via `vercel --prod`
+4. Test webhook ved at oprette test-ordre i Shopify dev shop
+
+### Tests
+Unit tests (`tests/unit/webhooks-orders.test.js`) med 9 test scenarios:
+
+1. ✅ **Happy path**: Valid HMAC + successful DB insert → 200 OK
+2. ❌ **Invalid HMAC**: Wrong signature → 401 Unauthorized
+3. ❌ **Missing HMAC**: No header → 401 Unauthorized
+4. ❌ **Wrong HTTP method**: GET request → 405 Method Not Allowed
+5. ✅ **orders/create event**: Correct event_type stored in database
+6. ✅ **orders/updated event**: Correct event_type stored in database
+7. ❌ **Supabase insert error**: Database error → 500 with detailed logging
+8. ❌ **Missing headers**: No shop/topic → 400 Bad Request
+9. ❌ **Invalid JSON**: Malformed payload → 400 Bad Request
+
+**Test Results**:
+- All 9 tests passing ✅
+- HMAC verification validated (valid/invalid signatures)
+- Database insert verified with mock Supabase client
+- Error scenarios comprehensive (401, 400, 405, 500)
+
+### Rollback
+**Database rollback**:
+```sql
+DROP INDEX IF EXISTS idx_order_webhooks_order_id;
+DROP INDEX IF EXISTS idx_order_webhooks_event_type;
+DROP INDEX IF EXISTS idx_order_webhooks_processed;
+DROP INDEX IF EXISTS idx_order_webhooks_created_at;
+DROP INDEX IF EXISTS idx_order_webhooks_shop;
+DROP TABLE IF EXISTS order_webhooks;
+```
+
+**Code rollback**:
+```bash
+# Delete webhook endpoint
+rm /Users/nicolaibang/_projects/shopify-analytics/api/webhooks/orders.js
+
+# Delete migration
+rm /Users/nicolaibang/_projects/shopify-analytics/migrations/create_order_webhooks_table.sql
+
+# Git revert
+git revert <commit-hash>
+```
+
+**Shopify webhook removal**:
+- Shopify Admin → Settings → Notifications → Webhooks
+- Find webhook for orders/create or orders/updated
+- Delete webhook manually
+
+### Observations
+- **POC Status**: Webhook endpoint fully functional but NOT integrated into sync flow yet.
+- **Current Behavior**: Webhooks are received, verified, and stored in `order_webhooks` table (logging only).
+- **Next Steps**:
+  - Process stored webhooks → update `orders` and `skus` tables
+  - Add background job to process unprocessed webhooks (`processed = false`)
+  - Consider webhook for `bulk_operations/finish` instead of polling in Bulk Operations POC
+- **Security**: HMAC verification ensures only Shopify can trigger webhook endpoint.
+- **Performance**: Real-time event capture vs 12-hour polling delay.
+- **Audit Trail**: Complete event log in `order_webhooks` table for debugging and analysis.
+- **Rate Limits**: Webhooks are push-based, reducing API polling load.
