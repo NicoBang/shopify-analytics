@@ -645,6 +645,218 @@ PARALLEL_SYNC_ENABLED=false
 - Collect real-world performance metrics (sync times, error rates)
 - Adjust stagger timing if needed based on actual rate limit usage
 
+## 🚀 **Immediate Deployment Plan**
+
+### Phase 1: Immediate Steps Deployment (Database Indexes + GraphQL + Parallel Processing)
+
+**Deployment Date**: 2025-10-03
+
+**Deployments Completed**:
+1. ✅ **Database Indexes** - Applied 2025-10-02 (Commit `337ae37`)
+   - 5 indexes created successfully in Supabase
+   - Verification: 227× performance improvement (1,606.65ms → 7.07ms)
+   - Status: LIVE in production
+
+2. ✅ **GraphQL Query Enhancement** - Committed 2025-10-03 (Commit `98dd0bb`)
+   - `discountAllocations` field added to LineItem queries
+   - Unit tests passing (193 lines)
+   - Status: Ready for deployment (no breaking changes)
+
+3. ✅ **Parallel Shop Processing** - Committed 2025-10-03 (Commit `d3a609f`)
+   - Feature flag `PARALLEL_SYNC_ENABLED` added
+   - Performance tests passing (4/4 scenarios)
+   - Status: Ready for deployment (conservative rollout)
+
+### Deployment Steps
+
+#### Step 1: Pre-Deployment Configuration (Vercel Dashboard)
+
+**🔐 Set Feature Flag for Conservative Rollout**:
+
+1. Open Vercel Dashboard: https://vercel.com/nicolais-projects-291e9559/shopify-analytics
+2. Navigate to: **Settings** → **Environment Variables**
+3. Add new environment variable:
+   - **Name**: `PARALLEL_SYNC_ENABLED`
+   - **Value**: `false`
+   - **Environment**: Production ✅, Preview ☐, Development ☐
+4. Click **Save**
+
+**Why start with `false`?**
+- Ensures sequential processing on first deployment
+- Allows us to validate GraphQL changes first
+- Provides baseline metrics before enabling parallel mode
+
+**Other Environment Variables to Verify**:
+- ✅ `SUPABASE_URL` - Database connection
+- ✅ `SUPABASE_SERVICE_KEY` - Database authentication
+- ✅ `API_SECRET_KEY` - API authentication
+- ✅ `SHOPIFY_TOKEN_DA`, `SHOPIFY_TOKEN_DE`, etc. - Shop access tokens
+- ✅ `CRON_SECRET` - Cron job authentication (if using Vercel Cron)
+
+#### Step 2: Deploy to Production
+
+```bash
+# Deploy with production flag
+vercel --prod --yes
+
+# Expected output:
+# ✓ Deployed to production
+# https://shopify-analytics-[new-deployment-id].vercel.app
+```
+
+**What gets deployed**:
+- ✅ Enhanced GraphQL queries with `discountAllocations` field
+- ✅ Parallel processing infrastructure (feature flag OFF)
+- ✅ THROTTLED error handling with exponential backoff
+- ✅ All existing functionality unchanged
+
+#### Step 3: Verify Deployment
+
+**Test Sync Endpoint** (sequential mode):
+```bash
+# Test single shop sync
+curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
+  "https://shopify-analytics-[new-deployment-id].vercel.app/api/sync-shop?shop=pompdelux-da.myshopify.com&type=orders&days=1"
+
+# Expected response:
+# {
+#   "success": true,
+#   "recordsSynced": <number>,
+#   "shop": "pompdelux-da.myshopify.com",
+#   "type": "orders"
+# }
+```
+
+**Test Cron Job** (manual trigger):
+```bash
+# Trigger morning sync (requires CRON_SECRET)
+curl -H "Authorization: Bearer <CRON_SECRET>" \
+  "https://shopify-analytics-[new-deployment-id].vercel.app/api/cron?job=morning"
+
+# Expected: Sequential processing logs
+# 🔄 Sequential sync for 5 shops
+```
+
+#### Step 4: Monitor First Production Run
+
+**Vercel Logs** (Real-time):
+1. Open Vercel Dashboard: https://vercel.com/nicolais-projects-291e9559/shopify-analytics
+2. Navigate to: **Deployments** → [Latest Deployment] → **Logs**
+3. Monitor for:
+   - ✅ `🔄 Sequential sync for 5 shops` (confirms feature flag OFF)
+   - ✅ `🌅 Starting daily morning sync...` (cron trigger)
+   - ✅ `✅ Cron job morning completed: { ... }` (success)
+   - ⚠️ Any THROTTLED errors or failures
+
+**Supabase Metrics**:
+1. Open Supabase Dashboard: https://supabase.com/dashboard/project/[project-id]
+2. Navigate to: **Database** → **Query Performance**
+3. Check for:
+   - ✅ Index usage: `idx_orders_refund_date`, `idx_skus_refund_date` showing hits
+   - ✅ Query execution times: <10ms for refund date queries
+   - ⚠️ Any slow queries (>100ms)
+
+**Analytics API Verification**:
+```bash
+# Test analytics endpoint
+curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
+  "https://shopify-analytics-[new-deployment-id].vercel.app/api/analytics?startDate=2025-10-02&endDate=2025-10-03&type=dashboard"
+
+# Expected: <2 seconds response time
+```
+
+**Google Sheets Integration** (if applicable):
+1. Open your Google Sheets dashboard
+2. Run **Enhanced** → **Update Dashboard** (30 days)
+3. Verify:
+   - ✅ Data loads successfully
+   - ✅ Response time similar to before
+   - ✅ No errors in execution log
+
+#### Step 5: Enable Parallel Processing (After 24h monitoring)
+
+**Only proceed if**:
+- ✅ Sequential sync working perfectly
+- ✅ No THROTTLED errors
+- ✅ All shops syncing successfully
+- ✅ Supabase indexes performing well
+
+**Enable Parallel Mode**:
+1. Open Vercel Dashboard → Settings → Environment Variables
+2. Edit `PARALLEL_SYNC_ENABLED` variable:
+   - Change value from `false` to `true`
+3. **Trigger redeploy**: Vercel will automatically redeploy with new env var
+4. Monitor logs for:
+   - ✅ `⚡ Parallel sync enabled for 5 shops`
+   - ✅ Reduced sync times (expect 3-5× faster)
+   - ⚠️ Any THROTTLED errors (should trigger exponential backoff)
+
+### Monitoring Checklist (First 48 Hours)
+
+**Daily Checks**:
+- [ ] Verify morning cron job completed successfully (check logs)
+- [ ] Verify evening cron job completed successfully (check logs)
+- [ ] Check Supabase for data consistency (order counts, SKU counts)
+- [ ] Review any THROTTLED errors (should be <1% of requests)
+- [ ] Monitor sync times (sequential: baseline, parallel: 3-5× faster)
+
+**Key Metrics to Track**:
+- **Sync Success Rate**: Should be 100% (all 5 shops)
+- **Sync Duration**: Sequential: ~5-10 minutes, Parallel: ~1-3 minutes
+- **THROTTLED Errors**: Should be 0 with 200ms stagger
+- **Database Query Performance**: Refund queries <10ms
+- **API Response Times**: Analytics <2 seconds
+
+**Alerts to Set Up** (optional, for future):
+- Cron job failures (email notification)
+- THROTTLED error rate >1% (Slack/email)
+- Sync duration >10 minutes (performance degradation)
+- Database query times >100ms (index issues)
+
+### Rollback Procedures
+
+**If Issues Occur**:
+
+1. **Disable Parallel Processing**:
+   - Vercel Dashboard → Environment Variables
+   - Set `PARALLEL_SYNC_ENABLED=false`
+   - Wait for automatic redeploy (~30 seconds)
+
+2. **Rollback GraphQL Changes** (if needed):
+   ```bash
+   git revert 98dd0bb  # GraphQL enhancement commit
+   vercel --prod --yes
+   ```
+
+3. **Remove Database Indexes** (last resort):
+   ```sql
+   -- Run in Supabase SQL Editor
+   -- See: src/migrations/20251002222308_rollback_performance_indexes.sql
+   DROP INDEX CONCURRENTLY IF EXISTS idx_orders_refund_date;
+   DROP INDEX CONCURRENTLY IF EXISTS idx_skus_refund_date;
+   DROP INDEX CONCURRENTLY IF EXISTS idx_fulfillments_order_id;
+   DROP INDEX CONCURRENTLY IF EXISTS idx_orders_shop_refund;
+   DROP INDEX CONCURRENTLY IF EXISTS idx_skus_shop_refund;
+   ```
+
+4. **Contact Support** (if all else fails):
+   - Vercel Support: https://vercel.com/support
+   - Supabase Support: https://supabase.com/support
+   - Shopify Support: https://help.shopify.com/
+
+### Success Criteria
+
+**Deployment Successful When**:
+- ✅ All 3 immediate steps deployed without errors
+- ✅ Sequential sync working perfectly (24h monitoring)
+- ✅ Parallel sync enabled and 3-5× faster (after 48h)
+- ✅ Database indexes improving query performance (227× verified)
+- ✅ GraphQL changes returning `discountAllocations` data
+- ✅ Zero data loss or corruption
+- ✅ All automated cron jobs running smoothly
+
+**Next Phase**: Short-term improvements (monitoring, webhooks, advanced analytics)
+
 ## 💰 **Revenue Calculation Logic**
 
 ### Important Understanding
