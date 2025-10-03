@@ -118,6 +118,7 @@ module.exports = async function handler(req, res) {
     const totalQuantity = data.reduce((sum, item) => sum + (item.quantity || 0), 0);
     const totalRefunded = data.reduce((sum, item) => sum + (item.refunded_qty || 0), 0);
     const totalCancelled = data.reduce((sum, item) => sum + (item.cancelled_qty || 0), 0);
+    const totalCancelledAmount = data.reduce((sum, item) => sum + (item.cancelled_amount_dkk || 0), 0);
     const totalRevenue = data.reduce((sum, item) => {
       // price_dkk is the discounted unit price (from discountedUnitPriceSet) - includes line-level discounts
       // discount_per_unit_dkk is the order-level discount allocation per unit
@@ -165,6 +166,30 @@ module.exports = async function handler(req, res) {
       console.log(`📦 Aggregated to ${aggregatedData.length} unique artikelnummer`);
     }
 
+    // Calculate shop-level breakdown
+    const shopBreakdown = {};
+    data.forEach(item => {
+      const shop = item.shop || 'unknown';
+      if (!shopBreakdown[shop]) {
+        shopBreakdown[shop] = {
+          shop: shop,
+          quantitySold: 0,
+          quantityCancelled: 0,
+          quantityRefunded: 0,
+          cancelledAmount: 0,
+          revenue: 0
+        };
+      }
+
+      shopBreakdown[shop].quantitySold += item.quantity || 0;
+      shopBreakdown[shop].quantityCancelled += item.cancelled_qty || 0;
+      shopBreakdown[shop].quantityRefunded += item.refunded_qty || 0;
+      shopBreakdown[shop].cancelledAmount += item.cancelled_amount_dkk || 0;
+
+      const unitPriceAfterDiscount = (item.price_dkk || 0) - (item.discount_per_unit_dkk || 0);
+      shopBreakdown[shop].revenue += unitPriceAfterDiscount * (item.quantity || 0);
+    });
+
     return res.status(200).json({
       success: true,
       period: {
@@ -176,12 +201,14 @@ module.exports = async function handler(req, res) {
         totalQuantitySold: totalQuantity,
         totalQuantityRefunded: totalRefunded,
         totalQuantityCancelled: totalCancelled,
+        totalCancelledAmount: parseFloat(totalCancelledAmount.toFixed(2)),
         netQuantitySold: totalQuantity - totalRefunded - totalCancelled,
         totalRevenue: totalRevenue.toFixed(2),
         uniqueSkus: [...new Set(data.map(item => item.sku))].length,
         uniqueOrders: [...new Set(data.map(item => item.order_id))].length,
         uniqueShops: [...new Set(data.map(item => item.shop))].length
       },
+      shopBreakdown: Object.values(shopBreakdown),
       aggregated: aggregatedData,
       rawData: aggregateBy ? null : data.slice(0, 100), // Return sample of raw data if not aggregating
       timestamp: new Date().toISOString()

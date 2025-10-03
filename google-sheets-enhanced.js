@@ -36,6 +36,7 @@ function onOpen() {
 
 /**
  * Opdater dashboard med de sidste 30 dages data
+ * UPDATED: Nu bruger SKU-level cancelled amounts i stedet for proportional fordeling
  */
 function updateDashboard() {
   try {
@@ -44,21 +45,30 @@ function updateDashboard() {
     // Læs datoer fra Dashboard arket (B1/B2). Fallback: sidste 30 dage
     const { startDate, endDate } = getDashboardSelectedDates_();
 
-    // Hent ordrer oprettet i perioden + retur-ordrer dateret efter refund_date
-    const url = `${CONFIG.API_BASE}/analytics`;
-    const payload = {
+    // Hent SKU-level data (inkluderer cancelled_amount_dkk)
+    const skuUrl = `${CONFIG.API_BASE}/sku-raw`;
+    const skuPayload = {
+      startDate: formatDateWithTime(startDate, false),
+      endDate: formatDateWithTime(endDate, true)
+    };
+    const skuRes = makeApiRequest(skuUrl, skuPayload);
+
+    // Hent order-level data for backward compatibility og shipping/tax info
+    const ordersUrl = `${CONFIG.API_BASE}/analytics`;
+    const ordersPayload = {
       startDate: formatDateWithTime(startDate, false),
       endDate: formatDateWithTime(endDate, true),
       type: 'orders',
       includeReturns: true
     };
-    const res = makeApiRequest(url, payload);
+    const ordersRes = makeApiRequest(ordersUrl, ordersPayload);
 
-    const ordersRows = Array.isArray(res?.data) ? res.data : [];
-    const returnRows = Array.isArray(res?.returns) ? res.returns : [];
+    const ordersRows = Array.isArray(ordersRes?.data) ? ordersRes.data : [];
+    const returnRows = Array.isArray(ordersRes?.returns) ? ordersRes.returns : [];
+    const shopBreakdown = Array.isArray(skuRes?.shopBreakdown) ? skuRes.shopBreakdown : null;
 
-    renderDashboard_(ordersRows, returnRows, startDate, endDate);
-    console.log(`✅ Dashboard opdateret (orders: ${ordersRows.length}, returns: ${returnRows.length})`);
+    renderDashboard_(ordersRows, returnRows, startDate, endDate, shopBreakdown);
+    console.log(`✅ Dashboard opdateret (SKU method: ${shopBreakdown ? 'YES' : 'NO fallback'}, orders: ${ordersRows.length}, returns: ${returnRows.length})`);
 
   } catch (error) {
     console.error('💥 Fejl i updateDashboard:', error);
@@ -67,7 +77,8 @@ function updateDashboard() {
 }
 
 // Render Dashboard identisk med det gamle GAS-setup
-function renderDashboard_(orderRows, returnRows, startDate, endDate) {
+// UPDATED: Now accepts optional shopBreakdown parameter for SKU-level cancelled amounts
+function renderDashboard_(orderRows, returnRows, startDate, endDate, shopBreakdown = null) {
   const sheet = getOrCreateSheet(CONFIG.SHEETS.DASHBOARD);
 
   // Sæt dato inputs i toppen (A1/A2) som i det gamle setup
@@ -144,13 +155,16 @@ function renderDashboard_(orderRows, returnRows, startDate, endDate) {
     skuStats[shop].qtyNet += bruttoQty;
     skuStats[shop].cancelledQty += cancelledQty;
 
-    // Træk annulleringer fra nettoomsætning proportionalt med enhedsprisen ex moms
-    if (itemCount > 0 && cancelledQty > 0) {
+    // NOTE: Cancelled amount deduction is handled via SKU-level data in shopBreakdown
+    // Old proportional calculation has been removed to avoid double-deduction
+    // Fallback: If shopBreakdown is null, use proportional calculation
+    if (!shopBreakdown && itemCount > 0 && cancelledQty > 0) {
       const perUnitExTax = brutto / itemCount;
       const cancelValueExTax = perUnitExTax * cancelledQty;
       // Træk fra både brutto (B) og netto (C)
       shopMap[shop].gross -= cancelValueExTax;
       shopMap[shop].net -= cancelValueExTax;
+      console.log(`⚠️  FALLBACK: Using proportional calculation for ${shop} order ${orderId} (cancelled_amount_dkk not available)`);
     }
 
     // Håndter returer for ordrer i perioden (undgå dobbelt-træk senere)
@@ -202,6 +216,28 @@ function renderDashboard_(orderRows, returnRows, startDate, endDate) {
     skuStats[shop].refundedQty += refundedQty;
     skuStats[shop].qtyNet -= refundedQty;
   });
+
+  // If shopBreakdown exists, use SKU-level revenue (with precise cancelled amounts)
+  if (shopBreakdown && shopBreakdown.length > 0) {
+    console.log('✅ Using SKU-level cancelled amounts from shopBreakdown');
+    shopBreakdown.forEach(breakdown => {
+      const shop = breakdown.shop;
+      if (!shopMap[shop]) return;
+
+      // Replace gross/net revenue with SKU-level calculated revenue
+      // SKU revenue already has precise cancelled amounts deducted
+      const skuRevenue = breakdown.revenue || 0;
+      const cancelledAmount = breakdown.cancelledAmount || 0;
+
+      // Override the order-level calculated values
+      shopMap[shop].gross = skuRevenue;
+      shopMap[shop].net = skuRevenue;  // Will be adjusted by refunds below
+
+      console.log(`   ${shop}: SKU revenue=${skuRevenue.toFixed(2)}, cancelled=${cancelledAmount.toFixed(2)}`);
+    });
+  } else {
+    console.log('⚠️  No shopBreakdown available - using order-level proportional calculation');
+  }
 
   // Byg rækker
   const rows = [];

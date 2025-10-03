@@ -419,19 +419,23 @@ class ShopifyAPIClient {
             // Calculate refunded and cancelled quantities for this SKU
             let refundedQty = 0;
             let cancelledQty = 0;
+            let cancelledAmountDkk = 0;
             let lastRefundDate = "";
 
             order.refunds.forEach(refund => {
               const refundTotal = parseFloat(refund.totalRefundedSet?.shopMoney?.amount || 0);
 
-              // Calculate total quantity for this SKU in this refund FIRST
-              const skuRefundQty = refund.refundLineItems.edges
-                .filter(e => e.node.lineItem?.sku === item.sku)
-                .reduce((sum, e) => sum + (e.node.quantity || 0), 0);
+              // Find all refund line items for this SKU
+              const skuRefundItems = refund.refundLineItems.edges
+                .filter(e => e.node.lineItem?.sku === item.sku);
+
+              // Calculate total quantity and cancelled amount for this SKU in this refund
+              const skuRefundQty = skuRefundItems.reduce((sum, e) => sum + (e.node.quantity || 0), 0);
 
               // Then check refund total ONCE
               if (skuRefundQty > 0) {
                 if (refundTotal > 0) {
+                  // Real refund with money returned
                   refundedQty += skuRefundQty;
                   const refundDate = (refund.transactions?.edges?.[0]?.node?.processedAt)
                     ? refund.transactions.edges[0].node.processedAt
@@ -440,7 +444,34 @@ class ShopifyAPIClient {
                     lastRefundDate = refundDate;
                   }
                 } else {
+                  // Cancellation (no money returned)
                   cancelledQty += skuRefundQty;
+
+                  // Calculate exact cancelled amount from RefundLineItem.priceSet
+                  // This gives us the PRECISE price of cancelled items
+                  skuRefundItems.forEach(refundItem => {
+                    const cancelledPrice = parseFloat(refundItem.node.priceSet?.shopMoney?.amount || 0);
+                    const cancelledQuantity = refundItem.node.quantity || 0;
+
+                    // Get tax rate to convert to EX moms
+                    const refundLineTax = (refundItem.node.lineItem?.taxLines || []).reduce(
+                      (sum, tl) => sum + parseFloat(tl.priceSet?.shopMoney?.amount || 0),
+                      0
+                    );
+                    const taxRate = (refundItem.node.lineItem?.taxLines?.[0]?.rate) || 0.25;
+
+                    // Convert cancelled price to EX moms
+                    let cancelledPriceExTax;
+                    if (taxesIncluded) {
+                      // Price includes tax - divide by (1 + taxRate)
+                      cancelledPriceExTax = cancelledPrice / (1 + taxRate);
+                    } else {
+                      cancelledPriceExTax = cancelledPrice;
+                    }
+
+                    // Add to total cancelled amount in DKK
+                    cancelledAmountDkk += cancelledPriceExTax * this.rate;
+                  });
                 }
               }
             });
@@ -508,6 +539,7 @@ class ShopifyAPIClient {
               quantity: quantity,
               refunded_qty: refundedQty,
               cancelled_qty: cancelledQty,
+              cancelled_amount_dkk: cancelledAmountDkk,
               price_dkk: priceDkk,
               refund_date: lastRefundDate || null,
               total_discount_dkk: totalDiscountDkk,
