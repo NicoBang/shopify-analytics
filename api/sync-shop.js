@@ -290,6 +290,18 @@ class ShopifyAPIClient {
                     quantity
                     originalUnitPriceSet { shopMoney { amount } }
                     discountedUnitPriceSet { shopMoney { amount } }
+                    discountAllocations {
+                      allocatedAmountSet {
+                        shopMoney {
+                          amount
+                        }
+                      }
+                      discountApplication {
+                        ... on DiscountCodeApplication {
+                          code
+                        }
+                      }
+                    }
                     taxLines {
                       rate
                       priceSet {
