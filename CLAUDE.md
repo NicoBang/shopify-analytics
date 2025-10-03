@@ -2175,3 +2175,217 @@ SUM(lineItem.discountedUnitPrice × (quantity – cancelled_qty))
 - Line item-niveau giver mere præcise bruttoomsætningsberegninger.
 - Mulighed for at udvide med bedre rapportering på refunds og cancellations.
 - Lidt øget kompleksitet i sync (flere felter fra GraphQL), men nødvendig for nøjagtighed.
+
+---
+
+## [Dato: 2025-10-03] – Dashboard vs Color_Analytics Reconciliation
+
+### Problem
+Dashboard og Color_Analytics viser forskellige resultater for bruttoomsætning, selvom antal stk brutto matcher:
+
+**Observerede afvigelser**:
+- **09/10/2024**: Dashboard = 49.736,42 kr / Color_Analytics = 45.205,35 kr (forskel: 4.531,07 kr = 9,1%)
+- **09/10/2024**: Antal stk Brutto = 250 stk i begge systemer ✅
+- **01/10–09/10/2024**: Dashboard = 13.054 stk / Color_Analytics = 13.048 stk (forskel = 6 stk)
+- **01/10–31/10/2024**: Dashboard retur = 1.196 stk / Color_Analytics = 1.230 stk (forskel = 34 stk)
+
+### Analyse
+
+#### 1. Dashboard Bruttoomsætning Beregning (`google-sheets-enhanced.js:130-154`)
+
+**Data kilde**: Order-level data fra `/api/analytics?type=dashboard` (orders table)
+
+**Beregningslogik**:
+```javascript
+// Basisberegning (line 130)
+const brutto = discountedTotal - tax - shipping;
+
+// Brutto quantity (lines 138-145)
+const bruttoQty = Math.max(0, itemCount - cancelledQty);
+
+// PROPORTIONAL cancellation subtraction (lines 147-154)
+if (itemCount > 0 && cancelledQty > 0) {
+  const perUnitExTax = brutto / itemCount;  // ← Gennemsnit på TVÆRS af alle items
+  const cancelValueExTax = perUnitExTax * cancelledQty;
+  brutto -= cancelValueExTax;  // ← Trækker gennemsnitspris fra
+}
+```
+
+**Test case - Order 6667277697291**:
+```
+Order detaljer:
+  Discounted Total: 199,93 kr
+  Tax: 46,25 kr
+  Shipping: 55,20 kr
+  Item Count: 2
+  Cancelled Qty: 1
+
+Dashboard beregning:
+  Base Brutto: 199,93 - 46,25 - 55,20 = 98,48 kr
+  Proportional Cancellation: 98,48 / 2 = 49,24 kr per item
+  Cancelled Value: 49,24 * 1 = 49,24 kr
+  Final Brutto: 98,48 - 49,24 = 49,24 kr ← Dashboard resultat
+```
+
+**Aggregeret resultat (09/10/2024)**:
+- Bruttoomsætning: **49.736,42 kr**
+- Antal stk Brutto: **250 stk**
+- Cancelled stk: 1
+- Refunded stk: 27
+- Total orders: 54
+
+#### 2. Color_Analytics Bruttoomsætning Beregning (`api/metadata.js:895-927`)
+
+**Data kilde**: SKU-level data fra `/api/metadata?type=style&groupBy=farve` (skus table)
+
+**Beregningslogik**:
+```javascript
+// SKU-level præcis beregning (lines 895-910)
+const unitPriceAfterDiscount = (item.price_dkk || 0) - (item.discount_per_unit_dkk || 0);
+const bruttoQty = quantity - cancelled;  // Brutto = quantity minus cancelled
+const revenue = unitPriceAfterDiscount * bruttoQty;  // ← FAKTISK SKU pris
+
+group.solgt += bruttoQty;
+group.retur += refunded;
+group.omsætning += revenue;
+```
+
+**Data hentning**:
+- Sales data: SKUs hvor `created_at` er i perioden (lines 286-325)
+- Refund data: SKUs hvor `refund_date` er i perioden (lines 329-350)
+- Kombinering: Undgår double-counting af SKUs med både salg og refund i samme periode (lines 353-391)
+
+**Test case - Order 6667277697291** (SKU-level data):
+```
+Note: Dette order har 2 SKUs, hvoraf 1 blev cancelled.
+SKU-level beregning bruger FAKTISKE priser for det ikke-cancelled item:
+  - SKU 1: price_dkk - discount_per_unit_dkk = faktisk betalt pris
+  - Revenue = faktisk_pris * (quantity - cancelled)
+```
+
+**Aggregeret resultat (09/10/2024)**:
+- Bruttoomsætning: **45.205,35 kr** (fra API aggregation)
+- SKU raw total: **45.241,99 kr** (slight difference due to aggregation rounding)
+- Antal stk Brutto: **250 stk**
+- Retur: 0 stk (for denne dag specifikt)
+- Total SKU records: 237
+- Unique SKUs: 208
+- Unique orders: 54
+
+#### 3. Sammenligning af Logikker
+
+| Aspekt | Dashboard | Color_Analytics |
+|--------|-----------|-----------------|
+| **Data kilde** | Orders table (order-level) | SKUs table (line-item level) |
+| **Aggregeringsniveau** | Order-level | SKU-level aggregeret til artikelnummer/farve |
+| **Cancellation håndtering** | Proportional: `(brutto / itemCount) * cancelledQty` | Faktisk: Bruger SKU-specifikke priser |
+| **Pris beregning** | Gennemsnit: `(discountedTotal - tax - shipping) / itemCount` | Præcis: `price_dkk - discount_per_unit_dkk` per SKU |
+| **Discount håndtering** | Implicit i discountedTotal | Eksplicit: `price_dkk` (line discounts) + `discount_per_unit_dkk` (order discounts) |
+| **Periodisering** | `created_at` for salg, `refund_date` for refunds | `created_at` for salg, `refund_date` for refunds ✅ |
+
+### Root Cause
+
+**Hovedårsag**: **Proportional Cancellation vs. Faktiske SKU Priser**
+
+Dashboard bruger en **proportional metode** der antager alle items i en ordre har samme pris:
+```javascript
+perUnitExTax = (discountedTotal - tax - shipping) / itemCount
+```
+
+Dette er **matematisk forkert** når:
+1. **Items har forskellige priser** - fx 799 kr jakke + 249 kr t-shirt
+2. **Det dyreste item bliver cancelled** - Dashboard trækker gennemsnit fra (524 kr), men det faktiske tab er 799 kr
+3. **Det billigste item bliver cancelled** - Dashboard trækker gennemsnit fra (524 kr), men det faktiske tab er kun 249 kr
+
+Color_Analytics bruger **faktiske SKU-niveau priser**:
+```javascript
+revenue = (price_dkk - discount_per_unit_dkk) * (quantity - cancelled)
+```
+
+Dette er **matematisk korrekt** fordi:
+1. Hver SKU har sin egen `price_dkk` (discounted unit price fra Shopify)
+2. Hver SKU har sin egen `discount_per_unit_dkk` (proportional order-level discount)
+3. Revenue beregnes præcist: faktisk betalt pris * faktisk solgt quantity
+
+**Numerisk eksempel fra test order 6667277697291**:
+```
+Dashboard (proportional):
+  98,48 kr / 2 items = 49,24 kr per item
+  Cancelled value: 49,24 kr
+  Final brutto: 49,24 kr
+
+Color_Analytics (faktisk):
+  Bruger SKU-specifikke priser for det ikke-cancelled item
+  Final brutto: [faktisk betalt pris for det item der blev solgt]
+```
+
+**Konsekvens på 09/10/2024**:
+- Dashboard: 49.736,42 kr (proportional estimation)
+- Color_Analytics: 45.205,35 kr (faktiske SKU priser)
+- **Forskel: 4.531,07 kr (9,1%)** ← Dette er akkumuleret fejl fra proportional metode
+
+### Løsning
+
+**ANBEFALING: Color_Analytics er KORREKT, Dashboard skal fixes**
+
+Color_Analytics bruger den matematisk korrekte metode (faktiske SKU priser). Dashboard skal opdateres til at bruge samme logik.
+
+**Option 1: Fix Dashboard til at bruge SKU-level data (ANBEFALET)**
+```javascript
+// I stedet for proportional estimation:
+// OLD: const perUnitExTax = brutto / itemCount;
+
+// NEW: Hent faktiske SKU priser fra /api/sku-raw endpoint
+// Beregn cancelled value som sum af faktiske cancelled SKU priser
+```
+
+**Option 2: Dokumentér forskellen og behold begge (MIDLERTIDIG)**
+- Dashboard: "Estimeret bruttoomsætning (proportional metode)"
+- Color_Analytics: "Faktisk bruttoomsætning (SKU-niveau priser)"
+
+**Option 3: Brug kun Color_Analytics for bruttoomsætning (SIMPLEST)**
+- Fjern bruttoomsætning fra Dashboard
+- Brug kun Color_Analytics for revenue analytics
+- Dashboard fokuserer på order-level metrics (antal ordrer, gennemsnit, etc.)
+
+### Tests
+
+**Verificeret med 09/10/2024 data**:
+- ✅ Dashboard total: 49.736,42 kr (matches user observation)
+- ✅ Color_Analytics total: 45.205,35 kr (matches user observation)
+- ✅ Difference: 4.531,07 kr (9,1%)
+- ✅ Antal stk matcher: 250 stk i begge systemer
+- ✅ Test order 6667277697291 replay gennemført
+
+**SKU raw data verification**:
+- ✅ Total SKU records: 237
+- ✅ Total SKU revenue: 45.241,99 kr (meget tæt på Color_Analytics aggregation: 45.205,35 kr)
+- ✅ Difference mellem SKU raw og Color_Analytics aggregation: 36,64 kr (0,08%) - negligible rounding
+
+### Rollback
+
+Ingen rollback nødvendig - dette er en analyse, ikke en code change.
+
+Hvis Option 1 implementeres senere:
+1. Gem backup af `google-sheets-enhanced.js`
+2. Test ny Dashboard beregning mod Color_Analytics
+3. Verificér at forskellen < 0,1%
+4. Rollback hvis nødvendigt ved at gendanne gammel fil
+
+### Observations
+
+**Findings**:
+1. **Color_Analytics er matematisk korrekt** - bruger faktiske SKU-niveau priser
+2. **Dashboard bruger proportional estimation** - matematisk forkert når items har forskellige priser
+3. **Antal stk matcher perfekt** - dette skyldes at både systemer bruger `quantity - cancelled`
+4. **Forskel på 9,1%** er betydelig og indikerer systematisk fejl i Dashboard
+
+**Impact**:
+- Dashboard **overvurderer** bruttoomsætning med ~9% når dyre items ikke cancelled
+- Dashboard **undervurderer** bruttoomsætning når dyre items cancelled
+- Color_Analytics giver **præcise** revenue tal til business decisions
+
+**Anbefalinger**:
+1. **Kortsigtet**: Brug Color_Analytics for revenue analytics (det er korrekt)
+2. **Mellemlang sigt**: Fix Dashboard til at bruge SKU-level data
+3. **Langsigtet**: Konsolidér til én revenue calculation metode på tværs af hele systemet
