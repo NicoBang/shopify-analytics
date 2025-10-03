@@ -53,13 +53,13 @@ Shopify API → /api/sync-shop → Supabase → /api/analytics → Google Sheets
 - **Base URL**: `https://shopify-analytics-nu.vercel.app/api`
 - **Analytics API**: `https://shopify-analytics-nu.vercel.app/api/analytics`
 - **Sync API**: `https://shopify-analytics-nu.vercel.app/api/sync-shop`
-- **SKU Cache API**: `https://shopify-analytics-nu.vercel.app/api/sku-cache`
+- **SKU API**: `https://shopify-analytics-nu.vercel.app/api/sku-raw` (consolidated endpoint)
 - **Inventory API**: `https://shopify-analytics-nu.vercel.app/api/inventory`
 - **Fulfillments API**: `https://shopify-analytics-nu.vercel.app/api/fulfillments`
 - **Metadata API**: `https://shopify-analytics-nu.vercel.app/api/metadata`
 
 **Current Deployment** (for reference only - changes with each deploy):
-- `https://shopify-analytics-hr7rfsq6h-nicolais-projects-291e9559.vercel.app`
+- `https://shopify-analytics-nhq316m6m-nicolais-projects-291e9559.vercel.app`
 - **Supabase**: [Your Supabase dashboard URL]
 - **Vercel**: [Your Vercel dashboard URL]
 
@@ -1264,6 +1264,56 @@ Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc
 **Migration**: Complete ✅
 
 ## 🔧 Recent Updates
+
+### 2025-10-03: 🔄 API Endpoint Consolidation - Reduced Function Count ✅
+- **🎯 PROBLEM SOLVED**: Vercel Hobby plan function limit blocking deployment
+  - **Issue**: 14 serverless functions exceeded Vercel's 12 function limit
+  - **Blocker**: Dashboard cancelled amounts fix couldn't be deployed
+  - **Impact**: User unable to run sync-skus.sh to populate `cancelled_amount_dkk` data
+
+- **✅ SOLUTION**: Consolidated API endpoints to reduce function count
+  - **Deleted 4 obsolete one-time fix scripts**:
+    1. `api/fix-2024-cancelled.js` - One-time 2024 cancelled amounts fix
+    2. `api/fix-historical-vat.js` - One-time historical VAT data fix
+    3. `api/fix-refund-dates.js` - One-time refund dates fix
+    4. `api/bulk-sync-orders.js` - Replaced by sync-shop.js functionality
+  - **Merged 2 SKU endpoints** into single consolidated endpoint:
+    - Combined `api/sku-cache.js` + `api/sku-raw.js` → `api/sku-raw.js`
+    - **Result**: All functionality preserved in consolidated endpoint
+    - **Backward Compatible**: Supports all previous query patterns
+
+- **📦 FUNCTION COUNT**: **14 → 9 functions** (well under 12 limit!)
+  - **Current Functions** (9 total):
+    1. `api/analytics.js` - Dashboard analytics
+    2. `api/cron.js` - Automated daily syncs
+    3. `api/fulfillments.js` - Fulfillment tracking
+    4. `api/inventory.js` - Inventory management
+    5. `api/metadata.js` - Product metadata
+    6. `api/sku-raw.js` - **CONSOLIDATED SKU endpoint** (raw data, analytics, search, shop breakdown)
+    7. `api/sync-shop.js` - Shopify → Supabase sync
+    8. `api/webhooks/orders.js` - Real-time order updates
+    9. Reserved for future expansion
+
+- **🚀 DEPLOYMENT**: Successfully deployed to production
+  - **URL**: `https://shopify-analytics-nhq316m6m-nicolais-projects-291e9559.vercel.app`
+  - **Status**: ✅ All API endpoints functional
+  - **Updated**: sync-skus.sh, google-sheets-enhanced.js with new URL
+
+- **📚 CONSOLIDATED SKU ENDPOINT** (`/api/sku-raw`):
+  - **Features**: Supports all use cases from both old endpoints
+    - `type=raw` or `type=list`: Raw SKU data with optional shop breakdown (for Dashboard)
+    - `type=analytics` or `type=summary`: Aggregated SKU analytics by groupBy
+    - `type=search`: Search SKUs by term
+    - `includeShopBreakdown=true`: Calculate shop-level revenue/cancelled amounts
+    - `aggregateBy=artikelnummer`: Optional artikelnummer aggregation
+  - **Backward Compatible**: All existing queries work without changes
+  - **Google Apps Script**: Uses `type=raw&includeShopBreakdown=true` for Dashboard
+
+- **Files Updated**:
+  - `api/sku-raw.js` - Consolidated SKU endpoint (557 lines)
+  - `sync-skus.sh` - Updated deployment URL (line 34)
+  - `google-sheets-enhanced.js` - Updated API_BASE URL (line 6)
+  - `CLAUDE.md` - Documentation updates
 
 ### 2025-10-03: 🗂️ API Version Migration Plan - 2024-10 → 2025-01 ✅
 - **📋 MIGRATION PLAN DOCUMENTED**: Comprehensive analysis of Shopify Admin API version compatibility
