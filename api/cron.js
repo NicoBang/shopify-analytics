@@ -1,6 +1,10 @@
 // Unified Vercel Cron endpoint - handles all automatic syncs
 // Triggered by Vercel Cron with different job parameters
 
+// Feature flag: Enable/disable parallel shop processing
+// Set to false to use sequential processing (safer, slower)
+const PARALLEL_SYNC_ENABLED = process.env.PARALLEL_SYNC_ENABLED !== 'false';
+
 const SHOPS = [
   'pompdelux-da.myshopify.com',
   'pompdelux-de.myshopify.com',
@@ -12,7 +16,7 @@ const SHOPS = [
 const API_KEY = process.env.API_SECRET_KEY;
 
 // Helper function to call sync-shop API
-async function syncShop(shop, type, params = {}) {
+async function syncShop(shop, type, params = {}, retryCount = 0) {
   const baseUrl = `https://${process.env.VERCEL_URL || 'shopify-analytics-production.vercel.app'}`;
   const queryParams = new URLSearchParams({
     shop,
@@ -24,7 +28,81 @@ async function syncShop(shop, type, params = {}) {
     headers: { 'Authorization': `Bearer ${API_KEY}` }
   });
 
-  return response.json();
+  const data = await response.json();
+
+  // Check for rate limit throttling in response
+  if (data.error && data.error.includes('THROTTLED')) {
+    const maxRetries = 3;
+    if (retryCount < maxRetries) {
+      // Exponential backoff: 1s, 2s, 4s
+      const backoffMs = Math.pow(2, retryCount) * 1000;
+      console.log(`⏳ Rate limited on ${shop} (${type}), retrying in ${backoffMs}ms... (attempt ${retryCount + 1}/${maxRetries})`);
+      await sleep(backoffMs);
+      return syncShop(shop, type, params, retryCount + 1);
+    }
+    console.error(`❌ Max retries reached for ${shop} (${type})`);
+  }
+
+  return data;
+}
+
+// Helper: Sleep utility
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Helper: Parallel shop sync with rate-limit protection
+async function syncShopsParallel(shops, syncFn) {
+  console.log(`⚡ Parallel sync enabled for ${shops.length} shops`);
+
+  // Add 200ms stagger between requests (5 req/sec safety margin)
+  const staggeredPromises = shops.map((shop, index) =>
+    sleep(index * 200).then(() => syncFn(shop))
+  );
+
+  const results = await Promise.allSettled(staggeredPromises);
+
+  return results.map((result, index) => {
+    if (result.status === 'fulfilled') {
+      return result.value;
+    } else {
+      return {
+        shop: shops[index],
+        status: 'failed',
+        error: result.reason?.message || 'Unknown error'
+      };
+    }
+  });
+}
+
+// Helper: Sequential shop sync (fallback)
+async function syncShopsSequential(shops, syncFn) {
+  console.log(`🔄 Sequential sync for ${shops.length} shops`);
+  const results = [];
+
+  for (const shop of shops) {
+    try {
+      const result = await syncFn(shop);
+      results.push(result);
+    } catch (error) {
+      results.push({
+        shop,
+        status: 'failed',
+        error: error.message
+      });
+    }
+  }
+
+  return results;
+}
+
+// Helper: Choose sync strategy based on feature flag
+async function syncShops(shops, syncFn) {
+  if (PARALLEL_SYNC_ENABLED) {
+    return syncShopsParallel(shops, syncFn);
+  } else {
+    return syncShopsSequential(shops, syncFn);
+  }
 }
 
 // CRON JOB HANDLERS
@@ -36,29 +114,23 @@ async function dailySync() {
   yesterday.setDate(yesterday.getDate() - 1);
   const dateStr = yesterday.toISOString().split('T')[0];
 
-  const results = { shops: [] };
+  const shopResults = await syncShops(SHOPS, async (shop) => {
+    const [orders, skus, fulfillments] = await Promise.all([
+      syncShop(shop, 'orders', { startDate: dateStr, endDate: dateStr }),
+      syncShop(shop, 'skus', { startDate: dateStr, endDate: dateStr }),
+      syncShop(shop, 'fulfillments', { days: 1 })
+    ]);
 
-  for (const shop of SHOPS) {
-    try {
-      const [orders, skus, fulfillments] = await Promise.all([
-        syncShop(shop, 'orders', { startDate: dateStr, endDate: dateStr }),
-        syncShop(shop, 'skus', { startDate: dateStr, endDate: dateStr }),
-        syncShop(shop, 'fulfillments', { days: 1 })
-      ]);
+    return {
+      shop,
+      orders: orders.recordsSynced || 0,
+      skus: skus.recordsSynced || 0,
+      fulfillments: fulfillments.recordsSynced || 0,
+      status: 'success'
+    };
+  });
 
-      results.shops.push({
-        shop,
-        orders: orders.recordsSynced || 0,
-        skus: skus.recordsSynced || 0,
-        fulfillments: fulfillments.recordsSynced || 0,
-        status: 'success'
-      });
-    } catch (error) {
-      results.shops.push({ shop, status: 'failed', error: error.message });
-    }
-  }
-
-  return results;
+  return { shops: shopResults };
 }
 
 async function updateSync() {
@@ -72,50 +144,38 @@ async function updateSync() {
   const startDateStr = startDate.toISOString().split('T')[0];
   const endDateStr = today.toISOString().split('T')[0];
 
-  const results = { shops: [] };
+  const shopResults = await syncShops(SHOPS, async (shop) => {
+    const [orders, skus] = await Promise.all([
+      syncShop(shop, 'orders', { startDate: startDateStr, endDate: endDateStr, updatedMode: true }),
+      syncShop(shop, 'skus', { startDate: startDateStr, endDate: endDateStr, updatedMode: true })
+    ]);
 
-  for (const shop of SHOPS) {
-    try {
-      const [orders, skus] = await Promise.all([
-        syncShop(shop, 'orders', { startDate: startDateStr, endDate: endDateStr, updatedMode: true }),
-        syncShop(shop, 'skus', { startDate: startDateStr, endDate: endDateStr, updatedMode: true })
-      ]);
+    return {
+      shop,
+      orders_updated: orders.recordsSynced || 0,
+      skus_updated: skus.recordsSynced || 0,
+      status: 'success'
+    };
+  });
 
-      results.shops.push({
-        shop,
-        orders_updated: orders.recordsSynced || 0,
-        skus_updated: skus.recordsSynced || 0,
-        status: 'success'
-      });
-    } catch (error) {
-      results.shops.push({ shop, status: 'failed', error: error.message });
-    }
-  }
-
-  return results;
+  return { shops: shopResults };
 }
 
 async function inventorySync() {
   // Evening sync (22:00) - Inventory levels
   console.log('📦 Starting evening inventory sync...');
 
-  const results = { shops: [] };
+  const shopResults = await syncShops(SHOPS, async (shop) => {
+    const inventory = await syncShop(shop, 'inventory');
 
-  for (const shop of SHOPS) {
-    try {
-      const inventory = await syncShop(shop, 'inventory');
+    return {
+      shop,
+      inventory_items: inventory.recordsSynced || 0,
+      status: 'success'
+    };
+  });
 
-      results.shops.push({
-        shop,
-        inventory_items: inventory.recordsSynced || 0,
-        status: 'success'
-      });
-    } catch (error) {
-      results.shops.push({ shop, status: 'failed', error: error.message });
-    }
-  }
-
-  return results;
+  return { shops: shopResults };
 }
 
 async function metadataSync(statusFilter = null) {
