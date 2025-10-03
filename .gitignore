@@ -23,3 +23,6 @@ Thumbs.db
 .vscode/
 .idea/
 .vercel
+
+# Test coverage
+coverage/
