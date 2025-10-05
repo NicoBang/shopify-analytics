@@ -1451,6 +1451,77 @@ The regression test successfully **identifies critical data quality issues** in 
 
 ---
 
+### 2025-10-05: 🔄 Re-sync Attempt - API Timeout Limitations Identified ⚠️
+
+**Problem**: Historical SKU data from October 2024 missing `cancelled_amount_dkk` values (all set to 0 after migration).
+
+**Solution Attempted**: Re-sync SKU data via `/api/sync-shop` to populate `cancelled_amount_dkk` field.
+
+**Results**: ❌ **BLOCKED BY API TIMEOUTS**
+
+**Timeline**:
+1. ✅ Database migration successful - `cancelled_amount_dkk` column added to skus table
+2. ✅ Existing rows set to DEFAULT 0
+3. ❌ Re-sync attempts failed due to Vercel serverless timeout (60 seconds):
+   - Monthly sync (Oct 1-31): TIMEOUT
+   - Weekly sync (Oct 1-7): TIMEOUT
+   - 2-day sync (Oct 1-2): TIMEOUT
+   - 1-day sync (Oct 1-2): TIMEOUT
+
+**Root Cause**: Historical re-sync requires:
+1. Fetch ALL orders from Shopify GraphQL for date range
+2. Extract ALL line items and calculate cancelled amounts
+3. Upsert thousands of SKU records to Supabase
+4. Total processing time: 120-300 seconds per day (exceeds 60s limit)
+
+**Impact on Regression Test**:
+- Cancelled amount still shows 0.00 vs 480,365.01 DKK (100% difference)
+- Cannot validate SKU-level cancelled amount calculation for October 2024
+- Brutto revenue gap persists (7.96% = 171,701 DKK)
+
+**Alternative Solutions**:
+
+**Option A: Background Job with Batch Processing** (RECOMMENDED)
+```javascript
+// Create /api/batch-resync-skus.js with:
+// 1. Process one day at a time
+// 2. Store progress in database (batch_sync_progress table)
+// 3. Return immediately, continue processing async
+// 4. Client polls /api/batch-resync-status for completion
+```
+
+**Option B: Direct Database Update via SQL**
+```sql
+-- Calculate cancelled_amount_dkk from existing orders + cancelled_qty data
+-- This requires complex SQL joins and may not be 100% accurate without
+-- fetching exact refund line item prices from Shopify
+UPDATE skus s
+SET cancelled_amount_dkk = (
+  -- Proportional calculation based on order-level data
+  -- Note: This is the OLD logic we wanted to REPLACE!
+)
+WHERE s.created_at BETWEEN '2024-10-01' AND '2024-10-31';
+```
+
+**Option C: Increase Vercel Timeout Limit**
+- Upgrade to Vercel Pro plan (increases timeout to 300s)
+- Cost: $20/month
+- May still timeout for larger date ranges
+
+**Option D: Test with Recent Data Instead**
+- Run regression test on Sept/Oct 2025 data (already has cancelled_amount_dkk populated)
+- Validates current system works correctly
+- Doesn't validate historical data migration
+
+**Recommendation**:
+Implement **Option A (Background Job)** or **Option D (Recent Data Test)** for immediate validation.
+
+**Files Updated**:
+- `migrations/add_cancelled_amount_to_skus.sql` (applied successfully)
+- `CLAUDE.md` (this documentation)
+
+---
+
 ### 2025-10-05: 🎯 VAT Alignment & Data Consistency - Dashboard SKU-Level Path Enforced ✅
 
 **Problem**: Dashboard still using proportional cancellation fallback instead of SKU-level calculation
