@@ -8,6 +8,7 @@ SHOPS=("pompdelux-da.myshopify.com"
 
 # Synkroniser måned for måned fra sept 2024 til nu
 MONTHS=(
+
   "2024-09-01:2024-09-30"
   "2024-10-01:2024-10-31"
   "2024-11-01:2024-11-30"
@@ -22,6 +23,7 @@ MONTHS=(
   "2025-08-01:2025-08-31"
   "2025-09-01:2025-09-30"
   "2025-10-01:2025-10-02"
+ 
 )
 
 for month in "${MONTHS[@]}"; do
@@ -31,7 +33,7 @@ for month in "${MONTHS[@]}"; do
   for shop in "${SHOPS[@]}"; do
     echo "  🏪 $shop..."
     curl -s -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-      "https://shopify-analytics-g6e27cudf-nicolais-projects-291e9559.vercel.app/api/sync-shop?shop=$shop&type=orders&startDate=$startDate&endDate=$endDate" \
+      "shopify-analytics-f5mxpb04s-nicolais-projects-291e9559.vercel.app/api/sync-shop?shop=$shop&type=orders&startDate=$startDate&endDate=$endDate" \
       > /dev/null &
   done
   

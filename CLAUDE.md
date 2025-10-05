@@ -1522,6 +1522,115 @@ Implement **Option A (Background Job)** or **Option D (Recent Data Test)** for i
 
 ---
 
+### 2025-10-05: 🧰 Batch Resync Service for SKUs - Option A Implemented ✅
+
+**Problem**: Timeout forhindrede re-sync af historiske SKUs via standard `/api/sync-shop` endpoint.
+
+**Løsning**: Ny endpoint `/api/batch-resync-skus.js` med asynkron batch-processing og job-tracking i database.
+
+**Features**:
+- **Async Job Processing**: Returnerer straks med jobId, fortsætter i baggrunden
+- **Batch Processing**: Processerer SKUs i batches á 500 (konfigurerbar)
+- **Job Tracking**: Status logges i `resync_jobs` tabel med real-time progress
+- **Selective Processing**: Kun SKUs hvor `cancelled_amount_dkk IS NULL OR = 0` og `cancelled_qty > 0`
+- **Accurate Calculation**: Henter præcise cancelled amounts fra Shopify RefundLineItem.priceSet
+- **Status Endpoint**: `/api/resync-job-status` til at checke job progress
+- **Resumability**: Job kan genoptages manuelt eller via cron hvis timeout opstår
+
+**Database Schema**:
+```sql
+CREATE TABLE resync_jobs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  batch_size INTEGER DEFAULT 500,
+  total_count INTEGER DEFAULT 0,
+  processed_count INTEGER DEFAULT 0,
+  status TEXT DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed')),
+  error_message TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  completed_at TIMESTAMPTZ
+);
+```
+
+**API Usage**:
+```bash
+# Start resync job
+curl -X POST https://shopify-analytics-nu.vercel.app/api/batch-resync-skus \
+  -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "startDate": "2024-10-01",
+    "endDate": "2024-10-31",
+    "batchSize": 500
+  }'
+
+# Response (HTTP 202 Accepted):
+{
+  "jobId": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "started",
+  "message": "Resync job started. Use GET /api/resync-job-status?jobId=<jobId> to check progress."
+}
+
+# Check job status
+curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
+  "https://shopify-analytics-nu.vercel.app/api/resync-job-status?jobId=550e8400-e29b-41d4-a716-446655440000"
+
+# Response:
+{
+  "jobId": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "running",
+  "startDate": "2024-10-01",
+  "endDate": "2024-10-31",
+  "batchSize": 500,
+  "totalCount": 1284,
+  "processedCount": 750,
+  "progressPercent": 58,
+  "createdAt": "2025-10-05T12:00:00Z",
+  "completedAt": null
+}
+
+# List recent jobs
+curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
+  "https://shopify-analytics-nu.vercel.app/api/resync-job-status"
+```
+
+**Tests**: Integration-test suite i `tests/integration/batch-resync-skus.test.js`:
+- ✅ Starter job og returnerer jobId hurtigt (<5s)
+- ✅ Tracker job status korrekt (running → completed)
+- ✅ Opdaterer kun SKUs hvor cancelled_amount_dkk = 0 og cancelled_qty > 0
+- ✅ Kræver authentication
+- ✅ Validerer required parameters
+- ✅ Database migration rollback test
+
+**Rollback**:
+```bash
+# Slet filer
+rm api/batch-resync-skus.js api/resync-job-status.js
+rm tests/integration/batch-resync-skus.test.js
+
+# Drop database tabel
+psql -c "DROP TABLE IF EXISTS resync_jobs CASCADE;"
+
+# Git revert
+git revert <commit-hash>
+```
+
+**Files Created**:
+- `migrations/create_resync_jobs_table.sql` (apply via Supabase SQL Editor)
+- `api/batch-resync-skus.js` (main resync endpoint)
+- `api/resync-job-status.js` (status checking endpoint)
+- `tests/integration/batch-resync-skus.test.js` (integration tests)
+
+**Next Steps**:
+1. Apply database migration in Supabase SQL Editor
+2. Deploy to Vercel: `vercel --prod --yes`
+3. Run resync job for October 2024 data
+4. Monitor progress via status endpoint
+5. Re-run regression test after completion
+
+---
+
 ### 2025-10-05: 🎯 VAT Alignment & Data Consistency - Dashboard SKU-Level Path Enforced ✅
 
 **Problem**: Dashboard still using proportional cancellation fallback instead of SKU-level calculation

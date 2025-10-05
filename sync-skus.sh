@@ -31,7 +31,7 @@ for month in "${MONTHS[@]}"; do
   for shop in "${SHOPS[@]}"; do
     echo "  🏪 $shop..."
     curl -s -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-      "https://shopify-analytics-nhq316m6m-nicolais-projects-291e9559.vercel.app/api/sync-shop?shop=$shop&type=skus&startDate=$startDate&endDate=$endDate" \
+      "shopify-analytics-f5mxpb04s-nicolais-projects-291e9559.vercel.app/api/sync-shop?shop=$shop&type=skus&startDate=$startDate&endDate=$endDate" \
       > /dev/null &
   done
   
