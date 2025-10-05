@@ -49,7 +49,8 @@ function updateDashboard() {
     const skuUrl = `${CONFIG.API_BASE}/sku-raw`;
     const skuPayload = {
       startDate: formatDateWithTime(startDate, false),
-      endDate: formatDateWithTime(endDate, true)
+      endDate: formatDateWithTime(endDate, true),
+      includeShopBreakdown: true  // ✅ Enable SKU-level cancelled amount calculation
     };
     const skuRes = makeApiRequest(skuUrl, skuPayload);
 
