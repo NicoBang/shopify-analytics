@@ -225,16 +225,21 @@ function renderDashboard_(orderRows, returnRows, startDate, endDate, shopBreakdo
       const shop = breakdown.shop;
       if (!shopMap[shop]) return;
 
-      // Replace gross/net revenue with SKU-level calculated revenue
-      // SKU revenue already has precise cancelled amounts deducted
-      const skuRevenue = breakdown.revenue || 0;
-      const cancelledAmount = breakdown.cancelledAmount || 0;
+      // Calculate revenue components from SKU-level data
+      const totalRevenue = breakdown.revenue || 0;           // Brutto (gross revenue)
+      const cancelledAmount = breakdown.cancelledAmount || 0; // Cancelled items value
 
       // Override the order-level calculated values
-      shopMap[shop].gross = skuRevenue;
-      shopMap[shop].net = skuRevenue;  // Will be adjusted by refunds below
+      shopMap[shop].gross = totalRevenue;
+      shopMap[shop].net = totalRevenue - cancelledAmount;  // ✅ Subtract cancelled amounts from net
 
-      console.log(`   ${shop}: SKU revenue=${skuRevenue.toFixed(2)}, cancelled=${cancelledAmount.toFixed(2)}`);
+      // Logging for transparency
+      if (cancelledAmount === 0) {
+        console.log(`   ${shop}: Brutto=${totalRevenue.toFixed(2)}, Cancelled=0 (no cancellations)`);
+      } else {
+        console.log(`✅ Using SKU-level net revenue calculation`);
+        console.log(`   ${shop}: Brutto=${totalRevenue.toFixed(2)}, Cancelled=${cancelledAmount.toFixed(2)}, Netto=${(totalRevenue - cancelledAmount).toFixed(2)}`);
+      }
     });
   } else {
     console.log('⚠️  No shopBreakdown available - using order-level proportional calculation');

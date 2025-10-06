@@ -1380,6 +1380,77 @@ Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc
 
 ## 🔧 Recent Updates
 
+### 2025-10-06: 💰 Dashboard Fix - Nettoomsætning Calculation ✅
+
+**Problem**: Dashboard showed identical values for Bruttoomsætning and Nettoomsætning despite different item counts (Antal stk Brutto vs Netto).
+
+**Root Cause**: In `google-sheets-enhanced.js`, the `renderDashboard_()` function set `shopMap[shop].net = skuRevenue` which was identical to `shopMap[shop].gross = skuRevenue`. The `cancelledAmount` field from API response was available but never subtracted from net revenue.
+
+**Example Issue - Order 6667277697291**:
+```
+Order details (2024-10-09):
+  Discounted Total: 199.93 kr (incl. tax)
+  Tax: 46.25 kr
+  Shipping: 55.20 kr
+  Item Count: 2
+  Cancelled Qty: 1
+
+BEFORE (incorrect):
+  Brutto: 98.48 kr (199.93 - 46.25 - 55.20)
+  Netto: 98.48 kr ❌ Same as brutto
+
+AFTER (correct):
+  Brutto: 98.48 kr
+  Cancelled: 54.91 kr (actual cancelled item value)
+  Netto: 43.57 kr ✅ Different from brutto
+```
+
+**Solution Implemented** (`google-sheets-enhanced.js` lines 228-242):
+
+Changed from:
+```javascript
+const skuRevenue = breakdown.revenue || 0;
+shopMap[shop].gross = skuRevenue;
+shopMap[shop].net = skuRevenue;  // ❌ Same as gross
+```
+
+To:
+```javascript
+const totalRevenue = breakdown.revenue || 0;           // Brutto
+const cancelledAmount = breakdown.cancelledAmount || 0; // Cancelled items value
+shopMap[shop].gross = totalRevenue;
+shopMap[shop].net = totalRevenue - cancelledAmount;  // ✅ Subtract cancelled amounts
+```
+
+**Enhanced Logging**:
+```javascript
+if (cancelledAmount === 0) {
+  console.log(`   ${shop}: Brutto=${totalRevenue.toFixed(2)}, Cancelled=0 (no cancellations)`);
+} else {
+  console.log(`✅ Using SKU-level net revenue calculation`);
+  console.log(`   ${shop}: Brutto=${totalRevenue.toFixed(2)}, Cancelled=${cancelledAmount.toFixed(2)}, Netto=${(totalRevenue - cancelledAmount).toFixed(2)}`);
+}
+```
+
+**Final Formula Achieved**:
+```
+Net Revenue = Gross Revenue - Cancelled Amount - Refunded Amount
+              ↑                ↑                  ↑
+              totalRevenue     subtracted here    subtracted at lines 180, 212
+```
+
+**Impact**:
+- ✅ Dashboard now correctly shows different values for Bruttoomsætning and Nettoomsætning
+- ✅ Netto = Brutto - Cancelled - Refunded (all amounts ex VAT)
+- ✅ Logging shows breakdown when cancellations exist
+- ✅ Refunds were already correctly handled (lines 180, 212)
+
+**Files Updated**:
+- `google-sheets-enhanced.js` (lines 228-242)
+- `CLAUDE.md` (this documentation)
+
+---
+
 ### 2025-10-06: 🧪 Bulk Sync Sanity Check - Pre-Production Status ⏳
 
 **Status**: Edge Function deployed but **NOT YET EXECUTED** in production
