@@ -125,10 +125,11 @@ async function syncSkusForDay(
   startISO: string,
   endISO: string
 ): Promise<{ day: string; status: string; skusProcessed: number }> {
-  // ✅ CRITICAL FIX: Shopify Bulk API does NOT support nested connections
-  // ✅ Only root 'orders' can use edges { node { ... } }
-  // ✅ Nested fields (lineItems, refunds) are returned as separate JSONL lines with __parentId
-  // ✅ Bulk API automatically flattens nested objects into individual lines
+  // ✅ SHOPIFY BULK API CRITICAL RULES:
+  // 1. Connection fields MUST use edges { node { ... } }
+  // 2. Nested connections (connection within list) are NOT supported
+  // 3. SOLUTION: Only query lineItems (connection), Bulk API flattens to JSONL with __parentId
+  // 4. Refunds cannot be queried here (contains nested connections refundLineItems/transactions)
   const bulkQuery = `
     mutation {
       bulkOperationRunQuery(
@@ -145,39 +146,28 @@ async function syncSkusForDay(
                 taxesIncluded
                 shippingAddress { countryCode }
                 lineItems {
-                  id
-                  sku
-                  quantity
-                  name
-                  variantTitle
-                  product { title }
-                  originalUnitPriceSet {
-                    shopMoney { amount currencyCode }
-                  }
-                  discountedUnitPriceSet {
-                    shopMoney { amount currencyCode }
-                  }
-                  totalDiscountSet {
-                    shopMoney { amount currencyCode }
-                  }
-                  taxLines {
-                    rate
-                    priceSet { shopMoney { amount } }
-                  }
-                }
-                refunds {
-                  createdAt
-                  totalRefundedSet { shopMoney { amount currencyCode } }
-                  refundLineItems {
-                    lineItem { id }
-                    quantity
-                    priceSet { shopMoney { amount currencyCode } }
-                  }
-                  transactions {
-                    id
-                    processedAt
-                    kind
-                    status
+                  edges {
+                    node {
+                      id
+                      sku
+                      quantity
+                      name
+                      variantTitle
+                      product { title }
+                      originalUnitPriceSet {
+                        shopMoney { amount currencyCode }
+                      }
+                      discountedUnitPriceSet {
+                        shopMoney { amount currencyCode }
+                      }
+                      totalDiscountSet {
+                        shopMoney { amount currencyCode }
+                      }
+                      taxLines {
+                        rate
+                        priceSet { shopMoney { amount } }
+                      }
+                    }
                   }
                 }
               }
