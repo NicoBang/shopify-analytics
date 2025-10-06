@@ -79,7 +79,10 @@ serve(async (req: Request): Promise<Response> => {
       results.push(res);
     }
 
-    return new Response(JSON.stringify({ success: true, results }), {
+    const response = { success: true, results };
+    console.log(`🎉 Final response:`, JSON.stringify(response));
+
+    return new Response(JSON.stringify(response), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
@@ -230,16 +233,21 @@ async function syncRefundsForDay(
   }
 
   console.log(`💸 Found ${refundUpdates.length} refund line items`);
+  console.log(`📊 Processing ${processedOrders} orders total`);
 
   // Update database
   const updatedCount = await updateRefundsInDatabase(supabase, refundUpdates);
 
-  return {
+  const result = {
     day,
     status: "success",
+    ordersFetched: processedOrders,
     refundsProcessed: refundUpdates.length,
     skusUpdated: updatedCount,
   };
+
+  console.log(`✅ Day ${day} complete:`, JSON.stringify(result));
+  return result;
 }
 
 async function updateRefundsInDatabase(
