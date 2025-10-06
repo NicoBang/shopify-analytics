@@ -1,2 +1,5 @@
 [functions.bulk-sync-skus]
 verify_jwt = false
+
+[functions.bulk-sync-refunds]
+verify_jwt = false

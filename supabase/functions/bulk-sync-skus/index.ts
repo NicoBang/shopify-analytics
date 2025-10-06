@@ -1,9 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// 👇 Tilføj dette lige her:
-console.log("🧪 FUNCTIONS_INVOKER_KEY (env):", Deno.env.get("FUNCTIONS_INVOKER_KEY"));
-
+// Edge Function with orchestration support
 const SHOPIFY_API_VERSION = "2024-10";
 const POLL_INTERVAL_MS = 10000;
 const MAX_POLL_ATTEMPTS = 180;
@@ -32,11 +30,11 @@ serve(async (req: Request): Promise<Response> => {
     Deno.env.get("FUNCTIONS_INVOKER_KEY") ||
     env["API_SECRET_KEY"]; // fallback just in case
 
-  console.log("🔍 Loaded env keys:", Object.keys(env)); // debugging
-  console.log("🔑 Expected key:", invokerKey);
-
-  if (!invokerKey || !authHeader.includes(invokerKey)) {
+  // Strict Bearer token match for function-to-function communication
+  if (!invokerKey || authHeader !== `Bearer ${invokerKey}`) {
     console.error("❌ Unauthorized — missing or wrong key");
+    console.error(`   Expected: Bearer ${invokerKey}`);
+    console.error(`   Received: ${authHeader}`);
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
       headers: { "Content-Type": "application/json" },
