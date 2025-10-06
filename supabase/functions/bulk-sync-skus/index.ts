@@ -320,9 +320,15 @@ async function syncSkusForDay(
     // Orders don't have __parentId, LineItems do
     if (!obj.__parentId && obj.id) {
       const orderId = obj.id.split("/").pop();
+
+      // ⚠️ CRITICAL: createdAt must ALWAYS come from Shopify order data
+      if (!obj.createdAt) {
+        console.warn(`[WARN] Missing created_at on order ${orderId}`);
+      }
+
       orderMetadataMap.set(orderId, {
         country: obj.shippingAddress?.countryCode || null,
-        createdAt: obj.createdAt || new Date().toISOString(),
+        createdAt: obj.createdAt, // Use Shopify's timestamp, not current time
       });
     }
   }
@@ -370,21 +376,17 @@ async function syncSkusForDay(
     const discountTax = totalDiscountRaw > 0 && price > 0 ? (totalTaxPerUnit * totalDiscountRaw / (price * rate)) : 0;
     const totalDiscountDkk = totalDiscountRaw - discountTax;
 
-    const created_at = orderMetadata?.createdAt || new Date().toISOString();
-    let created_at_original = orderMetadata?.createdAt || null;
+    // ✅ ALWAYS use Shopify's order creation timestamp
+    const shopifyCreatedAt = orderMetadata?.createdAt;
 
-    // Ensure created_at_original is always populated
-    if (!created_at_original || created_at_original === null) {
-      created_at_original = created_at; // fallback to Supabase insert date
-    } else if (typeof created_at_original === "string") {
-      // Normalize formatting to ISO if needed
-      created_at_original = new Date(created_at_original).toISOString();
+    if (!shopifyCreatedAt) {
+      console.error(`[ERROR] Missing Shopify createdAt for order ${orderId} - SKU will be skipped`);
+      continue; // Skip this SKU if we don't have the actual order date
     }
 
-    // Log warning if fallback was used
-    if (created_at_original === created_at && !orderMetadata?.createdAt) {
-      console.log(`⚠️ created_at_original missing or identical — using fallback for order ${orderId}`);
-    }
+    // Both created_at and created_at_original should reflect Shopify's actual order date
+    const created_at_original = new Date(shopifyCreatedAt).toISOString();
+    const created_at = new Date().toISOString(); // Sync timestamp for audit trail
 
     batch.push({
       shop,
