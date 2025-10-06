@@ -125,16 +125,16 @@ async function syncSkusForDay(
   startISO: string,
   endISO: string
 ): Promise<{ day: string; status: string; skusProcessed: number }> {
-  // ✅ FIXED: Removed OR logic (not supported in Shopify bulk queries)
-  // ✅ FIXED: Added first: 10000 to orders() (required for bulk operations)
-  // ✅ FIXED: All connection types use edges { node { ... } } structure
-  // ✅ lineItems, refundLineItems, transactions are connections — must use edges/node with first parameter
+  // ✅ CRITICAL FIX: Shopify Bulk API does NOT support nested connections
+  // ✅ Only root 'orders' can use edges { node { ... } }
+  // ✅ Nested fields (lineItems, refunds) are returned as separate JSONL lines with __parentId
+  // ✅ Bulk API automatically flattens nested objects into individual lines
   const bulkQuery = `
     mutation {
       bulkOperationRunQuery(
         query: """
         {
-          orders(first: 10000, query: "created_at:>='${startISO}' AND created_at:<='${endISO}'") {
+          orders(query: "created_at:>='${startISO}' AND created_at:<='${endISO}'") {
             edges {
               node {
                 id
@@ -144,52 +144,40 @@ async function syncSkusForDay(
                 currencyCode
                 taxesIncluded
                 shippingAddress { countryCode }
-                lineItems(first: 250) {
-                  edges {
-                    node {
-                      id
-                      sku
-                      quantity
-                      name
-                      variantTitle
-                      product { title }
-                      originalUnitPriceSet {
-                        shopMoney { amount currencyCode }
-                      }
-                      discountedUnitPriceSet {
-                        shopMoney { amount currencyCode }
-                      }
-                      totalDiscountSet {
-                        shopMoney { amount currencyCode }
-                      }
-                      taxLines {
-                        rate
-                        priceSet { shopMoney { amount } }
-                      }
-                    }
+                lineItems {
+                  id
+                  sku
+                  quantity
+                  name
+                  variantTitle
+                  product { title }
+                  originalUnitPriceSet {
+                    shopMoney { amount currencyCode }
+                  }
+                  discountedUnitPriceSet {
+                    shopMoney { amount currencyCode }
+                  }
+                  totalDiscountSet {
+                    shopMoney { amount currencyCode }
+                  }
+                  taxLines {
+                    rate
+                    priceSet { shopMoney { amount } }
                   }
                 }
                 refunds {
                   createdAt
                   totalRefundedSet { shopMoney { amount currencyCode } }
-                  refundLineItems(first: 250) {
-                    edges {
-                      node {
-                        lineItem { id }
-                        quantity
-                        priceSet { shopMoney { amount currencyCode } }
-                      }
-                    }
+                  refundLineItems {
+                    lineItem { id }
+                    quantity
+                    priceSet { shopMoney { amount currencyCode } }
                   }
-                  transactions(first: 250) {
-                    edges {
-                      node {
-                        id
-                        processedAt
-                        kind
-                        status
-                      }
-                    }
+                  transactions {
+                    id
+                    processedAt
+                    kind
+                    status
                   }
                 }
               }
@@ -242,6 +230,8 @@ async function syncSkusForDay(
   }
 
   let fileUrl: string | null = null;
+  console.log(`⏳ Polling bulk operation status (max ${MAX_POLL_ATTEMPTS} attempts, ${POLL_INTERVAL_MS}ms interval)...`);
+
   for (let i = 0; i < MAX_POLL_ATTEMPTS; i++) {
     const pollResp = await fetch(
       `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
@@ -263,17 +253,23 @@ async function syncSkusForDay(
 
     const pollParsed = await pollResp.json();
     const op = pollParsed?.data?.currentBulkOperation;
+
     if (!op) {
+      console.log(`  Poll ${i + 1}: No current bulk operation found, waiting...`);
       await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
       continue;
     }
 
+    console.log(`  Poll ${i + 1}: status=${op.status}, objectCount=${op.objectCount || 0}`);
+
     if (op.status === "COMPLETED") {
+      console.log(`✅ Bulk operation completed! Objects: ${op.objectCount}, URL: ${op.url}`);
       fileUrl = op.url;
       break;
     }
 
     if (op.status === "FAILED") {
+      console.error(`❌ Bulk operation failed with errorCode: ${op.errorCode}`);
       throw new Error(`Bulk operation failed: ${op.errorCode}`);
     }
 
@@ -281,6 +277,7 @@ async function syncSkusForDay(
   }
 
   if (!fileUrl) {
+    console.error(`❌ Polling timeout after ${MAX_POLL_ATTEMPTS} attempts`);
     throw new Error("Polling timed out before completion");
   }
 
@@ -290,9 +287,23 @@ async function syncSkusForDay(
   let skusCount = 0;
   const batch: any[] = [];
 
+  console.log(`📦 Total JSONL lines received: ${lines.length}`);
+
+  // Log first 3 lines to understand structure
+  if (lines.length > 0) {
+    console.log("📋 Sample JSONL structure (first 3 lines):");
+    lines.slice(0, 3).forEach((line, idx) => {
+      const obj = JSON.parse(line);
+      console.log(`  Line ${idx + 1}: __typename=${obj.__typename}, id=${obj.id}, __parentId=${obj.__parentId || 'N/A'}`);
+    });
+  }
+
+  let lineItemsFound = 0;
   for (const line of lines) {
     const obj = JSON.parse(line);
     if (obj.__typename !== "LineItem") continue;
+
+    lineItemsFound++;
 
     const price = parseFloat(obj.discountedUnitPriceSet?.shopMoney?.amount || "0");
     const currency = obj.discountedUnitPriceSet?.shopMoney?.currencyCode || "DKK";
@@ -323,10 +334,14 @@ async function syncSkusForDay(
     }
   }
 
+  console.log(`✅ LineItems found and processed: ${lineItemsFound}`);
+
   if (batch.length > 0) {
     await upsertSkus(supabase, batch);
     skusCount += batch.length;
   }
+
+  console.log(`💾 Total SKUs upserted to database: ${skusCount}`);
 
   return {
     day: startISO.split("T")[0],
