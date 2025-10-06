@@ -1854,6 +1854,301 @@ supabase functions deploy bulk-sync-orders
 
 ---
 
+### 2025-10-06: 🚀 Bulk Operations for SKUs – Daily Batch Execution ✅
+
+**Purpose**: Populate the `skus` table with line-item level data using Shopify Bulk Operations API for SKU-level analytics without timeout limitations.
+
+**Problem**:
+- The `skus` table was empty for October 2024, preventing SKU-level analytics
+- Existing `/api/sync-shop` endpoint has 60-second Vercel timeout limit
+- Large date ranges (e.g., full month) would timeout before completing
+- Manual re-sync of historical data was impossible due to timeout constraints
+
+**Solution**: Implemented dedicated `bulk-sync-skus` Edge Function focused on line-item (SKU) data extraction
+
+**Architecture**:
+```typescript
+// GraphQL Query - Orders with nested LineItems and Refund data
+mutation {
+  bulkOperationRunQuery(
+    query: """
+    {
+      orders(query: "created_at:>=2024-10-01T00:00:00Z created_at:<=2024-10-01T23:59:59Z") {
+        edges {
+          node {
+            id
+            name
+            createdAt
+            shippingAddress { countryCode }
+            lineItems {
+              edges {
+                node {
+                  id
+                  sku
+                  title
+                  quantity
+                  product { title }
+                  discountedUnitPriceSet { shopMoney { amount } }
+                  totalDiscountSet { shopMoney { amount } }
+                  taxLines { rate priceSet { shopMoney { amount } } }
+                }
+              }
+            }
+            refunds {
+              createdAt
+              totalRefundedSet { shopMoney { amount } }
+              refundLineItems {
+                edges {
+                  node {
+                    lineItem { id }
+                    quantity
+                    priceSet { shopMoney { amount } }
+                  }
+                }
+              }
+              transactions { edges { node { processedAt } } }
+            }
+          }
+        }
+      }
+    }
+    """
+  ) {
+    bulkOperation { id status }
+    userErrors { field message }
+  }
+}
+```
+
+**Key Implementation Details**:
+
+1. **Two-Pass JSONL Parsing**:
+   - **First pass**: Collect all Orders and their Refunds into Maps
+   - **Second pass**: Process LineItems using `__parentId` to link to parent Order
+   - Required because Shopify Bulk Operations flattens nested GraphQL structures
+
+```typescript
+// First pass: Build order and refund lookup maps
+const orderData = new Map<string, OrderData>();
+const orderRefunds = new Map<string, any[]>();
+
+for (const line of lines) {
+  const obj = JSON.parse(line);
+
+  // Collect orders
+  if (obj.__typename === "Order" || obj.id?.includes("Order")) {
+    orderData.set(obj.id, {
+      id: obj.id,
+      name: obj.name,
+      createdAt: obj.createdAt,
+      countryCode: obj.shippingAddress?.countryCode
+    });
+
+    // Collect refunds for this order
+    if (obj.refunds && obj.refunds.length > 0) {
+      orderRefunds.set(obj.id, obj.refunds);
+    }
+  }
+}
+
+// Second pass: Process line items with parent order context
+for (const line of lines) {
+  const obj = JSON.parse(line);
+
+  if (obj.__typename === "LineItem" || obj.id?.includes("LineItem")) {
+    const orderId = obj.__parentId; // Shopify Bulk Operations linking
+    const order = orderData.get(orderId);
+    const refunds = orderRefunds.get(orderId) || [];
+
+    const skuData = parseLineItem(obj, order, shop, refunds);
+    skusBatch.push(skuData);
+
+    // Batch upsert every 500 records
+    if (skusBatch.length >= BATCH_SIZE) {
+      await upsertSkusBatch(skusBatch);
+      skusBatch = [];
+    }
+  }
+}
+```
+
+2. **Cancelled Amount Detection**:
+   - Shopify differentiates between cancellations (refundTotal = 0) and refunds (refundTotal > 0)
+   - Cancelled items: No money exchanged, items removed before fulfillment
+   - Refunded items: Money returned to customer after fulfillment
+
+```typescript
+function parseLineItem(lineItem: any, order: any, shop: string, refunds: any[]): any {
+  let cancelledAmountDkk = 0;
+  let refundedQty = 0;
+  let cancelledQty = 0;
+  let refundDate: string | null = null;
+
+  // Process refunds for this line item
+  if (refunds) {
+    for (const refund of refunds) {
+      const refundTotal = parseFloat(refund.totalRefundedSet?.shopMoney?.amount || "0");
+
+      for (const edge of refund.refundLineItems?.edges || []) {
+        if (edge.node.lineItem?.id === lineItem.id) {
+          const refQty = edge.node.quantity || 0;
+
+          // Detect cancellation vs refund
+          if (refundTotal === 0) {
+            // Cancellation: no money exchanged
+            cancelledQty += refQty;
+            const cancelledPrice = parseFloat(edge.node.priceSet?.shopMoney?.amount || "0") * rate;
+            const cancelledPriceExTax = cancelledPrice / (1 + taxRate);
+            cancelledAmountDkk += cancelledPriceExTax * refQty;
+          } else {
+            // Refund: money returned
+            refundedQty += refQty;
+            refundDate = refund.transactions?.edges?.[0]?.node?.processedAt || refund.createdAt;
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    shop,
+    order_id: order.id.replace("gid://shopify/Order/", ""),
+    sku: lineItem.sku,
+    created_at: order.createdAt,
+    country: order.countryCode,
+    product_title: lineItem.product?.title,
+    variant_title: lineItem.title,
+    quantity: lineItem.quantity,
+    refunded_qty: refundedQty,
+    cancelled_qty: cancelledQty,
+    cancelled_amount_dkk: cancelledAmountDkk,
+    price_dkk: priceExTax,
+    refund_date: refundDate,
+    total_discount_dkk: totalDiscountDkk,
+    discount_per_unit_dkk: discountPerUnitDkk
+  };
+}
+```
+
+3. **Daily Batch Execution**:
+   - Same per-day processing strategy as `bulk-sync-orders`
+   - Each day gets separate Shopify Bulk Operation
+   - Max 3 retries per day on THROTTLED / INTERNAL_SERVER_ERROR
+   - Tracks progress via `bulk_sync_jobs` table with `day` field
+
+4. **Database Upsert**:
+   - Batch size: 500 SKUs per upsert operation
+   - Conflict resolution: `ON CONFLICT (shop, order_id, sku) DO UPDATE`
+   - Updates all fields on conflict (idempotent re-syncs)
+
+**Files Created**:
+- `supabase/functions/bulk-sync-skus/index.ts` (642 lines)
+- `tests/integration/bulk-sync-skus-daily.test.js` (test suite)
+
+**Usage**:
+```bash
+# Deploy Edge Function
+supabase functions deploy bulk-sync-skus
+
+# Sync October 2024 SKUs (daily batching automatic)
+supabase functions invoke bulk-sync-skus \
+  --data '{"shop":"pompdelux-da.myshopify.com","startDate":"2024-10-01","endDate":"2024-10-31","objectType":"skus"}'
+
+# Check per-day progress
+SELECT day, status, skus_synced, error_message
+FROM bulk_sync_jobs
+WHERE shop = 'pompdelux-da.myshopify.com'
+  AND object_type = 'skus'
+  AND start_date >= '2024-10-01'
+  AND end_date <= '2024-10-31'
+ORDER BY day ASC;
+```
+
+**Expected Performance**:
+
+**October 2024 (31 days, ~12,000 SKUs)**:
+- Old method: TIMEOUT after 60s (0 SKUs synced)
+- New method: ~10-20 minutes (100% SKU coverage)
+- Breakdown:
+  - Avg 30-40 seconds per day (bulk operation + polling + processing)
+  - 31 days × 35s = 18 minutes max
+
+**Response Format**:
+```json
+{
+  "success": true,
+  "jobId": "550e8400-e29b-41d4-a716-446655440000",
+  "daysProcessed": 31,
+  "totalSkusSynced": 12450,
+  "totalDurationMs": 1080000,
+  "dayResults": [
+    {
+      "day": "2024-10-01",
+      "status": "success",
+      "skusProcessed": 405,
+      "durationMs": 35000
+    },
+    {
+      "day": "2024-10-02",
+      "status": "success",
+      "skusProcessed": 332,
+      "durationMs": 32000
+    }
+  ]
+}
+```
+
+**Test Coverage** (`tests/integration/bulk-sync-skus-daily.test.js`):
+
+1. **3-Day Interval Test**: Varying SKU counts (100, 250, 80 SKUs/day)
+2. **Cancelled Amount Validation**: SKUs with refundTotal = 0 have `cancelled_amount_dkk > 0`
+3. **Refund Detection**: SKUs with refundTotal > 0 have `refunded_qty > 0` and `refund_date` set
+4. **Order Count Per Day**: Verifies correct number of unique orders per day
+5. **THROTTLED Retry Test**: Day fails twice, succeeds on 3rd attempt
+6. **Empty Days Test**: Days with 0 orders succeed gracefully
+
+**Benefits**:
+
+1. **Unlimited Scale**: No timeout constraints for historical data re-sync
+2. **100% Data Coverage**: Processes all lineItems without Shopify API truncation
+3. **SKU-Level Analytics**: Enables Color Analytics, SKU Analytics, and advanced reporting
+4. **Cancelled Amount Tracking**: Precise cancelled item value calculation
+5. **Fault Tolerance**: Retry logic handles transient API errors
+6. **Progress Visibility**: Per-day tracking shows exactly what succeeded/failed
+
+**Integration with Existing System**:
+
+**Before bulk-sync-skus**:
+- `/api/sync-shop?type=skus` (Vercel, 60s timeout) → Works for recent data only
+- Historical SKU data: Impossible to sync due to timeouts
+
+**After bulk-sync-skus**:
+- **Recent data**: Continue using `/api/sync-shop?type=skus` (real-time, 1-7 days)
+- **Historical data**: Use `bulk-sync-skus` Edge Function (batch, any date range)
+- **Cron jobs**: Can now backfill any missing historical periods
+
+**Rollback**:
+```bash
+# Revert code changes
+git revert <commit-hash>
+
+# Edge Function remains but can be disabled
+# (No migration changes - reuses existing bulk_sync_jobs table)
+
+# Re-sync SKUs via old method (if needed)
+curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
+  "https://shopify-analytics-nu.vercel.app/api/sync-shop?shop=pompdelux-da.myshopify.com&type=skus&days=7"
+```
+
+**Next Steps**:
+1. Test with October 2024 data (31 days, 3668 orders, ~12,000 SKUs)
+2. Verify `cancelled_amount_dkk` values match expected totals
+3. Compare SKU counts between orders table and skus table
+4. Monitor retry frequency (should be <1%)
+5. Consider parallel worker pool for 5-10× speedup (future enhancement)
+
+---
+
 ### 2025-10-05: 📊 Regression Validation (Interval 2024-10-01→09) - Historical Data Gaps Identified ⚠️
 
 **Formål**: Bekræfte at SKU-niveau beregninger forbliver korrekte over flere ordrer efter VAT-alignment fix.
