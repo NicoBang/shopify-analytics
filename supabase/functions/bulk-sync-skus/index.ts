@@ -20,6 +20,7 @@ interface BulkSyncRequest {
   startDate: string;
   endDate: string;
   objectType?: "skus";
+  includeRefunds?: boolean;
 }
 
 // ✅ explicit Deno.env fallback for local Supabase CLI
@@ -51,7 +52,7 @@ serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    const { shop, startDate, endDate }: BulkSyncRequest = body;
+    const { shop, startDate, endDate, includeRefunds = false }: BulkSyncRequest = body;
     if (!shop || !startDate || !endDate) {
       return new Response(
         JSON.stringify({
@@ -78,7 +79,47 @@ serve(async (req: Request): Promise<Response> => {
       results.push(res);
     }
 
-    return new Response(JSON.stringify({ success: true, results }), {
+    const skuSyncResult = { success: true, results };
+
+    // 🎯 Sequential orchestration: call bulk-sync-refunds if requested
+    if (includeRefunds) {
+      console.log("📦 Starting refund sync after SKU sync...");
+
+      try {
+        const refundSyncResult = await syncRefunds(shop, startDate, endDate, invokerKey);
+
+        console.log("✅ Refund sync complete:", JSON.stringify(refundSyncResult, null, 2));
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            skuSync: skuSyncResult,
+            refundSync: refundSyncResult,
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      } catch (refundError: any) {
+        console.error("❌ Refund sync failed:", refundError.message);
+
+        return new Response(
+          JSON.stringify({
+            success: false,
+            stage: "refunds",
+            skuSync: skuSyncResult,
+            refundError: refundError.message,
+          }),
+          {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+    }
+
+    return new Response(JSON.stringify(skuSyncResult), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
@@ -128,8 +169,8 @@ async function syncSkusForDay(
   // ✅ SHOPIFY BULK API CRITICAL RULES:
   // 1. Connection fields MUST use edges { node { ... } }
   // 2. Nested connections (connection within list) are NOT supported
-  // 3. SOLUTION: Only query lineItems (connection), Bulk API flattens to JSONL with __parentId
-  // 4. Refunds cannot be queried here (contains nested connections refundLineItems/transactions)
+  // 3. SOLUTION: Query lineItems only, refunds require separate query
+  // 4. Refunds.refundLineItems is a connection within a list, violates Bulk API rules
   const bulkQuery = `
     mutation {
       bulkOperationRunQuery(
@@ -375,8 +416,15 @@ async function upsertSkus(supabase: any, skus: any[]) {
         // Sum numeric fields for duplicate SKUs
         acc[key].quantity += item.quantity || 0;
         acc[key].total_discount_dkk += item.total_discount_dkk || 0;
+        acc[key].refunded_qty += item.refunded_qty || 0;
         acc[key].cancelled_qty += item.cancelled_qty || 0;
         acc[key].cancelled_amount_dkk += item.cancelled_amount_dkk || 0;
+
+        // Keep latest refund_date
+        if (item.refund_date && (!acc[key].refund_date || new Date(item.refund_date) > new Date(acc[key].refund_date))) {
+          acc[key].refund_date = item.refund_date;
+        }
+
         // Recalculate per-unit discount after aggregation
         acc[key].discount_per_unit_dkk = acc[key].total_discount_dkk / (acc[key].quantity || 1);
       }
@@ -396,4 +444,50 @@ async function upsertSkus(supabase: any, skus: any[]) {
   }
 
   console.log(`✅ Successfully upserted ${aggregated.length} SKUs`);
+}
+
+async function syncRefunds(
+  shop: string,
+  startDate: string,
+  endDate: string,
+  invokerKey: string
+): Promise<any> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const refundEndpoint = `${supabaseUrl}/functions/v1/bulk-sync-refunds`;
+
+  console.log(`🌐 Calling bulk-sync-refunds endpoint: ${refundEndpoint}`);
+
+  const response = await fetch(refundEndpoint, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${invokerKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      shop,
+      startDate,
+      endDate,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Refund sync failed with status ${response.status}: ${errorText}`);
+  }
+
+  const result = await response.json();
+
+  // Calculate totals from results array
+  const totals = result.results?.reduce(
+    (acc: any, day: any) => {
+      acc.refundsProcessed += day.refundsProcessed || 0;
+      acc.skusUpdated += day.skusUpdated || 0;
+      return acc;
+    },
+    { refundsProcessed: 0, skusUpdated: 0 }
+  );
+
+  console.log(`📊 Refund sync totals: ${totals.refundsProcessed} refunds processed, ${totals.skusUpdated} SKUs updated`);
+
+  return totals;
 }
