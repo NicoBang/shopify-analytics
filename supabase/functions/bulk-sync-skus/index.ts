@@ -292,7 +292,10 @@ async function syncSkusForDay(
   let lineItemsFound = 0;
   for (const line of lines) {
     const obj = JSON.parse(line);
-    if (obj.__typename !== "LineItem") continue;
+
+    // Shopify Bulk API JSONL does NOT include __typename
+    // LineItems have __parentId (references Order), Orders don't
+    if (!obj.__parentId || !obj.sku) continue;
 
     lineItemsFound++;
 
