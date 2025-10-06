@@ -365,14 +365,35 @@ async function upsertSkus(supabase: any, skus: any[]) {
   console.log(`💾 Attempting to upsert ${skus.length} SKUs to database...`);
   console.log(`🔍 First SKU sample:`, JSON.stringify(skus[0], null, 2));
 
+  // 🧩 Aggregate duplicates to prevent "ON CONFLICT DO UPDATE command cannot affect row a second time"
+  const aggregated = Object.values(
+    skus.reduce((acc, item) => {
+      const key = `${item.shop}-${item.order_id}-${item.sku}`;
+      if (!acc[key]) {
+        acc[key] = { ...item };
+      } else {
+        // Sum numeric fields for duplicate SKUs
+        acc[key].quantity += item.quantity || 0;
+        acc[key].total_discount_dkk += item.total_discount_dkk || 0;
+        acc[key].cancelled_qty += item.cancelled_qty || 0;
+        acc[key].cancelled_amount_dkk += item.cancelled_amount_dkk || 0;
+        // Recalculate per-unit discount after aggregation
+        acc[key].discount_per_unit_dkk = acc[key].total_discount_dkk / (acc[key].quantity || 1);
+      }
+      return acc;
+    }, {})
+  );
+
+  console.log(`🧩 Aggregated SKUs: ${aggregated.length} (from ${skus.length} raw entries)`);
+
   const { data, error } = await supabase
     .from("skus")
-    .upsert(skus, { onConflict: "shop,order_id,sku" });
+    .upsert(aggregated, { onConflict: "shop,order_id,sku" });
 
   if (error) {
     console.error(`❌ Supabase upsert error:`, JSON.stringify(error, null, 2));
     throw new Error(`Failed upsert SKUs: ${error.message}`);
   }
 
-  console.log(`✅ Successfully upserted ${skus.length} SKUs`);
+  console.log(`✅ Successfully upserted ${aggregated.length} SKUs`);
 }
