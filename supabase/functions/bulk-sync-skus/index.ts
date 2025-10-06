@@ -289,6 +289,18 @@ async function syncSkusForDay(
     console.log("\n");
   }
 
+  // 🌍 Build country mapping from Orders (Order → LineItem relation)
+  const countryMap = new Map<string, string>();
+  for (const line of lines) {
+    const obj = JSON.parse(line);
+    // Orders don't have __parentId, LineItems do
+    if (!obj.__parentId && obj.id && obj.shippingAddress?.countryCode) {
+      const orderId = obj.id.split("/").pop();
+      countryMap.set(orderId, obj.shippingAddress.countryCode);
+    }
+  }
+  console.log(`🌍 Country mapping built: ${countryMap.size} orders with country data`);
+
   let lineItemsFound = 0;
   for (const line of lines) {
     const obj = JSON.parse(line);
@@ -305,19 +317,24 @@ async function syncSkusForDay(
     const taxRate = obj.taxLines?.[0]?.rate || 0;
 
     const priceDkk = price * rate / (1 + taxRate);
+    const totalDiscountDkk = parseFloat(obj.totalDiscountSet?.shopMoney?.amount || "0") * rate / (1 + taxRate);
+    const orderId = obj.__parentId?.split("/").pop();
 
     batch.push({
       shop,
-      order_id: obj.__parentId?.split("/").pop(),
+      order_id: orderId,
       sku: obj.sku,
       product_title: obj.name,
       variant_title: obj.variantTitle,
       quantity: obj.quantity,
       price_dkk: priceDkk,
-      total_discount_dkk:
-        parseFloat(obj.totalDiscountSet?.shopMoney?.amount || "0") *
-        rate /
-        (1 + taxRate),
+      total_discount_dkk: totalDiscountDkk,
+      discount_per_unit_dkk: totalDiscountDkk / (obj.quantity || 1),
+      country: countryMap.get(orderId) || null,
+      refunded_qty: 0,
+      refund_date: null,
+      cancelled_qty: 0,
+      cancelled_amount_dkk: 0,
       created_at: new Date().toISOString(),
     });
 
