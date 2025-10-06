@@ -127,8 +127,8 @@ async function syncSkusForDay(
 ): Promise<{ day: string; status: string; skusProcessed: number }> {
   // ✅ FIXED: Removed OR logic (not supported in Shopify bulk queries)
   // ✅ FIXED: Added first: 10000 to orders() (required for bulk operations)
-  // ✅ FIXED: Flattened all nested fields — only orders uses edges.node (Bulk API requirement)
-  // ✅ lineItems, refundLineItems, transactions are flat arrays (no edges/node, no first parameter)
+  // ✅ FIXED: All connection types use edges { node { ... } } structure
+  // ✅ lineItems, refundLineItems, transactions are connections — must use edges/node with first parameter
   const bulkQuery = `
     mutation {
       bulkOperationRunQuery(
@@ -144,40 +144,52 @@ async function syncSkusForDay(
                 currencyCode
                 taxesIncluded
                 shippingAddress { countryCode }
-                lineItems {
-                  id
-                  sku
-                  quantity
-                  name
-                  variantTitle
-                  product { title }
-                  originalUnitPriceSet {
-                    shopMoney { amount currencyCode }
-                  }
-                  discountedUnitPriceSet {
-                    shopMoney { amount currencyCode }
-                  }
-                  totalDiscountSet {
-                    shopMoney { amount currencyCode }
-                  }
-                  taxLines {
-                    rate
-                    priceSet { shopMoney { amount } }
+                lineItems(first: 250) {
+                  edges {
+                    node {
+                      id
+                      sku
+                      quantity
+                      name
+                      variantTitle
+                      product { title }
+                      originalUnitPriceSet {
+                        shopMoney { amount currencyCode }
+                      }
+                      discountedUnitPriceSet {
+                        shopMoney { amount currencyCode }
+                      }
+                      totalDiscountSet {
+                        shopMoney { amount currencyCode }
+                      }
+                      taxLines {
+                        rate
+                        priceSet { shopMoney { amount } }
+                      }
+                    }
                   }
                 }
                 refunds {
                   createdAt
                   totalRefundedSet { shopMoney { amount currencyCode } }
-                  refundLineItems {
-                    lineItem { id }
-                    quantity
-                    priceSet { shopMoney { amount currencyCode } }
+                  refundLineItems(first: 250) {
+                    edges {
+                      node {
+                        lineItem { id }
+                        quantity
+                        priceSet { shopMoney { amount currencyCode } }
+                      }
+                    }
                   }
-                  transactions {
-                    id
-                    processedAt
-                    kind
-                    status
+                  transactions(first: 250) {
+                    edges {
+                      node {
+                        id
+                        processedAt
+                        kind
+                        status
+                      }
+                    }
                   }
                 }
               }
