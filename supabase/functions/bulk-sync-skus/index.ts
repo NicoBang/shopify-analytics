@@ -62,8 +62,8 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     const supabase = createClient(
-      Deno.env.get("LOCAL_SUPABASE_URL") || Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("LOCAL_SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
     const token = getShopifyToken(shop);
@@ -345,10 +345,17 @@ async function syncSkusForDay(
 }
 
 async function upsertSkus(supabase: any, skus: any[]) {
-  const { error } = await supabase
+  console.log(`💾 Attempting to upsert ${skus.length} SKUs to database...`);
+  console.log(`🔍 First SKU sample:`, JSON.stringify(skus[0], null, 2));
+
+  const { data, error } = await supabase
     .from("skus")
     .upsert(skus, { onConflict: "shop,order_id,sku" });
+
   if (error) {
+    console.error(`❌ Supabase upsert error:`, JSON.stringify(error, null, 2));
     throw new Error(`Failed upsert SKUs: ${error.message}`);
   }
+
+  console.log(`✅ Successfully upserted ${skus.length} SKUs`);
 }
