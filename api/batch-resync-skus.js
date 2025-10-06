@@ -216,6 +216,9 @@ async function runResyncJob(supabase, shopClients, jobId, startDate, endDate, ba
 
   try {
     // Count total SKUs to process
+    console.log(`📆 Filtering SKUs by created_at between ${startDate} and ${endDate}`);
+    console.log(`🔍 Query conditions: cancelled_amount_dkk IS NULL OR = 0, cancelled_qty > 0`);
+
     const { count, error: countError } = await supabase
       .from('skus')
       .select('*', { count: 'exact', head: true })
@@ -230,6 +233,15 @@ async function runResyncJob(supabase, shopClients, jobId, startDate, endDate, ba
 
     console.log(`📊 Found ${count} SKUs to process`);
 
+    // Defensive check: warn if no SKUs found
+    if (count === 0) {
+      console.warn(`⚠️ No SKUs found matching criteria. Possible causes:`);
+      console.warn(`   1. No SKUs exist for this date range (check: SELECT COUNT(*) FROM skus WHERE created_at >= '${startDate}' AND created_at <= '${endDate}')`);
+      console.warn(`   2. All SKUs already have cancelled_amount_dkk populated`);
+      console.warn(`   3. No SKUs have cancelled_qty > 0 in this period`);
+      console.warn(`   → Verify SKU data exists before running batch resync`);
+    }
+
     // Update job with total count
     await supabase
       .from('resync_jobs')
@@ -242,6 +254,8 @@ async function runResyncJob(supabase, shopClients, jobId, startDate, endDate, ba
 
     while (offset < count) {
       // Fetch batch
+      console.log(`📦 Fetching batch at offset ${offset} (range: ${offset}-${offset + batchSize - 1})`);
+
       const { data: skus, error: fetchError } = await supabase
         .from('skus')
         .select('shop, order_id, sku, cancelled_qty')
@@ -256,9 +270,11 @@ async function runResyncJob(supabase, shopClients, jobId, startDate, endDate, ba
       }
 
       if (!skus || skus.length === 0) {
-        console.log(`No more SKUs to process at offset ${offset}`);
+        console.log(`⏹️ No more SKUs to process at offset ${offset}`);
         break;
       }
+
+      console.log(`✅ Fetched ${skus.length} SKUs for processing`);
 
       // Process batch
       const updatedCount = await processBatch(supabase, shopClients, skus, offset, batchSize);

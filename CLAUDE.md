@@ -1380,6 +1380,79 @@ Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc
 
 ## 🔧 Recent Updates
 
+### 2025-10-06: 🚀 NEW FEATURE - Shopify Bulk Operations Edge Sync ✅
+- **🚀 NEW FEATURE**: Implemented Shopify Bulk Operations sync using Supabase Edge Functions
+  - **Problem**: Vercel serverless functions have 60-second timeout limit, making large syncs impossible
+    - Example: October 2024 full month (3,668+ orders) exceeded timeout for 4 out of 5 shops
+    - Batch-resync also hit timeout when processing thousands of SKUs
+    - Black Friday / high-volume periods would be impossible to sync
+  - **Solution**: Supabase Edge Functions + Shopify Bulk Operations API
+    - **No timeout limits** - can process millions of records
+    - **Asynchronous processing** - job runs in background, polls for completion
+    - **Batch upserts** - processes 500 records at a time for memory efficiency
+    - **Status tracking** - new `bulk_sync_jobs` table tracks progress in real-time
+  - **Architecture**:
+    ```
+    POST /supabase/functions/bulk-sync-orders
+    → Start Shopify Bulk Operation (mutation)
+    → Poll every 10s until COMPLETED (max 1 hour)
+    → Download JSONL file from Shopify
+    → Stream parse line-by-line
+    → Batch upsert 500 records at a time
+    → Update job status (running → polling → downloading → processing → completed)
+    ```
+  - **Features**:
+    - Processes both orders AND SKUs in single operation
+    - Handles all currency conversions (DKK, EUR, CHF)
+    - Calculates all derived fields (refunds, discounts, taxes)
+    - Supports all 5 shops via environment variables
+    - Comprehensive error handling and rollback
+    - Real-time progress tracking in `bulk_sync_jobs` table
+  - **Database Schema**: New `bulk_sync_jobs` table with columns:
+    - `id` (UUID), `shop`, `start_date`, `end_date`, `object_type` (orders/skus/both)
+    - `status` (pending → running → polling → downloading → processing → completed/failed)
+    - `bulk_operation_id`, `records_processed`, `orders_synced`, `skus_synced`
+    - `file_url`, `file_size_bytes`, `error_message`
+    - `created_at`, `started_at`, `completed_at`
+  - **Usage**:
+    ```bash
+    # Deploy Edge Function
+    supabase functions deploy bulk-sync-orders
+
+    # Sync October 2024 (all shops)
+    supabase functions invoke bulk-sync-orders \
+      --data '{"shop":"pompdelux-da.myshopify.com","startDate":"2024-10-01","endDate":"2024-10-31","objectType":"both"}'
+
+    # Check status
+    SELECT * FROM bulk_sync_jobs ORDER BY created_at DESC LIMIT 5;
+    ```
+  - **Expected Performance**:
+    - Small month (100-500 orders): ~30-60 seconds
+    - Medium month (500-2000 orders): ~1-3 minutes
+    - Large month (2000-5000 orders): ~3-10 minutes
+    - Black Friday week: ~5-15 minutes (no timeout!)
+  - **Rollback**:
+    ```bash
+    # Remove Edge Function
+    rm -rf supabase/functions/bulk-sync-orders
+
+    # Drop table
+    DROP TABLE IF EXISTS bulk_sync_jobs CASCADE;
+
+    # Git revert
+    git revert <commit-hash>
+    ```
+- **Files Created**:
+  - `supabase/functions/bulk-sync-orders/index.ts` (Edge Function implementation)
+  - `supabase/migrations/20251006_create_bulk_sync_jobs_table.sql` (database schema)
+- **Production URL**: TBD (after deployment)
+- **Next Steps**:
+  1. Set up Supabase CLI and link project
+  2. Deploy Edge Function: `supabase functions deploy bulk-sync-orders`
+  3. Add Shopify tokens to Supabase secrets
+  4. Test with October 2024 data
+  5. Update cron jobs to use bulk sync for large periods
+
 ### 2025-10-05: 📊 Regression Validation (Interval 2024-10-01→09) - Historical Data Gaps Identified ⚠️
 
 **Formål**: Bekræfte at SKU-niveau beregninger forbliver korrekte over flere ordrer efter VAT-alignment fix.
@@ -1623,11 +1696,51 @@ git revert <commit-hash>
 - `tests/integration/batch-resync-skus.test.js` (integration tests)
 
 **Next Steps**:
-1. Apply database migration in Supabase SQL Editor
-2. Deploy to Vercel: `vercel --prod --yes`
-3. Run resync job for October 2024 data
-4. Monitor progress via status endpoint
-5. Re-run regression test after completion
+1. ✅ Apply database migration in Supabase SQL Editor
+2. ✅ Deploy to Vercel: `vercel --prod --yes`
+3. ⚠️ **CRITICAL DISCOVERY**: October 2024 SKUs were never synced to database
+4. **Must sync SKUs first** before batch resync can work
+5. Monitor progress via status endpoint
+6. Re-run regression test after completion
+
+**🔍 Investigation Results (2025-10-05)**:
+
+**Root Cause Found**: Batch resync reported "0 SKUs found" because **October 2024 SKU data doesn't exist in database**.
+
+**Evidence**:
+- ✅ Orders table: 3,668 orders synced (including 129 with `cancelled_qty = 228`)
+- ❌ SKUs table: 0 SKUs synced for October 2024
+- `/api/sku-raw?startDate=2024-10-01&endDate=2024-10-31` returns empty results
+- Example: Order 6667277697291 exists in orders table but has no SKU records
+
+**Why This Happened**:
+- SKU sync was never run for October 2024 period
+- Only orders were synced, leaving SKU-level data missing
+- Batch resync queries for `cancelled_qty > 0` but finds nothing because no SKUs exist
+
+**Solution**:
+1. **First**: Sync October 2024 SKUs for all shops:
+```bash
+SHOPS=("pompdelux-da.myshopify.com" "pompdelux-de.myshopify.com" "pompdelux-nl.myshopify.com" "pompdelux-int.myshopify.com" "pompdelux-chf.myshopify.com")
+for shop in "${SHOPS[@]}"; do
+  curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
+  "https://shopify-analytics-nu.vercel.app/api/sync-shop?shop=$shop&type=skus&startDate=2024-10-01&endDate=2024-10-31" &
+done
+wait
+```
+
+2. **Then**: Run batch resync to populate `cancelled_amount_dkk`:
+```bash
+curl -X POST https://shopify-analytics-nu.vercel.app/api/batch-resync-skus \
+  -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
+  -H "Content-Type: application/json" \
+  -d '{"startDate": "2024-10-01", "endDate": "2024-10-31", "batchSize": 500}'
+```
+
+**Enhanced Logging**:
+- Added defensive logging to warn when 0 SKUs found
+- Logs now show: date range, query conditions, and diagnostic suggestions
+- Prevents future confusion about "missing" data vs "not synced" data
 
 ---
 
