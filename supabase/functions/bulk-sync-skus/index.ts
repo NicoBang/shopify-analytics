@@ -42,7 +42,7 @@ interface DayResult {
   error?: string;
 }
 
-serve(async (req) => {
+serve({ verifyJwt: false }, async (req) => {
   try {
     // Parse request
     const { shop, startDate, endDate, objectType = "skus" }: BulkSyncRequest = await req.json();
