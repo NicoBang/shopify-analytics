@@ -620,16 +620,37 @@ function parseLineItem(lineItem: any, order: any, shop: string, refunds: any[]):
   const currency = lineItem.originalUnitPriceSet?.shopMoney?.currencyCode || "DKK";
   const rate = CURRENCY_RATES[currency] || 1.0;
 
-  // Tax rate
-  const taxRate = lineItem.taxLines?.[0]?.rate || 0.25;
-
-  // Prices
+  // Prices (incl. tax)
   const originalUnitPrice = parseFloat(lineItem.originalUnitPriceSet?.shopMoney?.amount || "0") * rate;
   const discountedUnitPrice = parseFloat(lineItem.discountedUnitPriceSet?.shopMoney?.amount || "0") * rate;
   const totalDiscount = parseFloat(lineItem.totalDiscountSet?.shopMoney?.amount || "0") * rate;
 
-  // Calculate price_dkk (ex tax)
-  const priceExTax = discountedUnitPrice / (1 + taxRate);
+  // Tax amount per unit
+  // Try to get tax from taxLines if available
+  const taxLinesArray = Array.isArray(lineItem.taxLines) ? lineItem.taxLines : (lineItem.taxLines?.edges?.map((e: any) => e.node) || []);
+  let totalTaxPerUnit = 0;
+
+  if (taxLinesArray.length > 0) {
+    // Use actual tax amounts from taxLines
+    totalTaxPerUnit = taxLinesArray.reduce((sum: number, taxLine: any) => {
+      const taxAmount = parseFloat(taxLine.priceSet?.shopMoney?.amount || "0");
+      return sum + taxAmount;
+    }, 0) * rate;
+  } else {
+    // Fallback: calculate tax proportionally from order-level tax
+    // This ensures we don't use hardcoded rates
+    const orderTotalTax = parseFloat(order.totalTaxSet?.shopMoney?.amount || "0") * rate;
+    const orderSubtotal = parseFloat(order.subtotalPriceSet?.shopMoney?.amount || "0") * rate;
+
+    if (orderSubtotal > 0) {
+      // Calculate this item's share of total tax based on its price
+      const itemProportion = discountedUnitPrice / orderSubtotal;
+      totalTaxPerUnit = orderTotalTax * itemProportion;
+    }
+  }
+
+  // Calculate price_dkk (ex tax) by subtracting tax from discounted price
+  const priceExTax = discountedUnitPrice - totalTaxPerUnit;
 
   // Find refund data for this SKU
   let refundedQty = 0;

@@ -124,10 +124,10 @@ class SupabaseService {
     while (hasMoreSales) {
       let salesQuery = this.supabase
         .from('skus')
-        .select('shop, quantity, cancelled_qty, price_dkk, created_at, refund_date, refunded_qty, discount_per_unit_dkk')
-        .gte('created_at', startDate.toISOString())
-        .lte('created_at', endDate.toISOString())
-        .order('created_at', { ascending: false })
+        .select('shop, quantity, cancelled_qty, price_dkk, created_at_original, refund_date, refunded_qty, refunded_amount_dkk, cancelled_amount_dkk, discount_per_unit_dkk, total_price_dkk')
+        .gte('created_at_original', startDate.toISOString())
+        .lte('created_at_original', endDate.toISOString())
+        .order('created_at_original', { ascending: false })
         .range(salesOffset, salesOffset + batchSize - 1);
 
       if (shop) {
@@ -157,7 +157,7 @@ class SupabaseService {
     while (hasMoreRefunds) {
       let refundQuery = this.supabase
         .from('skus')
-        .select('shop, quantity, cancelled_qty, price_dkk, created_at, refund_date, refunded_qty, discount_per_unit_dkk')
+        .select('shop, quantity, cancelled_qty, price_dkk, created_at_original, refund_date, refunded_qty, refunded_amount_dkk, cancelled_amount_dkk, discount_per_unit_dkk, total_price_dkk')
         .not('refund_date', 'is', null)
         .gte('refund_date', startDate.toISOString())
         .lte('refund_date', endDate.toISOString())
@@ -190,10 +190,12 @@ class SupabaseService {
 
     shopNames.forEach(s => {
       shopMap[s] = {
-        stkBrutto: 0,    // quantity - cancelled_qty from sales
-        stkNetto: 0,     // stkBrutto - refunded items from period
-        returQty: 0,     // refunded_qty from period
-        omsætning: 0     // revenue calculation
+        stkBrutto: 0,           // quantity - cancelled_qty from sales
+        stkNetto: 0,            // stkBrutto - refunded items from period
+        returQty: 0,            // refunded_qty from period
+        bruttoomsætning: 0,     // total_price_dkk - cancelled_amount_dkk
+        nettoomsætning: 0,      // bruttoomsætning - refunded_amount_dkk
+        refundedAmount: 0       // refunded_amount_dkk from period
       };
     });
 
@@ -209,6 +211,14 @@ class SupabaseService {
       shopMap[shop].stkBrutto += bruttoQty;
       shopMap[shop].stkNetto += bruttoQty; // Start with brutto quantity, then subtract refunds
 
+      // Revenue calculation
+      const totalPrice = Number(item.total_price_dkk) || 0;
+      const cancelledAmount = Number(item.cancelled_amount_dkk) || 0;
+      const bruttoRevenue = totalPrice - cancelledAmount;
+
+      shopMap[shop].bruttoomsætning += bruttoRevenue;
+      shopMap[shop].nettoomsætning += bruttoRevenue; // Start with brutto, then subtract refunds
+
       // Only count refunds if they happened in the same period
       const hasRefundInPeriod = item.refund_date &&
         new Date(item.refund_date) >= startDate &&
@@ -216,8 +226,12 @@ class SupabaseService {
 
       if (hasRefundInPeriod) {
         const refunded = Number(item.refunded_qty) || 0;
+        const refundedAmount = Number(item.refunded_amount_dkk) || 0;
+
         shopMap[shop].stkNetto -= refunded;
         shopMap[shop].returQty += refunded;
+        shopMap[shop].nettoomsætning -= refundedAmount;
+        shopMap[shop].refundedAmount += refundedAmount;
       }
     });
 
@@ -227,19 +241,23 @@ class SupabaseService {
       if (!shopMap[shop]) return;
 
       // Check if this item was already counted in sales
-      const wasCountedInSales = item.created_at &&
-        new Date(item.created_at) >= startDate &&
-        new Date(item.created_at) <= endDate;
+      const wasCountedInSales = item.created_at_original &&
+        new Date(item.created_at_original) >= startDate &&
+        new Date(item.created_at_original) <= endDate;
 
       if (!wasCountedInSales) {
         // This is a return from an older order - only count the return
         const refunded = Number(item.refunded_qty) || 0;
+        const refundedAmount = Number(item.refunded_amount_dkk) || 0;
+
         shopMap[shop].stkNetto -= refunded;
         shopMap[shop].returQty += refunded;
+        shopMap[shop].nettoomsætning -= refundedAmount;
+        shopMap[shop].refundedAmount += refundedAmount;
       }
     });
 
-    // Build result array in same format as original Dashboard
+    // Build result array with revenue data
     const result = [];
 
     shopNames.forEach(shop => {
@@ -248,7 +266,10 @@ class SupabaseService {
         shop: shop,
         stkBrutto: data.stkBrutto,
         stkNetto: data.stkNetto,
-        returQty: data.returQty
+        returQty: data.returQty,
+        bruttoomsætning: Math.round(data.bruttoomsætning * 100) / 100,
+        nettoomsætning: Math.round(data.nettoomsætning * 100) / 100,
+        refundedAmount: Math.round(data.refundedAmount * 100) / 100
       });
     });
 

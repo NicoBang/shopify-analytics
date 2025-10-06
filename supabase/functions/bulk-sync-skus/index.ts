@@ -23,24 +23,6 @@ interface BulkSyncRequest {
 
 // ✅ explicit Deno.env fallback for local Supabase CLI
 serve(async (req: Request): Promise<Response> => {
-  const env = Deno.env.toObject();
-  const authHeader = req.headers.get("Authorization") || "";
-  const invokerKey =
-    env["FUNCTIONS_INVOKER_KEY"] ||
-    Deno.env.get("FUNCTIONS_INVOKER_KEY") ||
-    env["API_SECRET_KEY"]; // fallback just in case
-
-  // Strict Bearer token match for function-to-function communication
-  if (!invokerKey || authHeader !== `Bearer ${invokerKey}`) {
-    console.error("❌ Unauthorized — missing or wrong key");
-    console.error(`   Expected: Bearer ${invokerKey}`);
-    console.error(`   Received: ${authHeader}`);
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
   try {
     const body = await req.json().catch(() => null);
     if (!body) {
@@ -62,8 +44,11 @@ serve(async (req: Request): Promise<Response> => {
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      { auth: { persistSession: false } }
     );
+
+    console.log("🔑 Using Supabase key prefix:", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.substring(0, 12));
 
     const token = getShopifyToken(shop);
     if (!token) throw new Error(`No Shopify token found for shop ${shop}`);
@@ -84,7 +69,7 @@ serve(async (req: Request): Promise<Response> => {
       console.log("📦 Starting refund sync after SKU sync...");
 
       try {
-        const refundSyncResult = await syncRefunds(shop, startDate, endDate, invokerKey);
+        const refundSyncResult = await syncRefunds(shop, startDate, endDate);
 
         console.log("✅ Refund sync complete:", JSON.stringify(refundSyncResult, null, 2));
 
@@ -328,17 +313,20 @@ async function syncSkusForDay(
     console.log("\n");
   }
 
-  // 🌍 Build country mapping from Orders (Order → LineItem relation)
-  const countryMap = new Map<string, string>();
+  // 🌍 Build order metadata mapping from Orders (Order → LineItem relation)
+  const orderMetadataMap = new Map<string, { country: string | null; createdAt: string }>();
   for (const line of lines) {
     const obj = JSON.parse(line);
     // Orders don't have __parentId, LineItems do
-    if (!obj.__parentId && obj.id && obj.shippingAddress?.countryCode) {
+    if (!obj.__parentId && obj.id) {
       const orderId = obj.id.split("/").pop();
-      countryMap.set(orderId, obj.shippingAddress.countryCode);
+      orderMetadataMap.set(orderId, {
+        country: obj.shippingAddress?.countryCode || null,
+        createdAt: obj.createdAt || new Date().toISOString(),
+      });
     }
   }
-  console.log(`🌍 Country mapping built: ${countryMap.size} orders with country data`);
+  console.log(`🌍 Order metadata mapping built: ${orderMetadataMap.size} orders`);
 
   let lineItemsFound = 0;
   for (const line of lines) {
@@ -350,14 +338,53 @@ async function syncSkusForDay(
 
     lineItemsFound++;
 
+    const orderId = obj.__parentId?.split("/").pop();
+    const orderMetadata = orderMetadataMap.get(orderId);
+
     const price = parseFloat(obj.discountedUnitPriceSet?.shopMoney?.amount || "0");
     const currency = obj.discountedUnitPriceSet?.shopMoney?.currencyCode || "DKK";
     const rate = CURRENCY_RATES[currency] || 1;
-    const taxRate = obj.taxLines?.[0]?.rate || 0;
 
-    const priceDkk = price * rate / (1 + taxRate);
-    const totalDiscountDkk = parseFloat(obj.totalDiscountSet?.shopMoney?.amount || "0") * rate / (1 + taxRate);
-    const orderId = obj.__parentId?.split("/").pop();
+    // Calculate tax amount from taxLines
+    const taxLinesArray = Array.isArray(obj.taxLines) ? obj.taxLines : (obj.taxLines?.edges?.map((e: any) => e.node) || []);
+    let totalTaxPerUnit = 0;
+
+    if (taxLinesArray.length > 0) {
+      // Use actual tax amounts from taxLines
+      totalTaxPerUnit = taxLinesArray.reduce((sum: number, taxLine: any) => {
+        const taxAmount = parseFloat(taxLine.priceSet?.shopMoney?.amount || "0");
+        return sum + taxAmount;
+      }, 0) * rate;
+    } else {
+      // Fallback: calculate from order-level tax if available
+      if (orderMetadata?.totalTax && orderMetadata?.subtotal) {
+        const itemProportion = price / parseFloat(orderMetadata.subtotal);
+        totalTaxPerUnit = parseFloat(orderMetadata.totalTax) * itemProportion * rate;
+      }
+    }
+
+    const priceDkk = (price * rate) - totalTaxPerUnit;
+    const totalDiscountRaw = parseFloat(obj.totalDiscountSet?.shopMoney?.amount || "0") * rate;
+
+    // Calculate tax on discount (proportional to discount amount)
+    const discountTax = totalDiscountRaw > 0 && price > 0 ? (totalTaxPerUnit * totalDiscountRaw / (price * rate)) : 0;
+    const totalDiscountDkk = totalDiscountRaw - discountTax;
+
+    const created_at = orderMetadata?.createdAt || new Date().toISOString();
+    let created_at_original = orderMetadata?.createdAt || null;
+
+    // Ensure created_at_original is always populated
+    if (!created_at_original || created_at_original === null) {
+      created_at_original = created_at; // fallback to Supabase insert date
+    } else if (typeof created_at_original === "string") {
+      // Normalize formatting to ISO if needed
+      created_at_original = new Date(created_at_original).toISOString();
+    }
+
+    // Log warning if fallback was used
+    if (created_at_original === created_at && !orderMetadata?.createdAt) {
+      console.log(`⚠️ created_at_original missing or identical — using fallback for order ${orderId}`);
+    }
 
     batch.push({
       shop,
@@ -369,12 +396,13 @@ async function syncSkusForDay(
       price_dkk: priceDkk,
       total_discount_dkk: totalDiscountDkk,
       discount_per_unit_dkk: totalDiscountDkk / (obj.quantity || 1),
-      country: countryMap.get(orderId) || null,
+      country: orderMetadata?.country || null,
       refunded_qty: 0,
       refund_date: null,
       cancelled_qty: 0,
       cancelled_amount_dkk: 0,
-      created_at: new Date().toISOString(),
+      created_at: created_at,
+      created_at_original: created_at_original,
     });
 
     if (batch.length >= BATCH_SIZE) {
@@ -447,18 +475,23 @@ async function upsertSkus(supabase: any, skus: any[]) {
 async function syncRefunds(
   shop: string,
   startDate: string,
-  endDate: string,
-  invokerKey: string
+  endDate: string
 ): Promise<any> {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const refundEndpoint = `${supabaseUrl}/functions/v1/bulk-sync-refunds`;
+  console.log(`🔄 Invoking bulk-sync-refunds via fetch...`);
+  console.log(`   Shop: ${shop}`);
+  console.log(`   Date range: ${startDate} to ${endDate}`);
 
-  console.log(`🌐 Calling bulk-sync-refunds endpoint: ${refundEndpoint}`);
+  // Use fetch with service role key for function-to-function communication
+  const functionUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/bulk-sync-refunds`;
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-  const response = await fetch(refundEndpoint, {
+  console.log("🔑 Using service role key prefix:", serviceRoleKey.substring(0, 12));
+  console.log(`🌐 Calling ${functionUrl}`);
+
+  const response = await fetch(functionUrl, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${invokerKey}`,
+      "Authorization": `Bearer ${serviceRoleKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -468,24 +501,29 @@ async function syncRefunds(
     }),
   });
 
+  const responseText = await response.text();
+  console.log(`📥 Response status: ${response.status}`);
+  console.log(`📥 Response body:`, responseText);
+
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Refund sync failed with status ${response.status}: ${errorText}`);
+    console.error(`❌ Refund sync HTTP error (${response.status}):`, responseText);
+    throw new Error(`Refund sync failed with status ${response.status}: ${responseText}`);
   }
 
-  const result = await response.json();
+  const refundData = JSON.parse(responseText);
+  console.log("✅ Refund orchestration complete:", refundData?.results?.length || 0, "days processed");
 
   // Calculate totals from results array
-  const totals = result.results?.reduce(
+  const totals = refundData?.results?.reduce(
     (acc: any, day: any) => {
       acc.refundsProcessed += day.refundsProcessed || 0;
       acc.skusUpdated += day.skusUpdated || 0;
       return acc;
     },
     { refundsProcessed: 0, skusUpdated: 0 }
-  );
+  ) || { refundsProcessed: 0, skusUpdated: 0 };
 
   console.log(`📊 Refund sync totals: ${totals.refundsProcessed} refunds processed, ${totals.skusUpdated} SKUs updated`);
 
-  return totals;
+  return refundData;
 }

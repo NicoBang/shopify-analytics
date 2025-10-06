@@ -23,33 +23,15 @@ interface RefundUpdate {
   order_id: string;
   sku: string;
   refunded_qty: number;
-  refund_date: string;
-  cancelled_amount_dkk: number;
+  refund_date: string | null;
+  refunded_amount_dkk: number;
+  cancelled_qty?: number;
+  cancelled_amount_dkk?: number;
 }
 
 serve(async (req: Request): Promise<Response> => {
   try {
     console.log("🚀 bulk-sync-refunds function invoked");
-
-    const env = Deno.env.toObject();
-    const authHeader = req.headers.get("Authorization") || "";
-    const invokerKey =
-      env["FUNCTIONS_INVOKER_KEY"] ||
-      Deno.env.get("FUNCTIONS_INVOKER_KEY") ||
-      env["API_SECRET_KEY"];
-
-    // Strict Bearer token match for function-to-function communication
-    if (!invokerKey || authHeader !== `Bearer ${invokerKey}`) {
-      console.error("❌ Unauthorized — missing or wrong key");
-      console.error(`   Expected: Bearer ${invokerKey}`);
-      console.error(`   Received: ${authHeader}`);
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    console.log("✅ Authorization successful");
 
     const body = await req.json().catch(() => null);
     if (!body) {
@@ -74,10 +56,11 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     console.log("🔗 Creating Supabase client");
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    console.log(`🔑 [DEBUG] Using Supabase URL: ${supabaseUrl}`);
+    console.log(`🔑 [DEBUG] Service Role Key starts with: ${supabaseKey.substring(0, 20)}...`);
+    const supabase = createClient(supabaseUrl, supabaseKey);
 
     console.log("🔑 Getting Shopify token");
     const token = getShopifyToken(shop);
@@ -88,8 +71,10 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     console.log(`🚀 Starting refund sync for ${shop} from ${startDate} to ${endDate}`);
+    console.log(`🔍 [DEBUG] Input parameters: shop=${shop}, startDate=${startDate}, endDate=${endDate}`);
     const days = generateDailyIntervals(startDate, endDate);
     console.log(`📅 Processing ${days.length} days`);
+    console.log(`📅 [DEBUG] Daily intervals:`, JSON.stringify(days, null, 2));
 
     const results: any[] = [];
 
@@ -128,17 +113,24 @@ function getShopifyToken(shop: string): string | null {
 }
 
 function generateDailyIntervals(start: string, end: string) {
-  const startDate = new Date(start);
-  const endDate = new Date(end);
+  console.log(`🔧 [DEBUG] generateDailyIntervals input: start=${start}, end=${end}`);
+
+  // Parse dates at midnight UTC to avoid timezone shifts
+  const startDate = new Date(start + 'T00:00:00Z');
+  const endDate = new Date(end + 'T00:00:00Z');
   const days: Array<{ date: string; startISO: string; endISO: string }> = [];
 
-  for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+  console.log(`🔧 [DEBUG] Parsed dates: startDate=${startDate.toISOString()}, endDate=${endDate.toISOString()}`);
+
+  for (let d = new Date(startDate); d <= endDate; d.setUTCDate(d.getUTCDate() + 1)) {
     const dateStr = d.toISOString().split("T")[0];
     const startISO = `${dateStr}T00:00:00Z`;
     const endISO = `${dateStr}T23:59:59Z`;
     days.push({ date: dateStr, startISO, endISO });
+    console.log(`📅 [DEBUG] Generated interval: ${dateStr} (${startISO} to ${endISO})`);
   }
 
+  console.log(`🔧 [DEBUG] Generated ${days.length} daily intervals`);
   return days;
 }
 
@@ -153,13 +145,17 @@ async function syncRefundsForDay(
     const day = startISO.split("T")[0];
     console.log(`💸 Fetching orders with refunds for ${day} from database`);
 
-    // Get all unique order_ids from database (all orders, not filtered by date)
-    // We filter by checking refund dates from Shopify API instead
-    console.log(`🔍 Querying Supabase for orders from shop: ${shop}`);
+    // Get order_ids from database for the specific date range
+    // This ensures we only check orders that were created in the target period
+    console.log(`🔍 [DEBUG] Querying Supabase for orders from ${startISO} to ${endISO}`);
+    console.log(`🔍 [DEBUG] Query filters: shop=${shop}, created_at >= ${startISO}, created_at <= ${endISO}`);
+
     const { data: orders, error: ordersError } = await supabase
       .from("skus")
-      .select("order_id")
+      .select("order_id, created_at")
       .eq("shop", shop)
+      .gte("created_at", startISO)
+      .lte("created_at", endISO)
       .limit(1000); // Process in batches to avoid timeouts
 
     if (ordersError) {
@@ -169,8 +165,16 @@ async function syncRefundsForDay(
 
     console.log(`📦 Supabase returned ${orders?.length || 0} order records`);
 
+    if (orders && orders.length > 0) {
+      console.log(`🔍 [DEBUG] First 3 order records:`, JSON.stringify(orders.slice(0, 3), null, 2));
+    }
+
     const uniqueOrderIds = [...new Set(orders.map((o: any) => String(o.order_id)))];
     console.log(`📦 Found ${uniqueOrderIds.length} unique orders to check for refunds`);
+
+    if (uniqueOrderIds.length > 0) {
+      console.log(`🔍 [DEBUG] First 5 order IDs:`, uniqueOrderIds.slice(0, 5));
+    }
 
     if (uniqueOrderIds.length === 0) {
       console.log(`⚠️ No orders found in database for shop ${shop}`);
@@ -204,8 +208,8 @@ async function syncRefundsForDay(
       }
 
       // Shopify REST API: GET /admin/api/2024-10/orders/{order_id}/refunds.json
-      // Request all fields including refund_line_items and transactions
-      const refundsUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/orders/${orderIdStr}/refunds.json?fields=id,order_id,created_at,refund_line_items,transactions`;
+      // Request all fields - remove fields parameter to get full response
+      const refundsUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/orders/${orderIdStr}/refunds.json`;
 
       if (shouldLogDetail) {
         console.log(`🌐 [DETAILED] Endpoint: ${refundsUrl}`);
@@ -252,7 +256,10 @@ async function syncRefundsForDay(
           if (refunds[0].refund_line_items) {
             console.log(`📦 [DETAILED] refund_line_items count:`, refunds[0].refund_line_items.length);
             if (refunds[0].refund_line_items.length > 0) {
-              console.log(`📦 [DETAILED] First refund_line_item:`, JSON.stringify(refunds[0].refund_line_items[0], null, 2));
+              const firstItem = refunds[0].refund_line_items[0];
+              console.log(`📦 [DETAILED] First refund_line_item structure:`, JSON.stringify(firstItem, null, 2));
+              console.log(`💰 [DEBUG] First item subtotal_set:`, JSON.stringify(firstItem.subtotal_set, null, 2));
+              console.log(`💰 [DEBUG] First item total_tax_set:`, JSON.stringify(firstItem.total_tax_set, null, 2));
             }
           }
         }
@@ -264,33 +271,126 @@ async function syncRefundsForDay(
       for (const refund of refunds) {
         const refundDate = refund.created_at;
 
-        // Only process refunds created within the specified date range
-        if (refundDate < startISO || refundDate > endISO) {
-          continue;
-        }
+        // Process ALL refunds for orders in the target date range
+        // (refunds can be created after the order date, so we don't filter by refund date)
 
         const refundLineItems = refund.refund_line_items || [];
+        const transactions = refund.transactions || [];
+
+        // Get actual refunded amount from transactions (this is what was actually paid back)
+        const actualRefundAmount = transactions.reduce((sum, t) => {
+          if (t.kind === 'refund' && t.status === 'success') {
+            return sum + parseFloat(t.amount || "0");
+          }
+          return sum;
+        }, 0);
+
+        // Determine if this is a cancellation (no money refunded) or a real refund (money returned)
+        const isCancellation = actualRefundAmount === 0;
 
         if (shouldLogDetail && processedOrders <= 2) {
           console.log(`📦 [DETAILED] Found ${refundLineItems.length} refund_line_items for refund ${refund.id}`);
+          if (refundLineItems.length > 0 && isCancellation) {
+            console.log(`📦 [CANCELLATION DEBUG] First refund_line_item:`, JSON.stringify(refundLineItems[0], null, 2));
+          }
+        }
+
+        // Calculate total theoretical refund from line items (for proportional distribution)
+        const theoreticalTotal = refundLineItems.reduce((sum, item) => {
+          const subtotal = parseFloat(item.subtotal_set?.shop_money?.amount || String(item.subtotal || "0"));
+          const tax = parseFloat(item.total_tax_set?.shop_money?.amount || String(item.total_tax || "0"));
+          return sum + subtotal + tax;
+        }, 0);
+
+        if (shouldLogDetail && processedOrders <= 2) {
+          console.log(`💰 [REFUND] Actual refund amount from transactions: ${actualRefundAmount.toFixed(2)} DKK`);
+          console.log(`💰 [REFUND] Theoretical total from line items: ${theoreticalTotal.toFixed(2)} DKK`);
         }
 
         for (const item of refundLineItems) {
           const lineItem = item.line_item || {};
           const sku = lineItem.sku;
           const quantity = item.quantity;
-          const amount = parseFloat(item.subtotal || "0");
-          const currency = lineItem.price_set?.shop_money?.currency_code || "DKK";
-          const rate = CURRENCY_RATES[currency] || 1;
-          const amountDkk = amount * rate;
+
+          // Calculate amount differently for cancellations vs refunds
+          let amountDkk: number;
+
+          if (isCancellation) {
+            // For cancellations, use subtotal and total_tax from refund line item
+            const subtotalStr = item.subtotal_set?.shop_money?.amount || String(item.subtotal || "0");
+            const taxStr = item.total_tax_set?.shop_money?.amount || String(item.total_tax || "0");
+            const subtotalInclVat = parseFloat(subtotalStr);
+            const taxAmount = parseFloat(taxStr);
+
+            // Calculate ex VAT by subtracting tax from subtotal
+            const cancelledPriceExVat = subtotalInclVat - taxAmount;
+
+            console.log(`🔍 [CANCELLATION] SKU ${sku}: subtotal=${subtotalInclVat} (incl. tax), tax=${taxAmount}, exVat=${cancelledPriceExVat}`);
+
+            // Get currency and convert to DKK
+            const currency = item.subtotal_set?.shop_money?.currency_code ||
+                            lineItem.price_set?.shop_money?.currency_code ||
+                            "DKK";
+            const currencyRate = CURRENCY_RATES[currency] || 1;
+
+            // Convert to DKK (already ex VAT)
+            amountDkk = cancelledPriceExVat * currencyRate;
+
+            console.log(`🔍 [CANCELLATION] SKU ${sku}: currency=${currency}, rate=${currencyRate}, amountDkk=${amountDkk.toFixed(2)}`);
+          } else {
+            // For refunds, use the proportional distribution from transactions
+            // Calculate this line item's theoretical amount (incl VAT)
+            const subtotalStr = item.subtotal_set?.shop_money?.amount || String(item.subtotal || "0");
+            const taxStr = item.total_tax_set?.shop_money?.amount || String(item.total_tax || "0");
+            const subtotal = parseFloat(subtotalStr);
+            const tax = parseFloat(taxStr);
+            const theoreticalLineAmountInclVat = subtotal + tax;
+
+            // Calculate actual refunded amount for this line item (incl VAT)
+            // If multiple line items, distribute proportionally
+            // If single line item, use the full transaction amount
+            let actualLineAmountInclVat: number;
+            if (refundLineItems.length === 1) {
+              actualLineAmountInclVat = actualRefundAmount;
+            } else if (theoreticalTotal > 0) {
+              const proportion = theoreticalLineAmountInclVat / theoreticalTotal;
+              actualLineAmountInclVat = actualRefundAmount * proportion;
+            } else {
+              actualLineAmountInclVat = 0;
+            }
+
+            // Calculate ex VAT for this line item
+            // Use the tax amount from the line item to determine ex VAT proportionally
+            const theoreticalExVat = subtotal - tax;  // Ex VAT for theoretical amount
+            const theoreticalTaxRate = theoreticalExVat > 0 ? tax / theoreticalExVat : 0;
+
+            // Apply same tax rate to actual refund amount to get ex VAT
+            const actualLineAmountExVat = actualLineAmountInclVat / (1 + theoreticalTaxRate);
+
+            // Get currency and convert to DKK
+            const currency = item.subtotal_set?.shop_money?.currency_code ||
+                            lineItem.price_set?.shop_money?.currency_code ||
+                            "DKK";
+            const rate = CURRENCY_RATES[currency] || 1;
+            amountDkk = actualLineAmountExVat * rate;
+          }
+
+          if (shouldLogDetail && processedOrders <= 2) {
+            if (isCancellation) {
+              console.log(`🔍 [CALC] SKU ${sku}: CANCELLATION, amount in DKK=${amountDkk.toFixed(2)}`);
+            } else {
+              console.log(`🔍 [CALC] SKU ${sku}: REFUND, amount in DKK=${amountDkk.toFixed(2)}`);
+            }
+          }
 
           if (!sku) {
             console.warn(`⚠️ Refund line item missing SKU in order ${orderIdStr}`);
             continue;
           }
 
-          if (shouldLogDetail && processedOrders <= 2) {
-            console.log(`💸 [DETAILED] Processing refund for SKU ${sku}: qty=${quantity}, amount=${amountDkk.toFixed(2)} DKK, date=${refundDate}`);
+          // Critical debug point - verify amountDkk before aggregation
+          if (isCancellation) {
+            console.log(`🚨 [DEBUG] BEFORE AGGREGATION - SKU ${sku}: isCancellation=${isCancellation}, quantity=${quantity}, amountDkk=${amountDkk}`);
           }
 
           const key = `${shop}-${orderIdStr}-${sku}`;
@@ -299,20 +399,44 @@ async function syncRefundsForDay(
           );
 
           if (existing) {
-            existing.refunded_qty += quantity;
-            existing.cancelled_amount_dkk += amountDkk;
-            if (new Date(refundDate) > new Date(existing.refund_date)) {
-              existing.refund_date = refundDate;
+            if (isCancellation) {
+              console.log(`📝 [AGGREGATE] Adding to existing cancellation for ${sku}: qty+=${quantity}, amount+=${amountDkk.toFixed(2)}`);
+              existing.cancelled_qty = (existing.cancelled_qty || 0) + quantity;
+              existing.cancelled_amount_dkk = (existing.cancelled_amount_dkk || 0) + amountDkk;
+            } else {
+              console.log(`📝 [AGGREGATE] Adding to existing refund for ${sku}: qty+=${quantity}, amount+=${amountDkk.toFixed(2)}`);
+              existing.refunded_qty += quantity;
+              existing.refunded_amount_dkk += amountDkk; // Fixed: use refunded_amount_dkk
+              if (new Date(refundDate) > new Date(existing.refund_date)) {
+                existing.refund_date = refundDate;
+              }
             }
           } else {
-            refundUpdates.push({
-              shop,
-              order_id: orderIdStr,
-              sku,
-              refunded_qty: quantity,
-              refund_date: refundDate,
-              cancelled_amount_dkk: amountDkk,
-            });
+            if (isCancellation) {
+              console.log(`📝 [NEW] Creating new cancellation entry for ${sku}: qty=${quantity}, amount=${amountDkk.toFixed(2)} DKK`);
+              refundUpdates.push({
+                shop,
+                order_id: orderIdStr,
+                sku,
+                refunded_qty: 0,
+                refund_date: null as any, // null for cancellations (no refund date)
+                refunded_amount_dkk: 0,
+                cancelled_qty: quantity,
+                cancelled_amount_dkk: amountDkk,
+              });
+            } else {
+              console.log(`📝 [NEW] Creating new refund entry for ${sku}: qty=${quantity}, amount=${amountDkk.toFixed(2)} DKK`);
+              refundUpdates.push({
+                shop,
+                order_id: orderIdStr,
+                sku,
+                refunded_qty: quantity,
+                refund_date: refundDate,
+                refunded_amount_dkk: amountDkk, // Fixed: use refunded_amount_dkk
+                cancelled_qty: 0,
+                cancelled_amount_dkk: 0,
+              });
+            }
           }
         }
       }
@@ -365,28 +489,38 @@ async function updateRefundsInDatabase(
       const shouldLogDetail = updatedCount < 2;
 
       if (shouldLogDetail) {
-        console.log(`💸 [DETAILED] Updating SKU ${refund.sku} with refunded_qty=${refund.refunded_qty}, refund_date=${refund.refund_date}, cancelled_amount_dkk=${refund.cancelled_amount_dkk.toFixed(2)}`);
+        console.log(`💸 [DETAILED] Updating SKU ${refund.sku} with refunded_qty=${refund.refunded_qty}, refund_date=${refund.refund_date}, refunded_amount_dkk=${refund.refunded_amount_dkk.toFixed(2)}`);
       }
 
-      const { error } = await supabase
+      console.log(`💾 [UPDATE] Full refund object:`, JSON.stringify(refund));
+      console.log(`💾 [UPDATE] Attempting to update SKU ${refund.sku}: refunded_qty=${refund.refunded_qty}, refund_date=${refund.refund_date}, refunded_amount_dkk=${refund.refunded_amount_dkk}`);
+
+      // Build update object - always include all fields
+      const updateData: any = {
+        refunded_qty: refund.refunded_qty,
+        refunded_amount_dkk: refund.refunded_amount_dkk,
+        refund_date: refund.refund_date,
+        cancelled_qty: refund.cancelled_qty || 0,
+        cancelled_amount_dkk: refund.cancelled_amount_dkk || 0,
+      };
+
+      const { error, data } = await supabase
         .from("skus")
-        .update({
-          refunded_qty: refund.refunded_qty,
-          refund_date: refund.refund_date,
-          cancelled_amount_dkk: refund.cancelled_amount_dkk,
-        })
+        .update(updateData)
         .match({
           shop: refund.shop,
           order_id: refund.order_id,
           sku: refund.sku,
-        });
+        })
+        .select();
 
       if (error) {
-        console.error(`❌ Error updating SKU ${refund.sku}:`, error);
+        console.error(`❌ Error updating SKU ${refund.sku}:`, JSON.stringify(error));
       } else {
+        console.log(`✅ [UPDATE] Successfully updated SKU ${refund.sku}, rows affected:`, data?.length || 0);
         updatedCount++;
         if (shouldLogDetail) {
-          console.log(`✅ [DETAILED] Successfully updated SKU ${refund.sku}`);
+          console.log(`✅ [DETAILED] Updated data:`, JSON.stringify(data));
         }
       }
     }

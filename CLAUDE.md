@@ -39,3 +39,40 @@ Do **not** produce session history overviews.
 
 ✅ **Key Rule:**  
 > “Each message is a new context. Never summarize or rebuild prior conversation history.”
+
+🧭 Date and Timestamp Handling Rules
+
+Important: Different tables use different date column types — all logic and queries must respect this distinction.
+
+🗓️ skus table
+	•	created_at → DATE (no timezone)
+	•	All comparisons must use "YYYY-MM-DD" format (no Z, no time offset).
+	•	Always cast incoming timestamps to DATE before filtering:
+
+    const startDate = new Date(reqBody.startDate).toISOString().split("T")[0];
+const endDate = new Date(reqBody.endDate).toISOString().split("T")[0];
+await supabase
+  .from("skus")
+  .select("*")
+  .gte("created_at", startDate)
+  .lte("created_at", endDate);
+
+  ⏰ orders table
+	•	created_at → TIMESTAMPTZ (timezone-aware)
+	•	All comparisons must preserve full timestamp precision.
+	•	Use ISO strings (with "Z") for comparisons:
+
+    const startISO = new Date(reqBody.startDate).toISOString();
+const endISO = new Date(reqBody.endDate).toISOString();
+const { data } = await supabase
+  .from("orders")
+  .select("*")
+  .gte("created_at", startISO)
+  .lte("created_at", endISO);
+
+  ⚙️ General Rules
+	•	Never assume the same date precision between tables.
+	•	When joining orders → skus:
+	•	Match on DATE(orders.created_at) = skus.created_at
+	•	or normalize both to the same day boundary.
+	•	Shopify Bulk API returns timestamps → must be converted before upsert into skus.
