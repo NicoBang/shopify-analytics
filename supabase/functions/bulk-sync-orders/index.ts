@@ -9,6 +9,7 @@ const SHOPIFY_API_VERSION = "2024-10";
 const POLL_INTERVAL_MS = 10000; // 10 seconds
 const BATCH_SIZE = 500;
 const MAX_POLL_ATTEMPTS = 360; // 1 hour max (360 * 10s)
+const MAX_RETRIES = 3; // Max retries per day on errors
 
 // Currency conversion rates (DKK base)
 const CURRENCY_RATES: Record<string, number> = {
@@ -31,6 +32,15 @@ interface ShopifyBulkOperation {
   url?: string;
   objectCount?: number;
   fileSize?: number;
+}
+
+interface DayResult {
+  day: string;
+  status: "success" | "failed" | "skipped";
+  ordersProcessed: number;
+  skusProcessed: number;
+  durationMs: number;
+  error?: string;
 }
 
 serve(async (req) => {
@@ -78,80 +88,85 @@ serve(async (req) => {
 
     console.log(`📋 Created job ${job.id} for ${shop} (${startDate} to ${endDate})`);
 
-    // Start bulk operation
+    // Start multi-day processing
     await supabase
       .from("bulk_sync_jobs")
       .update({ status: "running", started_at: new Date().toISOString() })
       .eq("id", job.id);
 
-    const bulkOp = await startBulkOperation(shop, shopifyToken, startDate, endDate);
+    const startTime = Date.now();
+    const days = generateDailyIntervals(startDate, endDate);
+    const dayResults: DayResult[] = [];
 
-    await supabase
-      .from("bulk_sync_jobs")
-      .update({
-        bulk_operation_id: bulkOp.id,
-        status: "polling"
-      })
-      .eq("id", job.id);
+    console.log(`📅 Processing ${days.length} day(s) from ${startDate} to ${endDate}`);
 
-    console.log(`🚀 Started bulk operation ${bulkOp.id}, now polling...`);
+    let totalOrders = 0;
+    let totalSkus = 0;
 
-    // Poll for completion
-    const completedOp = await pollBulkOperation(shop, shopifyToken, bulkOp.id, job.id, supabase);
+    for (let i = 0; i < days.length; i++) {
+      const day = days[i];
+      const dayStart = Date.now();
 
-    if (completedOp.status !== "COMPLETED") {
-      throw new Error(`Bulk operation failed: ${completedOp.errorCode || "Unknown error"}`);
+      console.log(`\n🔄 Day ${i + 1}/${days.length}: ${day.date} (${day.startISO} to ${day.endISO})`);
+
+      const dayResult = await processSingleDay(
+        shop,
+        shopifyToken,
+        day.startISO,
+        day.endISO,
+        supabase,
+        job.id,
+        day.date
+      );
+
+      dayResults.push(dayResult);
+
+      if (dayResult.status === "success") {
+        totalOrders += dayResult.ordersProcessed;
+        totalSkus += dayResult.skusProcessed;
+        const dayDuration = (dayResult.durationMs / 1000).toFixed(1);
+        console.log(`✅ Day completed: ${day.date} (${dayResult.ordersProcessed} orders, ${dayDuration}s)`);
+      } else if (dayResult.status === "skipped") {
+        console.log(`⏭️  Day skipped: ${day.date} - ${dayResult.error}`);
+      } else {
+        console.log(`❌ Day failed: ${day.date} - ${dayResult.error}`);
+      }
     }
 
-    await supabase
-      .from("bulk_sync_jobs")
-      .update({
-        status: "downloading",
-        file_url: completedOp.url,
-        file_size_bytes: completedOp.fileSize
-      })
-      .eq("id", job.id);
-
-    console.log(`📥 Downloading JSONL file (${completedOp.fileSize} bytes)...`);
-
-    // Download and process JSONL
-    await supabase
-      .from("bulk_sync_jobs")
-      .update({ status: "processing" })
-      .eq("id", job.id);
-
-    const { ordersProcessed, skusProcessed } = await processJSONL(
-      completedOp.url!,
-      shop,
-      supabase,
-      job.id
-    );
-
-    // Mark complete
+    // Mark job complete
+    const totalDuration = Date.now() - startTime;
     await supabase
       .from("bulk_sync_jobs")
       .update({
         status: "completed",
-        orders_synced: ordersProcessed,
-        skus_synced: skusProcessed,
-        records_processed: ordersProcessed + skusProcessed,
+        orders_synced: totalOrders,
+        skus_synced: totalSkus,
+        records_processed: totalOrders + totalSkus,
         completed_at: new Date().toISOString(),
       })
       .eq("id", job.id);
 
-    const duration = Math.round((Date.now() - new Date(job.created_at).getTime()) / 1000);
+    const successfulDays = dayResults.filter((r) => r.status === "success").length;
+    const failedDays = dayResults.filter((r) => r.status === "failed").length;
+    const skippedDays = dayResults.filter((r) => r.status === "skipped").length;
 
-    console.log(`✅ Completed job ${job.id} in ${duration}s`);
+    console.log(`\n🟡 Summary: ${totalOrders} orders synced in ${successfulDays} days, ${(totalDuration / 1000).toFixed(0)}s total`);
+    console.log(`   ✅ Successful: ${successfulDays} | ❌ Failed: ${failedDays} | ⏭️  Skipped: ${skippedDays}`);
 
     return new Response(
       JSON.stringify({
         success: true,
         jobId: job.id,
         status: "completed",
-        ordersProcessed,
-        skusProcessed,
-        recordsProcessed: ordersProcessed + skusProcessed,
-        durationSec: duration,
+        totalDays: days.length,
+        successfulDays,
+        failedDays,
+        skippedDays,
+        ordersProcessed: totalOrders,
+        skusProcessed: totalSkus,
+        recordsProcessed: totalOrders + totalSkus,
+        durationSec: Math.round(totalDuration / 1000),
+        dayResults,
       }),
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
@@ -205,12 +220,138 @@ function getShopifyToken(shop: string): string | null {
   return shopMap[shop] || null;
 }
 
+function generateDailyIntervals(startDate: string, endDate: string): Array<{ date: string; startISO: string; endISO: string }> {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const days: Array<{ date: string; startISO: string; endISO: string }> = [];
+
+  let current = new Date(start);
+  while (current <= end) {
+    const dateStr = current.toISOString().split("T")[0];
+    const startISO = `${dateStr}T00:00:00Z`;
+    const endISO = `${dateStr}T23:59:59Z`;
+
+    days.push({ date: dateStr, startISO, endISO });
+
+    current.setDate(current.getDate() + 1);
+  }
+
+  return days;
+}
+
+async function processSingleDay(
+  shop: string,
+  token: string,
+  startISO: string,
+  endISO: string,
+  supabase: any,
+  jobId: string,
+  day: string
+): Promise<DayResult> {
+  const dayStart = Date.now();
+  let retries = 0;
+
+  while (retries < MAX_RETRIES) {
+    try {
+      // Start bulk operation for this day
+      const bulkOp = await startBulkOperation(shop, token, startISO, endISO);
+
+      await supabase
+        .from("bulk_sync_jobs")
+        .update({
+          bulk_operation_id: bulkOp.id,
+          status: "polling",
+          day: day
+        })
+        .eq("id", jobId);
+
+      // Poll for completion
+      const completedOp = await pollBulkOperation(shop, token, bulkOp.id, jobId, supabase);
+
+      if (completedOp.status === "FAILED") {
+        const errorCode = completedOp.errorCode || "UNKNOWN";
+
+        // Retry on throttling or transient errors
+        if (errorCode === "THROTTLED" || errorCode === "INTERNAL_SERVER_ERROR") {
+          retries++;
+          console.log(`⚠️  Day ${day} failed with ${errorCode}, retry ${retries}/${MAX_RETRIES}...`);
+          await new Promise((resolve) => setTimeout(resolve, 5000 * retries)); // Exponential backoff
+          continue;
+        }
+
+        // Non-retryable error
+        return {
+          day,
+          status: "failed",
+          ordersProcessed: 0,
+          skusProcessed: 0,
+          durationMs: Date.now() - dayStart,
+          error: `Bulk operation failed: ${errorCode}`,
+        };
+      }
+
+      // Download and process
+      await supabase
+        .from("bulk_sync_jobs")
+        .update({
+          status: "processing",
+          file_url: completedOp.url,
+          file_size_bytes: completedOp.fileSize
+        })
+        .eq("id", jobId);
+
+      const { ordersProcessed, skusProcessed } = await processJSONL(
+        completedOp.url!,
+        shop,
+        supabase,
+        jobId
+      );
+
+      return {
+        day,
+        status: "success",
+        ordersProcessed,
+        skusProcessed,
+        durationMs: Date.now() - dayStart,
+      };
+
+    } catch (error: any) {
+      retries++;
+      console.log(`⚠️  Day ${day} error: ${error.message}, retry ${retries}/${MAX_RETRIES}...`);
+
+      if (retries >= MAX_RETRIES) {
+        return {
+          day,
+          status: "failed",
+          ordersProcessed: 0,
+          skusProcessed: 0,
+          durationMs: Date.now() - dayStart,
+          error: error.message,
+        };
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 5000 * retries));
+    }
+  }
+
+  // Should never reach here
+  return {
+    day,
+    status: "failed",
+    ordersProcessed: 0,
+    skusProcessed: 0,
+    durationMs: Date.now() - dayStart,
+    error: "Max retries exceeded",
+  };
+}
+
 async function startBulkOperation(
   shop: string,
   token: string,
   startDate: string,
   endDate: string
 ): Promise<ShopifyBulkOperation> {
+  // Shopify Bulk Operations requires FLAT query - all objects at top-level with __parentId
   const query = `
     mutation {
       bulkOperationRunQuery(
@@ -223,6 +364,7 @@ async function startBulkOperation(
                 name
                 createdAt
                 updatedAt
+                cancelledAt
                 shippingAddress {
                   countryCode
                 }
@@ -247,62 +389,6 @@ async function startBulkOperation(
                   }
                   originalPriceSet {
                     shopMoney { amount currencyCode }
-                  }
-                  taxLines {
-                    priceSet { shopMoney { amount } }
-                    rate
-                  }
-                }
-                lineItems {
-                  edges {
-                    node {
-                      id
-                      sku
-                      name
-                      variantTitle
-                      quantity
-                      originalUnitPriceSet {
-                        shopMoney { amount currencyCode }
-                      }
-                      discountedUnitPriceSet {
-                        shopMoney { amount currencyCode }
-                      }
-                      totalDiscountSet {
-                        shopMoney { amount currencyCode }
-                      }
-                      taxLines {
-                        priceSet { shopMoney { amount } }
-                        rate
-                      }
-                    }
-                  }
-                }
-                refunds {
-                  createdAt
-                  updatedAt
-                  totalRefundedSet {
-                    shopMoney { amount currencyCode }
-                  }
-                  refundLineItems {
-                    edges {
-                      node {
-                        lineItem {
-                          id
-                          sku
-                        }
-                        quantity
-                        priceSet {
-                          shopMoney { amount currencyCode }
-                        }
-                      }
-                    }
-                  }
-                  transactions(first: 1) {
-                    edges {
-                      node {
-                        processedAt
-                      }
-                    }
                   }
                 }
               }
@@ -584,7 +670,7 @@ function parseLineItem(lineItem: any, order: any, shop: string, refunds: any[]):
 async function upsertOrders(supabase: any, orders: any[]): Promise<void> {
   const { error } = await supabase
     .from("orders")
-    .upsert(orders, { onConflict: "order_id" });
+    .upsert(orders, { onConflict: "shop,order_id" });
 
   if (error) {
     throw new Error(`Failed to upsert orders: ${error.message}`);
@@ -594,7 +680,7 @@ async function upsertOrders(supabase: any, orders: any[]): Promise<void> {
 async function upsertSkus(supabase: any, skus: any[]): Promise<void> {
   const { error } = await supabase
     .from("skus")
-    .upsert(skus, { onConflict: "order_id,sku" });
+    .upsert(skus, { onConflict: "shop,order_id,sku" });
 
   if (error) {
     throw new Error(`Failed to upsert SKUs: ${error.message}`);
