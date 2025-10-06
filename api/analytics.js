@@ -124,7 +124,7 @@ class SupabaseService {
     while (hasMoreSales) {
       let salesQuery = this.supabase
         .from('skus')
-        .select('shop, quantity, cancelled_qty, price_dkk, created_at_original, refund_date, refunded_qty, refunded_amount_dkk, cancelled_amount_dkk, discount_per_unit_dkk, total_price_dkk')
+        .select('shop, quantity, cancelled_qty, price_dkk, created_at_original, refund_date, refunded_qty, refunded_amount_dkk, cancelled_amount_dkk, discount_per_unit_dkk')
         .gte('created_at_original', startDate.toISOString())
         .lte('created_at_original', endDate.toISOString())
         .order('created_at_original', { ascending: false })
@@ -157,7 +157,7 @@ class SupabaseService {
     while (hasMoreRefunds) {
       let refundQuery = this.supabase
         .from('skus')
-        .select('shop, quantity, cancelled_qty, price_dkk, created_at_original, refund_date, refunded_qty, refunded_amount_dkk, cancelled_amount_dkk, discount_per_unit_dkk, total_price_dkk')
+        .select('shop, quantity, cancelled_qty, price_dkk, created_at_original, refund_date, refunded_qty, refunded_amount_dkk, cancelled_amount_dkk, discount_per_unit_dkk')
         .not('refund_date', 'is', null)
         .gte('refund_date', startDate.toISOString())
         .lte('refund_date', endDate.toISOString())
@@ -211,8 +211,9 @@ class SupabaseService {
       shopMap[shop].stkBrutto += bruttoQty;
       shopMap[shop].stkNetto += bruttoQty; // Start with brutto quantity, then subtract refunds
 
-      // Revenue calculation
-      const totalPrice = Number(item.total_price_dkk) || 0;
+      // Revenue calculation (Updated October 2025: using price_dkk * quantity instead of total_price_dkk)
+      const pricePerUnit = Number(item.price_dkk) || 0;
+      const totalPrice = pricePerUnit * quantity;
       const cancelledAmount = Number(item.cancelled_amount_dkk) || 0;
       const bruttoRevenue = totalPrice - cancelledAmount;
 
