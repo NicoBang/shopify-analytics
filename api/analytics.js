@@ -124,7 +124,7 @@ class SupabaseService {
     while (hasMoreSales) {
       let salesQuery = this.supabase
         .from('skus')
-        .select('shop, quantity, cancelled_qty, price_dkk, created_at_original, refund_date, refunded_qty, refunded_amount_dkk, cancelled_amount_dkk, discount_per_unit_dkk')
+        .select('shop, order_id, quantity, cancelled_qty, price_dkk, created_at_original, refund_date, refunded_qty, refunded_amount_dkk, cancelled_amount_dkk, discount_per_unit_dkk')
         .gte('created_at_original', startDate.toISOString())
         .lte('created_at_original', endDate.toISOString())
         .order('created_at_original', { ascending: false })
@@ -157,7 +157,7 @@ class SupabaseService {
     while (hasMoreRefunds) {
       let refundQuery = this.supabase
         .from('skus')
-        .select('shop, quantity, cancelled_qty, price_dkk, created_at_original, refund_date, refunded_qty, refunded_amount_dkk, cancelled_amount_dkk, discount_per_unit_dkk')
+        .select('shop, order_id, quantity, cancelled_qty, price_dkk, created_at_original, refund_date, refunded_qty, refunded_amount_dkk, cancelled_amount_dkk, discount_per_unit_dkk')
         .not('refund_date', 'is', null)
         .gte('refund_date', startDate.toISOString())
         .lte('refund_date', endDate.toISOString())
@@ -183,6 +183,38 @@ class SupabaseService {
       }
     }
 
+    // STEP 2.5: Get orders for shipping data - WITH PAGINATION
+    const ordersData = [];
+    let ordersOffset = 0;
+    let hasMoreOrders = true;
+
+    while (hasMoreOrders) {
+      let ordersQuery = this.supabase
+        .from('orders')
+        .select('shop, order_id, shipping, refunded_amount')
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .order('created_at', { ascending: false })
+        .range(ordersOffset, ordersOffset + batchSize - 1);
+
+      if (shop) {
+        ordersQuery = ordersQuery.eq('shop', shop);
+      }
+
+      const { data: ordersBatch, error: ordersError } = await ordersQuery;
+      if (ordersError) {
+        console.error('❌ Error fetching orders:', ordersError);
+        throw ordersError;
+      }
+
+      if (ordersBatch && ordersBatch.length > 0) {
+        ordersData.push(...ordersBatch);
+        hasMoreOrders = ordersBatch.length === batchSize;
+        ordersOffset += batchSize;
+      } else {
+        hasMoreOrders = false;
+      }
+    }
 
     // STEP 3: Aggregate by shop
     const shopMap = {};
@@ -195,8 +227,34 @@ class SupabaseService {
         returQty: 0,            // refunded_qty from period
         bruttoomsætning: 0,     // total_price_dkk - cancelled_amount_dkk
         nettoomsætning: 0,      // bruttoomsætning - refunded_amount_dkk
-        refundedAmount: 0       // refunded_amount_dkk from period
+        refundedAmount: 0,      // refunded_amount_dkk from period
+        orderIds: new Set(),    // unique order_id count for antalOrdrer (from orders table)
+        returnOrderIds: new Set(), // unique order_ids with returns
+        totalDiscounts: 0,      // SUM(discount_per_unit_dkk * quantity)
+        cancelledQty: 0,        // SUM(cancelled_qty)
+        shipping: 0             // SUM(shipping) from orders table
       };
+    });
+
+    // Process orders data first (for shipping and order count)
+    (ordersData || []).forEach(order => {
+      const shop = order.shop;
+      if (!shopMap[shop]) return;
+
+      // Track unique order IDs from orders table (more efficient)
+      if (order.order_id) {
+        shopMap[shop].orderIds.add(order.order_id);
+      }
+
+      // Track shipping
+      const shipping = Number(order.shipping) || 0;
+      shopMap[shop].shipping += shipping;
+
+      // Track orders with returns
+      const refundedAmount = Number(order.refunded_amount) || 0;
+      if (refundedAmount > 0 && order.order_id) {
+        shopMap[shop].returnOrderIds.add(order.order_id);
+      }
     });
 
     // Process sales data
@@ -210,6 +268,7 @@ class SupabaseService {
 
       shopMap[shop].stkBrutto += bruttoQty;
       shopMap[shop].stkNetto += bruttoQty; // Start with brutto quantity, then subtract refunds
+      shopMap[shop].cancelledQty += cancelled;
 
       // Revenue calculation (Updated October 2025: using price_dkk * quantity instead of total_price_dkk)
       const pricePerUnit = Number(item.price_dkk) || 0;
@@ -219,6 +278,10 @@ class SupabaseService {
 
       shopMap[shop].bruttoomsætning += bruttoRevenue;
       shopMap[shop].nettoomsætning += bruttoRevenue; // Start with brutto, then subtract refunds
+
+      // Track total discounts
+      const discountPerUnit = Number(item.discount_per_unit_dkk) || 0;
+      shopMap[shop].totalDiscounts += discountPerUnit * quantity;
 
       // Only count refunds if they happened in the same period
       const hasRefundInPeriod = item.refund_date &&
@@ -233,6 +296,11 @@ class SupabaseService {
         shopMap[shop].returQty += refunded;
         shopMap[shop].nettoomsætning -= refundedAmount;
         shopMap[shop].refundedAmount += refundedAmount;
+
+        // Track order with return (if not already tracked from orders table)
+        if (refunded > 0 && item.order_id) {
+          shopMap[shop].returnOrderIds.add(item.order_id);
+        }
       }
     });
 
@@ -255,6 +323,11 @@ class SupabaseService {
         shopMap[shop].returQty += refunded;
         shopMap[shop].nettoomsætning -= refundedAmount;
         shopMap[shop].refundedAmount += refundedAmount;
+
+        // Track order with return (if not already tracked from orders table)
+        if (refunded > 0 && item.order_id) {
+          shopMap[shop].returnOrderIds.add(item.order_id);
+        }
       }
     });
 
@@ -263,14 +336,34 @@ class SupabaseService {
 
     shopNames.forEach(shop => {
       const data = shopMap[shop];
+      const antalOrdrer = data.orderIds.size;
+      const brutto = Math.round(data.bruttoomsætning * 100) / 100;
+      const netto = Math.round(data.nettoomsætning * 100) / 100;
+      const stkBrutto = data.stkBrutto;
+
+      const shipping = Math.round(data.shipping * 100) / 100;
+      const returOrderCount = data.returnOrderIds.size;
+
       result.push({
         shop: shop,
-        stkBrutto: data.stkBrutto,
+        antalOrdrer: antalOrdrer,
+        stkBrutto: stkBrutto,
         stkNetto: data.stkNetto,
         returQty: data.returQty,
-        bruttoomsætning: Math.round(data.bruttoomsætning * 100) / 100,
-        nettoomsætning: Math.round(data.nettoomsætning * 100) / 100,
-        refundedAmount: Math.round(data.refundedAmount * 100) / 100
+        bruttoomsætning: brutto,
+        nettoomsætning: netto,
+        refundedAmount: Math.round(data.refundedAmount * 100) / 100,
+        totalDiscounts: Math.round(data.totalDiscounts * 100) / 100,
+        cancelledQty: data.cancelledQty,
+        shipping: shipping,
+        // Afledte værdier
+        gnstOrdreværdi: antalOrdrer > 0 ? Math.round((brutto / antalOrdrer) * 100) / 100 : 0,
+        basketSize: antalOrdrer > 0 ? Math.round((stkBrutto / antalOrdrer) * 10) / 10 : 0,
+        gnsStkpris: stkBrutto > 0 ? Math.round((brutto / stkBrutto) * 100) / 100 : 0,
+        returPctStk: stkBrutto > 0 ? Math.round((data.returQty / stkBrutto) * 10000) / 100 : 0,
+        returPctKr: brutto > 0 ? Math.round((data.refundedAmount / brutto) * 10000) / 100 : 0,
+        returPctOrdre: antalOrdrer > 0 ? Math.round((returOrderCount / antalOrdrer) * 10000) / 100 : 0,
+        fragtPctAfOms: brutto > 0 ? Math.round((shipping / brutto) * 10000) / 100 : 0
       });
     });
 

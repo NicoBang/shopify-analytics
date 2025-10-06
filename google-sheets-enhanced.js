@@ -36,7 +36,7 @@ function onOpen() {
 
 /**
  * Opdater dashboard med de sidste 30 dages data
- * UPDATED: Nu bruger SKU-level cancelled amounts i stedet for proportional fordeling
+ * UPDATED: Nu bruger dashboard-sku endpoint (kombinerer SKU + orders data)
  */
 function updateDashboard() {
   try {
@@ -45,35 +45,142 @@ function updateDashboard() {
     // Læs datoer fra Dashboard arket (B1/B2). Fallback: sidste 30 dage
     const { startDate, endDate } = getDashboardSelectedDates_();
 
-    // Hent SKU-level data (inkluderer cancelled_amount_dkk)
-    const skuUrl = `${CONFIG.API_BASE}/sku-raw`;
-    const skuPayload = {
+    // Brug dashboard-sku endpoint
+    const dashboardUrl = `${CONFIG.API_BASE}/analytics`;
+    const dashboardPayload = {
       startDate: formatDateWithTime(startDate, false),
       endDate: formatDateWithTime(endDate, true),
-      includeShopBreakdown: true  // ✅ Enable SKU-level cancelled amount calculation
+      type: 'dashboard-sku'
     };
-    const skuRes = makeApiRequest(skuUrl, skuPayload);
+    const dashboardRes = makeApiRequest(dashboardUrl, dashboardPayload);
 
-    // Hent order-level data for backward compatibility og shipping/tax info
-    const ordersUrl = `${CONFIG.API_BASE}/analytics`;
-    const ordersPayload = {
-      startDate: formatDateWithTime(startDate, false),
-      endDate: formatDateWithTime(endDate, true),
-      type: 'orders',
-      includeReturns: true
-    };
-    const ordersRes = makeApiRequest(ordersUrl, ordersPayload);
+    if (!dashboardRes.success || !dashboardRes.data) {
+      throw new Error('Dashboard data kunne ikke hentes');
+    }
 
-    const ordersRows = Array.isArray(ordersRes?.data) ? ordersRes.data : [];
-    const returnRows = Array.isArray(ordersRes?.returns) ? ordersRes.returns : [];
-    const shopBreakdown = Array.isArray(skuRes?.shopBreakdown) ? skuRes.shopBreakdown : null;
-
-    renderDashboard_(ordersRows, returnRows, startDate, endDate, shopBreakdown);
-    console.log(`✅ Dashboard opdateret (SKU method: ${shopBreakdown ? 'YES' : 'NO fallback'}, orders: ${ordersRows.length}, returns: ${returnRows.length})`);
+    // Brug renderDashboardFromSkus_() funktion
+    renderDashboardFromSkus_(dashboardRes.data, startDate, endDate);
+    console.log(`✅ Dashboard opdateret fra dashboard-sku endpoint (${dashboardRes.data.length} shops)`);
 
   } catch (error) {
     console.error('💥 Fejl i updateDashboard:', error);
     throw error;
+  }
+}
+
+// Render Dashboard fra SKU-baserede beregninger (Updated October 2025)
+function renderDashboardFromSkus_(dashboardData, startDate, endDate) {
+  const sheet = getOrCreateSheet(CONFIG.SHEETS.DASHBOARD);
+
+  // Sæt dato inputs i toppen (A1/A2)
+  sheet.getRange('A1').setValue('Startdato:');
+  sheet.getRange('A2').setValue('Slutdato:');
+  sheet.getRange('A1:A2').setFontWeight('bold');
+  sheet.getRange('B1:B2').setNumberFormat('dd/MM/yyyy');
+
+  // Ryd alt under række 4
+  if (sheet.getLastRow() >= 4) {
+    const lastRow = sheet.getLastRow();
+    const lastCol = Math.max(1, sheet.getLastColumn());
+    sheet.getRange(4, 1, lastRow - 3, lastCol).clear();
+  }
+
+  // Headers - alle 16 kolonner som før
+  const headers = [
+    'Shop','Bruttoomsætning','Nettoomsætning',
+    'Antal stk Brutto','Antal stk Netto','Antal Ordrer',
+    'Gnst ordreværdi','Basket size','Gns. stykpris',
+    'Retur % i stk','Retur % i kr','Retur % i antal o',
+    'Fragt indtægt ex','% af oms','Rabat ex moms','Cancelled stk'
+  ];
+  sheet.getRange('A4:P4').setValues([headers]).setFontWeight('bold').setBackground('#E3F2FD');
+
+  // Byg rækker fra dashboard data
+  const rows = [];
+  const totals = {
+    brutto:0, netto:0, stkBrutto:0, stkNetto:0, orders:0,
+    returStk:0, returKr:0, returOrdre:0, fragt:0, rabat:0, cancelled:0
+  };
+
+  dashboardData.forEach(shopData => {
+    const brutto = shopData.bruttoomsætning || 0;
+    const netto = shopData.nettoomsætning || 0;
+    const stkBrutto = shopData.stkBrutto || 0;
+    const stkNetto = shopData.stkNetto || 0;
+    const returQty = shopData.returQty || 0;
+    const refundedAmount = shopData.refundedAmount || 0;
+    const orders = shopData.antalOrdrer || 0;
+    const shipping = shopData.shipping || 0;
+    const rabat = shopData.totalDiscounts || 0;
+    const cancelled = shopData.cancelledQty || 0;
+
+    // Brug afledte værdier fra API (allerede beregnet)
+    const ordreværdi = shopData.gnstOrdreværdi || 0;
+    const basketSize = shopData.basketSize || 0;
+    const stkPris = shopData.gnsStkpris || 0;
+    const returStkPct = shopData.returPctStk || 0;
+    const returKrPct = shopData.returPctKr || 0;
+    const returOrdrePct = shopData.returPctOrdre || 0;
+    const fragtPct = shopData.fragtPctAfOms || 0;
+
+    rows.push([
+      shopLabel_(shopData.shop),
+      round2_(brutto),
+      round2_(netto),
+      stkBrutto,
+      stkNetto,
+      orders,
+      round2_(ordreværdi),
+      toFixed1_(basketSize),
+      round2_(stkPris),
+      pctStr_(returStkPct / 100),  // API returnerer som 0-100, vi vil have 0-1
+      pctStr_(returKrPct / 100),
+      pctStr_(returOrdrePct / 100),
+      round2_(shipping),
+      pctStr_(fragtPct / 100),
+      round2_(rabat),
+      cancelled
+    ]);
+
+    totals.brutto += brutto;
+    totals.netto += netto;
+    totals.stkBrutto += stkBrutto;
+    totals.stkNetto += stkNetto;
+    totals.orders += orders;
+    totals.returStk += returQty;
+    totals.returKr += refundedAmount;
+    totals.fragt += shipping;
+    totals.rabat += rabat;
+    totals.cancelled += cancelled;
+  });
+
+  // Total række
+  const totalReturOrdrePct = totals.orders > 0 ? (totals.returOrdre / totals.orders) : 0;
+  const totalFragtPct = totals.brutto > 0 ? (totals.fragt / totals.brutto) : 0;
+
+  rows.push([
+    'I alt',
+    round2_(totals.brutto),
+    round2_(totals.netto),
+    totals.stkBrutto,
+    totals.stkNetto,
+    totals.orders,
+    round2_(totals.orders > 0 ? totals.brutto / totals.orders : 0),
+    totals.orders > 0 ? toFixed1_(totals.stkBrutto / totals.orders) : '0',
+    round2_(totals.stkBrutto > 0 ? totals.brutto / totals.stkBrutto : 0),
+    pctStr_(totals.stkBrutto > 0 ? (totals.returStk / totals.stkBrutto) : 0),
+    pctStr_(totals.brutto > 0 ? (totals.returKr / totals.brutto) : 0),
+    pctStr_(totalReturOrdrePct),
+    round2_(totals.fragt),
+    pctStr_(totalFragtPct),
+    round2_(totals.rabat),
+    totals.cancelled
+  ]);
+
+  if (rows.length > 0) {
+    sheet.getRange(5, 1, rows.length, rows[0].length).setValues(rows);
+    sheet.getRange(5 + rows.length - 1, 1, 1, rows[0].length).setFontWeight('bold').setBackground('#F0F8FF');
+    sheet.autoResizeColumns(1, rows[0].length);
   }
 }
 
