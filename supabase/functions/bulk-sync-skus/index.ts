@@ -289,13 +289,14 @@ async function syncSkusForDay(
 
   console.log(`📦 Total JSONL lines received: ${lines.length}`);
 
-  // Log first 3 lines to understand structure
+  // Log first 5 lines with full content to understand structure
   if (lines.length > 0) {
-    console.log("📋 Sample JSONL structure (first 3 lines):");
-    lines.slice(0, 3).forEach((line, idx) => {
-      const obj = JSON.parse(line);
-      console.log(`  Line ${idx + 1}: __typename=${obj.__typename}, id=${obj.id}, __parentId=${obj.__parentId || 'N/A'}`);
+    console.log("📋 First 5 JSONL lines (full content):");
+    lines.slice(0, 5).forEach((line, idx) => {
+      console.log(`\n  --- Line ${idx + 1} ---`);
+      console.log(line);
     });
+    console.log("\n");
   }
 
   let lineItemsFound = 0;
