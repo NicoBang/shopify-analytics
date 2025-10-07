@@ -35,9 +35,9 @@ class SupabaseService {
       let batchQuery = this.supabase
         .from('skus')
         .select('*')
-        .gte('original_created_at', startDate.toISOString())
-        .lte('original_created_at', endDate.toISOString())
-        .order('original_created_at', { ascending: false })
+        .gte('created_at_original', startDate.toISOString())
+        .lte('created_at_original', endDate.toISOString())
+        .order('created_at_original', { ascending: false })
         .range(currentOffset, currentOffset + currentBatch - 1);
 
       if (shop) {
@@ -81,8 +81,8 @@ class SupabaseService {
       let countQuery = this.supabase
         .from('skus')
         .select('*', { count: 'exact', head: true })
-        .gte('original_created_at', startDate.toISOString())
-        .lte('original_created_at', endDate.toISOString());
+        .gte('created_at_original', startDate.toISOString())
+        .lte('created_at_original', endDate.toISOString());
 
       if (shop) countQuery = countQuery.eq('shop', shop);
       if (sku) countQuery = countQuery.eq('sku', sku);
@@ -143,11 +143,11 @@ class SupabaseService {
         refunded_qty,
         price_dkk,
         discount_per_unit_dkk,
-        original_created_at
+        created_at_original
       `)
-      .gte('original_created_at', startDate.toISOString())
-      .lte('original_created_at', endDate.toISOString())
-      .order('original_created_at', { ascending: false });
+      .gte('created_at_original', startDate.toISOString())
+      .lte('created_at_original', endDate.toISOString())
+      .order('created_at_original', { ascending: false });
 
     if (shop) {
       query = query.eq('shop', shop);
@@ -201,7 +201,7 @@ class SupabaseService {
       group.countries.add(item.country);
       group.shops.add(item.shop);
 
-      const saleDate = new Date(item.original_created_at);
+      const saleDate = new Date(item.created_at_original);
       if (!group.first_sale || saleDate < group.first_sale) {
         group.first_sale = saleDate;
       }

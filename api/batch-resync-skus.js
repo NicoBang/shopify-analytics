@@ -216,14 +216,14 @@ async function runResyncJob(supabase, shopClients, jobId, startDate, endDate, ba
 
   try {
     // Count total SKUs to process
-    console.log(`📆 Filtering SKUs by original_created_at between ${startDate} and ${endDate}`);
+    console.log(`📆 Filtering SKUs by created_at_original between ${startDate} and ${endDate}`);
     console.log(`🔍 Query conditions: cancelled_amount_dkk IS NULL OR = 0, cancelled_qty > 0`);
 
     const { count, error: countError } = await supabase
       .from('skus')
       .select('*', { count: 'exact', head: true })
-      .gte('original_created_at', startDate)
-      .lte('original_created_at', endDate)
+      .gte('created_at_original', startDate)
+      .lte('created_at_original', endDate)
       .or('cancelled_amount_dkk.is.null,cancelled_amount_dkk.eq.0')
       .gt('cancelled_qty', 0); // Only process SKUs with cancelled items
 
@@ -236,7 +236,7 @@ async function runResyncJob(supabase, shopClients, jobId, startDate, endDate, ba
     // Defensive check: warn if no SKUs found
     if (count === 0) {
       console.warn(`⚠️ No SKUs found matching criteria. Possible causes:`);
-      console.warn(`   1. No SKUs exist for this date range (check: SELECT COUNT(*) FROM skus WHERE original_created_at >= '${startDate}' AND original_created_at <= '${endDate}')`);
+      console.warn(`   1. No SKUs exist for this date range (check: SELECT COUNT(*) FROM skus WHERE created_at_original >= '${startDate}' AND created_at_original <= '${endDate}')`);
       console.warn(`   2. All SKUs already have cancelled_amount_dkk populated`);
       console.warn(`   3. No SKUs have cancelled_qty > 0 in this period`);
       console.warn(`   → Verify SKU data exists before running batch resync`);
@@ -259,8 +259,8 @@ async function runResyncJob(supabase, shopClients, jobId, startDate, endDate, ba
       const { data: skus, error: fetchError } = await supabase
         .from('skus')
         .select('shop, order_id, sku, cancelled_qty')
-        .gte('original_created_at', startDate)
-        .lte('original_created_at', endDate)
+        .gte('created_at_original', startDate)
+        .lte('created_at_original', endDate)
         .or('cancelled_amount_dkk.is.null,cancelled_amount_dkk.eq.0')
         .gt('cancelled_qty', 0)
         .range(offset, offset + batchSize - 1);
