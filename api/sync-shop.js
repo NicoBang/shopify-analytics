@@ -209,7 +209,7 @@ class ShopifyAPIClient {
           // Note: We don't use currentTotal as it changes with refunds (dynamic value)
           // Shopify's totalDiscountsSet is static and captures all discounts at order creation
           const saleDiscountTotal = 0; // Not needed - totalDiscountsSet captures everything
-          const combinedDiscountTotal = totalDiscountsInclTax * this.rate;
+          const combinedDiscountTotal = totalDiscountsExTax * this.rate;
 
           // Tilføj til output array
           output.push({
@@ -1364,6 +1364,130 @@ module.exports = async function handler(req, res) {
         };
         break;
 
+      case 'metadata-eur':
+        // Fetch EUR prices and store in product_prices_eur table
+        // Allowed shops: DE, INT, NL (all use EUR)
+        const allowedEurShops = ['pompdelux-de.myshopify.com', 'pompdelux-int.myshopify.com', 'pompdelux-nl.myshopify.com'];
+        if (!allowedEurShops.includes(shopDomain)) {
+          return res.status(400).json({
+            error: 'EUR metadata sync only allowed from EUR shops',
+            allowedShops: allowedEurShops,
+            requestedShop: shopDomain
+          });
+        }
+
+        console.log(`📋 Fetching EUR product prices from ${shopDomain}...`);
+
+        const eurCursor = req.query.cursor || null;
+        const eurMaxProducts = parseInt(req.query.maxProducts) || 500;
+        const eurStatusFilter = req.query.status || null;
+
+        const eurResult = await shopifyClient.fetchMetadata(eurCursor, eurMaxProducts, eurStatusFilter);
+        console.log(`✅ Fetched ${eurResult.metadata.length} EUR price records`);
+
+        // Upsert to product_prices_eur table
+        console.log('💾 Upserting to product_prices_eur...');
+        const eurPrices = eurResult.metadata.map(item => ({
+          sku: item.sku,
+          price: item.price,
+          compare_at_price: item.compare_at_price
+        }));
+
+        const { error: eurError } = await supabaseService.supabase
+          .from('product_prices_eur')
+          .upsert(eurPrices, { onConflict: 'sku' });
+
+        if (eurError) throw eurError;
+
+        recordsSynced = eurPrices.length;
+        syncData = {
+          eurPriceItems: eurPrices.length,
+          hasMore: eurResult.hasMore,
+          nextCursor: eurResult.nextCursor,
+          samplePrices: eurPrices.slice(0, 3),
+          message: eurResult.hasMore ? `Chunk complete. Call again with cursor=${eurResult.nextCursor}` : 'All EUR prices synced'
+        };
+        break;
+
+      case 'metadata-chf':
+        // Fetch CHF prices and store in product_prices_chf table
+        // Allowed shop: CHF only
+        if (shopDomain !== 'pompdelux-chf.myshopify.com') {
+          return res.status(400).json({
+            error: 'CHF metadata sync only allowed from CHF shop',
+            allowedShop: 'pompdelux-chf.myshopify.com',
+            requestedShop: shopDomain
+          });
+        }
+
+        console.log('📋 Fetching CHF product prices from pompdelux-chf.myshopify.com...');
+
+        const chfCursor = req.query.cursor || null;
+        const chfMaxProducts = parseInt(req.query.maxProducts) || 500;
+        const chfStatusFilter = req.query.status || null;
+
+        const chfResult = await shopifyClient.fetchMetadata(chfCursor, chfMaxProducts, chfStatusFilter);
+        console.log(`✅ Fetched ${chfResult.metadata.length} CHF price records`);
+
+        // Upsert to product_prices_chf table
+        console.log('💾 Upserting to product_prices_chf...');
+        const chfPrices = chfResult.metadata.map(item => ({
+          sku: item.sku,
+          price: item.price,
+          compare_at_price: item.compare_at_price
+        }));
+
+        const { error: chfError } = await supabaseService.supabase
+          .from('product_prices_chf')
+          .upsert(chfPrices, { onConflict: 'sku' });
+
+        if (chfError) throw chfError;
+
+        recordsSynced = chfPrices.length;
+        syncData = {
+          chfPriceItems: chfPrices.length,
+          hasMore: chfResult.hasMore,
+          nextCursor: chfResult.nextCursor,
+          samplePrices: chfPrices.slice(0, 3),
+          message: chfResult.hasMore ? `Chunk complete. Call again with cursor=${chfResult.nextCursor}` : 'All CHF prices synced'
+        };
+        break;
+
+      case 'verify-skus':
+        // Fast SKU verification sync using standard GraphQL API
+        // Syncs to sku_price_verification table for data validation
+        console.log(`🔍 Fetching SKU data for verification (${useUpdatedAt ? 'updated_at' : 'created_at'} mode)...`);
+
+        const verifySkus = await shopifyClient.fetchSkuData(syncStartDate, syncEndDate, useUpdatedAt);
+        console.log(`📊 Processing ${verifySkus.length} SKUs for verification...`);
+
+        // Map to verification table structure
+        const verificationData = verifySkus.map(sku => ({
+          shop: sku.shop,
+          order_id: sku.order_id,
+          sku: sku.sku,
+          quantity: sku.quantity,
+          price_dkk: sku.price_dkk,
+          original_price_dkk: sku.original_price_dkk || 0,
+          total_discount_dkk: sku.total_discount_dkk || 0
+        }));
+
+        // Upsert to verification table
+        console.log('💾 Upserting to sku_price_verification...');
+        const { data: verifyData, error: verifyError } = await supabaseService.supabase
+          .from('sku_price_verification')
+          .upsert(verificationData, { onConflict: 'shop,order_id,sku' });
+
+        if (verifyError) throw verifyError;
+
+        recordsSynced = verificationData.length;
+        syncData = {
+          skusVerified: verificationData.length,
+          sampleData: verificationData.slice(0, 3),
+          message: `✅ ${verificationData.length} SKUs synced to verification table`
+        };
+        break;
+
       case 'cleanup-fulfillments':
         console.log('🧹 Starting fulfillments cleanup (no shop sync needed)...');
 
@@ -1447,7 +1571,7 @@ module.exports = async function handler(req, res) {
       default:
         return res.status(400).json({
           error: 'Invalid sync type',
-          validTypes: ['orders', 'skus', 'inventory', 'fulfillments', 'metadata', 'cleanup-fulfillments']
+          validTypes: ['orders', 'skus', 'inventory', 'fulfillments', 'metadata', 'metadata-eur', 'metadata-chf', 'verify-skus', 'cleanup-fulfillments']
         });
     }
 
