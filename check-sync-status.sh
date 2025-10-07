@@ -25,6 +25,15 @@ from datetime import datetime, timedelta
 with open('/tmp/jobs.json') as f:
     jobs = json.load(f)
 
+# Debug: Show total jobs fetched and any running jobs
+print(f"🔎 DEBUG: Fetched {len(jobs)} total jobs")
+running_jobs_raw = [j for j in jobs if j.get('status') == 'running']
+if running_jobs_raw:
+    print(f"🔎 DEBUG: Found {len(running_jobs_raw)} jobs with status='running':")
+    for j in running_jobs_raw:
+        print(f"   - {j.get('shop','?')[:15]:15} {j.get('object_type','?'):6} {j.get('start_date','?')} {j.get('status','?')}")
+print()
+
 # Define expected shops and types
 shops = [
     "pompdelux-da.myshopify.com",

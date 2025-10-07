@@ -251,14 +251,16 @@ async function processShop(
 
   await logShopCompletion(shop, jobCount, successCount, failCount, supabase);
 
-  console.log(`✅ [${shop}] Complete: ${successCount}/${jobCount} jobs successful, ${failCount} failed`);
+  const shopStatus = failCount > 0 ? "failed" : "completed";
+  const statusEmoji = failCount > 0 ? "❌" : "✅";
+  console.log(`${statusEmoji} [${shop}] ${shopStatus}: ${successCount}/${jobCount} jobs successful, ${failCount} failed`);
 
   return {
     shop,
     jobs: jobCount,
     successful: successCount,
     failed: failCount,
-    status: "completed" as const,
+    status: shopStatus,
   };
 }
 
