@@ -574,40 +574,12 @@ async function processJSONL(
   ordersProcessed = ordersBatch.length;
   skusProcessed = skusBatch.length;
 
-  // Smart cleanup: Delete only the orders that Shopify returned (these will be re-inserted with updated data)
-  if (orderIds.length > 0) {
-    console.log(`🧹 Smart cleanup: Deleting ${orderIds.length} orders that will be updated...`);
+  // SAFE APPROACH: No cleanup - just upsert
+  // Upsert will update existing records and insert new ones
+  // This prevents data loss if Shopify query fails or returns partial data
+  console.log(`📝 Upserting ${ordersBatch.length} orders and ${skusBatch.length} SKUs (no delete)...`);
 
-    try {
-      // Delete SKUs first (foreign key constraint)
-      const { error: skuDeleteError } = await supabase
-        .from("skus")
-        .delete()
-        .eq("shop", shop)
-        .in("order_id", orderIds);
-
-      if (skuDeleteError) {
-        console.error(`⚠️ Failed to delete existing SKUs: ${skuDeleteError.message}`);
-      }
-
-      // Then delete orders
-      const { error: orderDeleteError } = await supabase
-        .from("orders")
-        .delete()
-        .eq("shop", shop)
-        .in("order_id", orderIds);
-
-      if (orderDeleteError) {
-        console.error(`⚠️ Failed to delete existing orders: ${orderDeleteError.message}`);
-      }
-
-      console.log(`✅ Cleanup complete, now inserting updated data...`);
-    } catch (cleanupError: any) {
-      console.error(`⚠️ Cleanup failed but continuing: ${cleanupError.message}`);
-    }
-  }
-
-  // Insert all data in batches (to avoid memory issues with very large datasets)
+  // Upsert all data in batches (to avoid memory issues with very large datasets)
   if (ordersBatch.length > 0) {
     console.log(`📝 Inserting ${ordersBatch.length} orders in batches...`);
     for (let i = 0; i < ordersBatch.length; i += BATCH_SIZE) {
