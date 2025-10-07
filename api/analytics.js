@@ -25,9 +25,9 @@ class SupabaseService {
       let query = this.supabase
         .from('orders')
         .select('*')
-        .gte('created_at', startDate.toISOString())
-        .lte('created_at', endDate.toISOString())
-        .order('created_at', { ascending: false })
+        .gte('original_created_at', startDate.toISOString())
+        .lte('original_created_at', endDate.toISOString())
+        .order('original_created_at', { ascending: false })
         .order('order_id', { ascending: false })
         .range(offset, offset + batchSize - 1);
 
@@ -192,9 +192,9 @@ class SupabaseService {
       let ordersQuery = this.supabase
         .from('orders')
         .select('shop, order_id, shipping, refunded_amount')
-        .gte('created_at', startDate.toISOString())
-        .lte('created_at', endDate.toISOString())
-        .order('created_at', { ascending: false })
+        .gte('original_created_at', startDate.toISOString())
+        .lte('original_created_at', endDate.toISOString())
+        .order('original_created_at', { ascending: false })
         .range(ordersOffset, ordersOffset + batchSize - 1);
 
       if (shop) {

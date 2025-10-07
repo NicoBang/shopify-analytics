@@ -210,10 +210,10 @@ class SupabaseService {
     const { data, error } = await this.supabase
       .from('skus')
       .select('*')
-      .gte('created_at', startDate.toISOString())
-      .lte('created_at', endDate.toISOString())
+      .gte('original_created_at', startDate.toISOString())
+      .lte('original_created_at', endDate.toISOString())
       .in('sku', skus)
-      .order('created_at', { ascending: false });
+      .order('original_created_at', { ascending: false });
 
     if (error) {
       console.error('❌ Error enriching SKU data:', error);
