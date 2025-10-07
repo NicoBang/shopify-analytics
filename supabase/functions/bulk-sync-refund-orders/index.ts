@@ -1,6 +1,6 @@
-// Shopify Bulk Operations Edge Sync
-// Handles large dataset syncs without timeout limitations
-// Uses Shopify Admin API Bulk Operations + Supabase Edge Functions
+// Shopify Bulk Operations Edge Sync - REFUND ORDERS
+// Syncs orders that have refunds in the date range (uses updated_at filter)
+// This catches orders created earlier but refunded during the specified period
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -102,6 +102,7 @@ serve(async (req) => {
     const dayResults: DayResult[] = [];
 
     console.log(`📅 Processing ${days.length} day(s) from ${startDate} to ${endDate}`);
+    console.log(`   Strategy: Fetch data first, then cleanup only orders returned by Shopify`);
 
     let totalOrders = 0;
     let totalSkus = 0;
@@ -384,13 +385,14 @@ async function startBulkOperation(
   startDate: string,
   endDate: string
 ): Promise<ShopifyBulkOperation> {
-  // Shopify Bulk Operations requires FLAT query - all objects at top-level with __parentId
+  // Query for orders with refunds (updated_at captures refund activity)
+  // This catches orders created earlier but refunded in the date range
   const query = `
     mutation {
       bulkOperationRunQuery(
         query: """
         {
-          orders(query: "created_at:>=${startDate} created_at:<=${endDate}") {
+          orders(query: "updated_at:>=${startDate} updated_at:<=${endDate}") {
             edges {
               node {
                 id
@@ -529,6 +531,7 @@ async function processJSONL(
   const ordersBatch: any[] = [];
   const skusBatch: any[] = [];
   const orderRefunds: Map<string, any> = new Map();
+  const orderIds: string[] = []; // Track all order IDs for cleanup
 
   let ordersProcessed = 0;
   let skusProcessed = 0;
@@ -540,6 +543,10 @@ async function processJSONL(
     if (obj.__typename === "Order" || obj.id?.includes("Order")) {
       const orderData = parseOrder(obj, shop);
       ordersBatch.push(orderData);
+
+      // Track order ID for cleanup
+      const orderId = obj.id.split("/").pop();
+      orderIds.push(orderId);
 
       // Store refund info for later SKU processing
       if (obj.refunds && obj.refunds.length > 0) {
@@ -557,34 +564,66 @@ async function processJSONL(
         }
       }
 
-      // Batch upsert when reaching batch size
-      if (ordersBatch.length >= BATCH_SIZE) {
-        await upsertOrders(supabase, ordersBatch);
-        ordersProcessed += ordersBatch.length;
-        ordersBatch.length = 0;
-
-        console.log(`✅ Upserted ${ordersProcessed} orders...`);
-      }
-
-      if (skusBatch.length >= BATCH_SIZE) {
-        await upsertSkus(supabase, skusBatch);
-        skusProcessed += skusBatch.length;
-        skusBatch.length = 0;
-
-        console.log(`✅ Upserted ${skusProcessed} SKUs...`);
-      }
+      // Note: We DON'T upsert during parsing - we collect ALL data first,
+      // then cleanup, then insert. This ensures we only delete orders that
+      // Shopify actually returned.
     }
   }
 
-  // Final batch upsert
+  console.log(`📦 Collected ${ordersBatch.length} orders and ${skusBatch.length} SKUs from Shopify`);
+  ordersProcessed = ordersBatch.length;
+  skusProcessed = skusBatch.length;
+
+  // Smart cleanup: Delete only the orders that Shopify returned (these will be re-inserted with updated data)
+  if (orderIds.length > 0) {
+    console.log(`🧹 Smart cleanup: Deleting ${orderIds.length} orders that will be updated...`);
+
+    try {
+      // Delete SKUs first (foreign key constraint)
+      const { error: skuDeleteError } = await supabase
+        .from("skus")
+        .delete()
+        .eq("shop", shop)
+        .in("order_id", orderIds);
+
+      if (skuDeleteError) {
+        console.error(`⚠️ Failed to delete existing SKUs: ${skuDeleteError.message}`);
+      }
+
+      // Then delete orders
+      const { error: orderDeleteError } = await supabase
+        .from("orders")
+        .delete()
+        .eq("shop", shop)
+        .in("order_id", orderIds);
+
+      if (orderDeleteError) {
+        console.error(`⚠️ Failed to delete existing orders: ${orderDeleteError.message}`);
+      }
+
+      console.log(`✅ Cleanup complete, now inserting updated data...`);
+    } catch (cleanupError: any) {
+      console.error(`⚠️ Cleanup failed but continuing: ${cleanupError.message}`);
+    }
+  }
+
+  // Insert all data in batches (to avoid memory issues with very large datasets)
   if (ordersBatch.length > 0) {
-    await upsertOrders(supabase, ordersBatch);
-    ordersProcessed += ordersBatch.length;
+    console.log(`📝 Inserting ${ordersBatch.length} orders in batches...`);
+    for (let i = 0; i < ordersBatch.length; i += BATCH_SIZE) {
+      const batch = ordersBatch.slice(i, i + BATCH_SIZE);
+      await upsertOrders(supabase, batch);
+      console.log(`   ✅ Inserted ${Math.min(i + BATCH_SIZE, ordersBatch.length)}/${ordersBatch.length} orders`);
+    }
   }
 
   if (skusBatch.length > 0) {
-    await upsertSkus(supabase, skusBatch);
-    skusProcessed += skusBatch.length;
+    console.log(`📝 Inserting ${skusBatch.length} SKUs in batches...`);
+    for (let i = 0; i < skusBatch.length; i += BATCH_SIZE) {
+      const batch = skusBatch.slice(i, i + BATCH_SIZE);
+      await upsertSkus(supabase, batch);
+      console.log(`   ✅ Inserted ${Math.min(i + BATCH_SIZE, skusBatch.length)}/${skusBatch.length} SKUs`);
+    }
   }
 
   console.log(`✅ Processed ${ordersProcessed} orders and ${skusProcessed} SKUs`);

@@ -30,6 +30,12 @@ When the user asks for help:
 - DB: **Supabase (Postgres)**
 - Language: **TypeScript**
 
+## 📦 Deployment
+**ALWAYS** deploy with `--no-verify-jwt`:
+```bash
+npx supabase functions deploy <function-name> --no-verify-jwt
+```
+
 ## 🧹 Reset Behavior
 Every new session should start clean.  
 Do **not** attempt to restore context from memory, logs, or summaries.  

@@ -4,8 +4,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // Edge Function with orchestration support
 const SHOPIFY_API_VERSION = "2024-10";
 const POLL_INTERVAL_MS = 10000;
-const MAX_POLL_ATTEMPTS = 180;
+const MAX_POLL_ATTEMPTS = 720; // 2 hours max (720 * 10s)
 const BATCH_SIZE = 500;
+const EDGE_FUNCTION_TIMEOUT_MS = 300000; // 5 minutes (Edge Functions have ~6-7 min hard limit)
 
 const CURRENCY_RATES: Record<string, number> = {
   DKK: 1.0,
@@ -55,9 +56,30 @@ serve(async (req: Request): Promise<Response> => {
 
     const days = generateDailyIntervals(startDate, endDate);
     const results: any[] = [];
+    const startTime = Date.now();
 
-    for (const day of days) {
-      console.log(`🔄 Syncing SKUs for ${day.date}`);
+    for (let i = 0; i < days.length; i++) {
+      const day = days[i];
+
+      // Check if approaching Edge Function timeout
+      const elapsedMs = Date.now() - startTime;
+      if (elapsedMs > EDGE_FUNCTION_TIMEOUT_MS) {
+        console.log(`⚠️ Approaching Edge Function timeout (${elapsedMs}ms elapsed). Stopping gracefully.`);
+
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "Edge Function timeout",
+            daysProcessed: i,
+            totalDays: days.length,
+            skusProcessed: results.reduce((sum, r) => sum + (r.skusProcessed || 0), 0),
+            message: `Processed ${i}/${days.length} days before timeout`,
+          }),
+          { status: 500, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      console.log(`🔄 Syncing SKUs for ${day.date} (${i + 1}/${days.length})`);
       const res = await syncSkusForDay(shop, token, supabase, day.startISO, day.endISO);
       results.push(res);
     }

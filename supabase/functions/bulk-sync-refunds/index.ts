@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SHOPIFY_API_VERSION = "2024-10";
 const POLL_INTERVAL_MS = 10000;
-const MAX_POLL_ATTEMPTS = 180;
+const MAX_POLL_ATTEMPTS = 720; // 2 hours max (720 * 10s)
 const BATCH_SIZE = 500;
 
 const CURRENCY_RATES: Record<string, number> = {
@@ -60,7 +60,9 @@ serve(async (req: Request): Promise<Response> => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     console.log(`🔑 [DEBUG] Using Supabase URL: ${supabaseUrl}`);
     console.log(`🔑 [DEBUG] Service Role Key starts with: ${supabaseKey.substring(0, 20)}...`);
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = createClient(supabaseUrl, supabaseKey, {
+      auth: { persistSession: false }
+    });
 
     console.log("🔑 Getting Shopify token");
     const token = getShopifyToken(shop);
