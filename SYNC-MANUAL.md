@@ -26,6 +26,18 @@ Komplet guide til at synce Shopify data til Supabase.
 ./sync-date-range.sh 2025-10-01 2025-10-07
 ```
 
+**Note:** For store perioder (>7 dage), brug i stedet:
+```bash
+# Step 1: Opret jobs (vil timeout - det er OK)
+./restart-orchestrator.sh
+
+# Step 2: Lad auto-continue cron job processe dem (hver 5. minut)
+# Eller kald manuelt:
+curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/continue-orchestrator" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -d '{}'
+```
+
 ### Sync opdaterede ordrer for en periode (refunds, edits, etc.)
 ```bash
 ./sync-date-range-refunds.sh 2025-10-01 2025-10-07
@@ -519,7 +531,27 @@ VERCEL_API_URL=https://shopify-analytics-9ckj1fm3r-nicolais-projects-291e9559.ve
 
 **3. Opret Cron Jobs**
 
-Gå til **Supabase Dashboard → Database → Cron Jobs** og opret to jobs:
+Gå til **Supabase Dashboard → Database → Cron Jobs** og opret tre jobs:
+
+#### Auto-Continue Orchestrator (hver 5. minut)
+```sql
+SELECT cron.schedule(
+  'auto-continue-orchestrator',
+  '*/5 * * * *',  -- Hver 5. minut
+  $$
+  SELECT net.http_post(
+    url := 'https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/continue-orchestrator',
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM',
+      'Content-Type', 'application/json'
+    ),
+    body := '{}'::jsonb
+  );
+  $$
+);
+```
+
+**Formål:** Processor automatisk pending jobs fra `bulk_sync_jobs` tabellen. Bruges til at fortsætte store backfills uden manuel intervention.
 
 #### Daglig Sync (kl. 06:00 Copenhagen tid)
 ```sql
