@@ -426,6 +426,7 @@ async function syncSkusForDay(
       cancelled_qty: 0,
       cancelled_amount_dkk: 0,
       created_at: created_at, // DATE format: "YYYY-MM-DD"
+      created_at_original: shopifyCreatedAt, // TIMESTAMPTZ: full Shopify order timestamp
     });
 
     if (batch.length >= BATCH_SIZE) {
