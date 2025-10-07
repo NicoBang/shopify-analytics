@@ -3,6 +3,7 @@
 -- Date: 2025-10-07
 
 -- Step 1: Update skus table with corrected prices from verification table
+-- ONLY for records with quantity > 1 (bug only affects multi-quantity orders)
 UPDATE skus s
 SET
   price_dkk = v.price_dkk,
@@ -13,6 +14,7 @@ WHERE s.shop = v.shop
   AND s.order_id = v.order_id
   AND s.sku = v.sku
   AND s.quantity = v.quantity  -- Extra safety check
+  AND s.quantity > 1  -- Bug only affects multi-quantity orders
   AND ABS(s.price_dkk - v.price_dkk) > 0.01;  -- Only update if different
 
 -- Step 2: Verification report
@@ -29,20 +31,21 @@ BEGIN
   SELECT COUNT(*) INTO total_records_updated
   FROM skus s
   INNER JOIN sku_price_verification v ON s.shop = v.shop AND s.order_id = v.order_id AND s.sku = v.sku
-  WHERE ABS(s.price_dkk - v.price_dkk) > 0.01;
+  WHERE s.quantity > 1 AND ABS(s.price_dkk - v.price_dkk) > 0.01;
 
   -- Get sample of corrections
   SELECT string_agg(
-    format('Order %s, SKU %s: %s → %s DKK',
+    format('Order %s, SKU %s (qty %s): %s → %s DKK',
       s.order_id,
       s.sku,
+      s.quantity,
       ROUND(s.price_dkk, 2),
       ROUND(v.price_dkk, 2)
     ), E'\n   '
   ) INTO sample_corrections
   FROM skus s
   INNER JOIN sku_price_verification v ON s.shop = v.shop AND s.order_id = v.order_id AND s.sku = v.sku
-  WHERE ABS(s.price_dkk - v.price_dkk) > 0.01
+  WHERE s.quantity > 1 AND ABS(s.price_dkk - v.price_dkk) > 0.01
   LIMIT 5;
 
   RAISE NOTICE '✅ Merge verification complete:';
