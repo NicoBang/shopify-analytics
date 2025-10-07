@@ -1,8 +1,14 @@
 # CLAUDE.md (Clean Version)
 
 ## 🧩 Project Context
-This project contains Supabase Edge Functions written in TypeScript/Deno.
-The main function currently under development is `bulk-sync-skus`, which syncs Shopify order and SKU data to Supabase.
+This project contains Supabase Edge Functions written in TypeScript/Deno for syncing Shopify data to Supabase.
+
+**Core Functions:**
+- `bulk-sync-orders` - Syncs order data from Shopify to `orders` table
+- `bulk-sync-skus` - Syncs SKU/line item data from Shopify to `skus` table
+- `bulk-sync-orchestrator` - Creates daily job queue in `bulk_sync_jobs` table
+- `continue-orchestrator` - Processes pending jobs incrementally (20 per run)
+- `watchdog` - Cleans up stale "running" jobs (>2 minutes old)
 
 ## ⚙️ Development Style
 - Keep answers concise and focused.
@@ -34,6 +40,86 @@ When the user asks for help:
 **ALWAYS** deploy with `--no-verify-jwt`:
 ```bash
 npx supabase functions deploy <function-name> --no-verify-jwt
+```
+
+## 🔄 Orchestration Architecture
+
+### Problem: Edge Function Timeout Limits
+Supabase Edge Functions have a **~6-7 minute hard timeout limit**. For large date ranges (>7 days), the original `bulk-sync-orchestrator` would timeout before completing all jobs.
+
+### Solution: Incremental Processing Pattern
+
+**Two-Step Approach:**
+
+1. **Job Creation** (`bulk-sync-orchestrator`)
+   - Creates all daily jobs in `bulk_sync_jobs` table
+   - May timeout on large ranges - **this is expected and OK**
+   - Jobs are persisted in database with `status = 'pending'`
+
+2. **Job Processing** (`continue-orchestrator`)
+   - Processes 20 pending jobs per invocation (~2-3 minutes)
+   - Stateless - can be called repeatedly until complete
+   - Returns status showing remaining work
+   - Safe to call when no work remains
+
+### Automated Continuation
+
+**Auto-Continue Cron Job** (runs every 5 minutes):
+```sql
+SELECT cron.schedule(
+  'auto-continue-orchestrator',
+  '*/5 * * * *',
+  $$
+  SELECT net.http_post(
+    url := 'https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/continue-orchestrator',
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer <SERVICE_ROLE_KEY>',
+      'Content-Type', 'application/json'
+    ),
+    body := '{}'::jsonb
+  );
+  $$
+);
+```
+
+**Requirements:** Both `pg_cron` AND `pg_net` extensions must be enabled in Supabase.
+
+### Usage Pattern for Large Backfills
+
+```bash
+# Step 1: Create jobs (will timeout - OK)
+./restart-orchestrator.sh
+
+# Step 2: Auto-continue cron job processes them automatically
+# Or call manually:
+curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/continue-orchestrator" \
+  -H "Authorization: Bearer <SERVICE_ROLE_KEY>" \
+  -d '{}'
+
+# Step 3: Check status
+./check-sync-status.sh 2025-08-01 2025-09-30
+```
+
+### Watchdog for Stale Jobs
+
+**Purpose:** Cleans up jobs stuck in "running" state for >2 minutes.
+
+**Cron Job** (runs every minute):
+```sql
+SELECT cron.schedule(
+  'watchdog-cleanup',
+  '* * * * *',
+  $$
+  SELECT net.http_post(
+    url := 'https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/watchdog',
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer <SERVICE_ROLE_KEY>',
+      'Content-Type', 'application/json'
+    ),
+    body := '{}'::jsonb
+  );
+  $$
+);
 ```
 
 ## 🧹 Reset Behavior
@@ -82,3 +168,60 @@ const { data } = await supabase
 	•	Match on DATE(orders.created_at) = skus.created_at
 	•	or normalize both to the same day boundary.
 	•	Shopify Bulk API returns timestamps → must be converted before upsert into skus.
+
+## 🛠️ Common Troubleshooting
+
+### Watchdog Cron Job Not Running
+**Symptom:** Jobs stuck as "running", watchdog exists but doesn't execute automatically.
+
+**Cause:** Missing `pg_net` extension (only `pg_cron` enabled).
+
+**Solution:**
+1. Go to Supabase Dashboard → Database → Extensions
+2. Enable `pg_net` extension
+3. Verify with: `SELECT * FROM pg_extension WHERE extname IN ('pg_cron', 'pg_net');`
+
+### Orchestrator Timeout on Large Date Ranges
+**Symptom:** Orchestrator times out after 6-7 minutes, only processes partial jobs.
+
+**Cause:** Edge Function timeout limit - can't process all jobs in one execution.
+
+**Solution:** Use the two-step incremental pattern:
+1. Run `./restart-orchestrator.sh` to create pending jobs
+2. Set up `auto-continue-orchestrator` cron job (every 5 minutes)
+3. Let it automatically complete the backfill
+
+### Dollar-Quoted String Syntax Error
+**Symptom:** `ERROR: 42601: syntax error at or near "$"`
+
+**Cause:** Single `$` instead of `$$` for dollar-quoted strings in PostgreSQL.
+
+**Solution:** Use `$$` to delimit the function body in cron job SQL:
+```sql
+SELECT cron.schedule(
+  'job-name',
+  '* * * * *',
+  $$
+  SELECT net.http_post(...);
+  $$
+);
+```
+
+## 📚 Key Files
+
+### Edge Functions
+- `supabase/functions/bulk-sync-orders/index.ts` - Order sync via Shopify Bulk API
+- `supabase/functions/bulk-sync-skus/index.ts` - SKU sync via Shopify Bulk API
+- `supabase/functions/bulk-sync-orchestrator/index.ts` - Job queue creator
+- `supabase/functions/continue-orchestrator/index.ts` - Incremental job processor
+- `supabase/functions/watchdog/index.ts` - Stale job cleanup
+
+### Helper Scripts
+- `restart-orchestrator.sh` - Wrapper to restart orchestrator for large backfills
+- `check-sync-status.sh` - Show job completion status for date range
+- `test-watchdog.sh` - Manually test watchdog cleanup
+- `cleanup-stale-jobs.sh` - Direct SQL cleanup of stale jobs
+
+### Documentation
+- `SYNC-MANUAL.md` - Complete sync workflow documentation (Danish)
+- `CLAUDE.md` - This file - technical context for AI assistant
