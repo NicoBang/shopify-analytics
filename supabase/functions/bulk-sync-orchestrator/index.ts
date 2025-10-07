@@ -276,12 +276,13 @@ async function processJob(
     return ordersSuccess && skusSuccess;
   }
 
-  // Check if job already completed (either as this type OR as "both")
+  // Check if job already completed (EXACT type match only)
+  // Don't accept "both" as completed for specific "orders" or "skus" types
   const { data: existingJob } = await supabase
     .from("bulk_sync_jobs")
     .select("id, status, records_processed, object_type")
     .eq("shop", shop)
-    .or(`object_type.eq.${type},object_type.eq.both`)
+    .eq("object_type", type)  // EXACT match - no "both" fallback
     .eq("start_date", startDate)
     .eq("end_date", endDate)
     .eq("status", "completed")
@@ -290,7 +291,7 @@ async function processJob(
     .maybeSingle();
 
   if (existingJob) {
-    console.log(`⏭️ [${shop}] ${type} ${startDate} already completed as "${existingJob.object_type}" (${existingJob.records_processed} records), skipping`);
+    console.log(`⏭️ [${shop}] ${type} ${startDate} already completed (${existingJob.records_processed} records), skipping`);
     return true;
   }
 
