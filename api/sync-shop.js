@@ -1456,13 +1456,18 @@ module.exports = async function handler(req, res) {
       case 'verify-skus':
         // Fast SKU verification sync using standard GraphQL API
         // Syncs to sku_price_verification table for data validation
+        // ONLY syncs quantity > 1 (bug only affects multi-quantity orders)
         console.log(`🔍 Fetching SKU data for verification (${useUpdatedAt ? 'updated_at' : 'created_at'} mode)...`);
 
         const verifySkus = await shopifyClient.fetchSkuData(syncStartDate, syncEndDate, useUpdatedAt);
         console.log(`📊 Processing ${verifySkus.length} SKUs for verification...`);
 
+        // Filter to only quantity > 1 (bug only affects these)
+        const multiQuantitySkus = verifySkus.filter(sku => sku.quantity > 1);
+        console.log(`✅ Filtered to ${multiQuantitySkus.length} multi-quantity SKUs (bug only affects these)`);
+
         // Map to verification table structure
-        const verificationData = verifySkus.map(sku => ({
+        const verificationData = multiQuantitySkus.map(sku => ({
           shop: sku.shop,
           order_id: sku.order_id,
           sku: sku.sku,
@@ -1483,8 +1488,9 @@ module.exports = async function handler(req, res) {
         recordsSynced = verificationData.length;
         syncData = {
           skusVerified: verificationData.length,
+          skusSkipped: verifySkus.length - multiQuantitySkus.length,
           sampleData: verificationData.slice(0, 3),
-          message: `✅ ${verificationData.length} SKUs synced to verification table`
+          message: `✅ ${verificationData.length} multi-quantity SKUs synced (${verifySkus.length - multiQuantitySkus.length} single-quantity skipped)`
         };
         break;
 

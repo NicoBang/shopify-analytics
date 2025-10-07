@@ -55,7 +55,11 @@ psql -f migrations/create_sku_price_verification_table.sql
 ./sync-verify-all.sh 2025-08-01 2025-09-30
 ```
 
-Dette bruger den nye `type=verify-skus` endpoint som er hurtigere end Bulk API.
+Dette bruger den nye `type=verify-skus` endpoint som:
+- **Kun syncer SKUs med `quantity > 1`** (bug påvirker kun disse)
+- Er hurtigere end Bulk API
+- Reducerer data volume med ~60-70%
+- Undgår timeouts ved kun at synce nødvendig data
 
 ### 5. Merge korrekte priser
 
