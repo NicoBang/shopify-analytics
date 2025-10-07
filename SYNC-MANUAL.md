@@ -29,7 +29,7 @@ Komplet guide til at synce Shopify data til Supabase.
 **Note:** For store perioder (>7 dage), brug i stedet:
 ```bash
 # Step 1: Opret jobs (vil timeout - det er OK)
-./restart-orchestrator.sh
+./restart-orchestrator.sh 2025-08-01 2025-09-30
 
 # Step 2: Lad auto-continue cron job processe dem (hver 5. minut)
 # Eller kald manuelt:
@@ -374,12 +374,23 @@ curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/bulk-sync-or
 
 ## ⚠️ Troubleshooting
 
-### Orchestrator stopper efter 30 min
+### Orchestrator stopper efter 6-7 min
 **Problem:** Orchestrator har ~6-7 min Edge Function timeout.
 
-**Løsning:**
-- Kør orchestrator igen - den springer completed jobs over
-- Eller sync manuelt de manglende datoer
+**Løsning:** Brug to-trins incremental pattern:
+```bash
+# Step 1: Opret alle jobs (vil timeout - det er OK)
+./restart-orchestrator.sh 2025-08-01 2025-09-30
+
+# Step 2: Lad auto-continue cron job processe dem automatisk (hver 5. minut)
+# Eller kald manuelt:
+curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/continue-orchestrator" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -d '{}'
+
+# Step 3: Tjek status
+./check-sync-status.sh 2025-08-01 2025-09-30
+```
 
 ### Jobs står fast som "running"
 **Problem:** Edge Function timeout har dræbt job, men status er ikke opdateret.
