@@ -291,10 +291,10 @@ class SupabaseService {
     while (hasMore) {
       let batchQuery = this.supabase
         .from('skus')
-        .select('sku, shop, order_id, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date, discount_per_unit_dkk')
-        .gte('created_at', adjustedStartDate.toISOString())
-        .lte('created_at', adjustedEndDate.toISOString())
-        .order('created_at', { ascending: false })
+        .select('sku, shop, order_id, quantity, refunded_qty, cancelled_qty, price_dkk, created_at_original, product_title, variant_title, refund_date, discount_per_unit_dkk')
+        .gte('created_at_original', adjustedStartDate.toISOString())
+        .lte('created_at_original', adjustedEndDate.toISOString())
+        .order('created_at_original', { ascending: false })
         .range(currentOffset, currentOffset + batchSize - 1);
 
       if (shop) {
@@ -516,10 +516,10 @@ class SupabaseService {
     while (hasMore) {
       let batchQuery = this.supabase
         .from('skus')
-        .select('sku, shop, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date, discount_per_unit_dkk')
-        .gte('created_at', adjustedStartDate.toISOString())
-        .lte('created_at', adjustedEndDate.toISOString())
-        .order('created_at', { ascending: false })
+        .select('sku, shop, quantity, refunded_qty, cancelled_qty, price_dkk, created_at_original, product_title, variant_title, refund_date, discount_per_unit_dkk')
+        .gte('created_at_original', adjustedStartDate.toISOString())
+        .lte('created_at_original', adjustedEndDate.toISOString())
+        .order('created_at_original', { ascending: false })
         .range(currentOffset, currentOffset + batchSize - 1);
 
       if (shop) {
@@ -704,8 +704,8 @@ class SupabaseService {
     let salesQuery = this.supabase
       .from('skus')
       .select('*')
-      .gte('created_at', adjustedStartDate.toISOString())
-      .lte('created_at', adjustedEndDate.toISOString());
+      .gte('created_at_original', adjustedStartDate.toISOString())
+      .lte('created_at_original', adjustedEndDate.toISOString());
 
     if (shop) {
       salesQuery = salesQuery.eq('shop', shop);
