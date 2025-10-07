@@ -6,10 +6,16 @@ Komplet guide til at synce Shopify data til Supabase.
 
 ## 📋 Oversigt
 
-**Tre typer syncs:**
+**Fem typer syncs:**
 1. **Orders & SKUs** - Syncer ordrer og SKU data baseret på `created_at`
 2. **Refund Orders** - Syncer ordrer med refunds baseret på `updated_at`
 3. **Orchestrator** - Automatisk sync af alle shops for en periode
+4. **Fulfillments** - Syncer leveringsdata fra Shopify (via Vercel API)
+5. **Product Metadata** - Syncer produkt metadata og attributter (via Vercel API)
+
+**Automatiske daglige syncs:**
+- 🌅 **Daglig kl. 06:00** - Sync orders, refunds og fulfillments for gårsdagens dato
+- 📦 **Ugentlig søndag kl. 02:00** - Sync produkt metadata for alle shops
 
 ---
 
@@ -33,6 +39,16 @@ Komplet guide til at synce Shopify data til Supabase.
 ### Retry fejlede jobs
 ```bash
 ./retry-failed-jobs.sh
+```
+
+### Sync fulfillments (leveringer)
+```bash
+./sync-fulfillments.sh 2025-10-01 2025-10-07
+```
+
+### Sync product metadata
+```bash
+./sync-metadata.sh
 ```
 
 ---
@@ -141,6 +157,81 @@ curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/bulk-sync-re
 
 ---
 
+### 5. Sync Fulfillments (Leveringer)
+
+**Brug:** Syncer leveringsdata for alle shops i en periode.
+
+**Via Vercel API (ikke Edge Function):**
+
+```bash
+SHOPS=("pompdelux-da.myshopify.com"
+       "pompdelux-de.myshopify.com"
+       "pompdelux-nl.myshopify.com"
+       "pompdelux-int.myshopify.com"
+       "pompdelux-chf.myshopify.com")
+
+for shop in "${SHOPS[@]}"; do
+  curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
+  "https://shopify-analytics-9ckj1fm3r-nicolais-projects-291e9559.vercel.app/api/sync-shop?shop=$shop&type=fulfillments&startDate=2025-10-01&endDate=2025-10-07" &
+done
+
+wait
+echo "✅ Alle shops synkroniseret med fulfillments"
+```
+
+**Eller brug scriptet:**
+```bash
+./sync-fulfillments.sh 2025-10-01 2025-10-07
+```
+
+**Features:**
+- Syncer leveringsdata (carrier, item_count, country)
+- Bruger dato-interval ligesom orders sync
+- Kører alle shops parallelt med `&`
+
+**Vigtigt:**
+- Dette er en **Vercel API**, ikke en Edge Function
+- Bruger deployment URL (ikke production URL)
+- Bearer token er fra Vercel, ikke Supabase
+
+---
+
+### 6. Sync Product Metadata
+
+**Brug:** Syncer produkt metadata og attributter for alle shops.
+
+**Via Vercel API (ikke Edge Function):**
+
+```bash
+SHOPS="pompdelux-da.myshopify.com"
+
+for shop in "${SHOPS[@]}"; do
+  curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
+  "https://shopify-analytics-9ckj1fm3r-nicolais-projects-291e9559.vercel.app/api/sync-shop?shop=$shop&type=metadata" &
+done
+
+wait
+echo "✅ Alle shops synkroniseret med product metadata"
+```
+
+**Eller brug scriptet:**
+```bash
+./sync-metadata.sh
+```
+
+**Features:**
+- Syncer produkt metadata (program, season, gender, tags, etc.)
+- **Ingen dato-interval** - henter aktuel metadata fra Shopify
+- Opdaterer `product_metadata` tabel med seneste data
+- Kører alle shops parallelt med `&`
+
+**Vigtigt:**
+- Dette er en **Vercel API**, ikke en Edge Function
+- Metadata sync er **ikke dato-baseret** - henter altid seneste data
+- Bearer token er fra Vercel, ikke Supabase
+
+---
+
 ## 🔍 Status & Monitoring
 
 ### Tjek sync status for periode
@@ -246,14 +337,25 @@ curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/bulk-sync-or
 ./sync-date-range.sh 2025-09-01 2025-09-30
 
 # Så: Sync refund ordrer (fanger gamle ordrer med nye refunds)
-curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/bulk-sync-refund-orders" \
-  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "shop": "pompdelux-da.myshopify.com",
-    "startDate": "2025-09-01",
-    "endDate": "2025-09-30"
-  }'
+./sync-date-range-refunds.sh 2025-09-01 2025-09-30
+```
+
+### Complete Daily Sync (Anbefalet workflow)
+```bash
+# 1. Sync ordrer og SKUs
+./sync-date-range.sh 2025-10-01 2025-10-07
+
+# 2. Sync refunds (opdaterer eksisterende SKUs)
+./sync-date-range-refunds.sh 2025-10-01 2025-10-07
+
+# 3. Sync leveringsdata
+./sync-fulfillments.sh 2025-10-01 2025-10-07
+
+# 4. Sync produkt metadata (kører ugentligt eller månedligt)
+./sync-metadata.sh
+
+# 5. Tjek status
+./check-sync-status.sh 2025-10-01 2025-10-07
 ```
 
 ---
@@ -270,9 +372,32 @@ curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/bulk-sync-re
 ### Jobs står fast som "running"
 **Problem:** Edge Function timeout har dræbt job, men status er ikke opdateret.
 
-**Løsning:**
+**Løsning 1 (Manual):**
 ```bash
 ./cleanup-stale-jobs.sh
+```
+
+**Løsning 2 (Automatisk - Anbefalet):**
+Watchdog funktionen kører automatisk hver 2. minut og cleaner stalled jobs.
+
+**Setup Watchdog (Supabase Cron):**
+1. Gå til Supabase Dashboard → Database → Cron Jobs
+2. Lav ny cron job:
+   ```sql
+   SELECT net.http_post(
+     url := 'https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/watchdog-cleanup',
+     headers := jsonb_build_object(
+       'Authorization', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM',
+       'Content-Type', 'application/json'
+     )
+   );
+   ```
+3. Schedule: `*/2 * * * *` (hver 2. minut)
+4. Enable job
+
+**Test Watchdog Manual:**
+```bash
+./test-watchdog.sh
 ```
 
 ### Failed jobs efter orchestrator run
@@ -321,9 +446,18 @@ pompdelux-chf.myshopify.com
 
 ## 🔐 Environment Variables
 
+### Manuele Scripts
 Alle scripts bruger:
 ```bash
 SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM"
+```
+
+### Automatiske Syncs (Supabase Secrets)
+Konfigurer via Dashboard → Functions → Manage Secrets:
+```bash
+SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM
+VERCEL_API_TOKEN=bda5da3d49fe0e7391fded3895b5c6bc
+VERCEL_API_URL=https://shopify-analytics-9ckj1fm3r-nicolais-projects-291e9559.vercel.app
 ```
 
 ---
@@ -334,9 +468,146 @@ SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsI
 |------|---------|
 | Full sync (created_at) | `./sync-date-range.sh START END` |
 | Refund sync (updated_at) | `./sync-date-range-refunds.sh START END` |
+| Fulfillments sync | `./sync-fulfillments.sh START END` |
+| Metadata sync | `./sync-metadata.sh` |
 | Check status | `./check-sync-status.sh START END` |
 | Retry failed | `./retry-failed-jobs.sh` |
 | Cleanup stale | `./cleanup-stale-jobs.sh` |
 | Single order sync | `bulk-sync-orders` + curl |
 | Single SKU sync | `bulk-sync-skus` + curl |
 | Manual refund sync | `bulk-sync-refund-orders` + curl |
+
+---
+
+## 🏗️ Arkitektur Oversigt
+
+### Edge Functions (Supabase)
+Køres på Supabase infrastruktur med service role key:
+- `bulk-sync-orders` - Syncer ordrer baseret på `created_at`
+- `bulk-sync-skus` - Syncer SKU data baseret på ordre dato
+- `bulk-sync-refund-orders` - Syncer refund data baseret på `updated_at`
+- `bulk-sync-orchestrator` - Koordinerer syncs på tværs af shops og datoer
+
+### Vercel API'er
+Køres på Vercel infrastruktur med Vercel bearer token:
+- `/api/sync-shop?type=fulfillments` - Syncer leveringsdata
+- `/api/sync-shop?type=metadata` - Syncer produkt metadata
+
+**Vigtigt:** Edge Functions og Vercel API'er bruger forskellige authentication tokens!
+
+---
+
+## ⏰ Automatiske Daglige Syncs
+
+### Opsætning
+
+**1. Enable PostgreSQL Extensions**
+
+Gå til **Supabase Dashboard → Database → Extensions** og enable:
+- ✅ `pg_cron` - Scheduler til cron jobs
+- ✅ `pg_net` - HTTP requests fra database
+
+**2. Konfigurer Secrets**
+
+Gå til **Supabase Dashboard → Functions → Manage Secrets** og tilføj:
+```bash
+VERCEL_API_TOKEN=bda5da3d49fe0e7391fded3895b5c6bc
+VERCEL_API_URL=https://shopify-analytics-9ckj1fm3r-nicolais-projects-291e9559.vercel.app
+```
+
+*Note: SERVICE_ROLE_KEY er allerede sat som standard secret.*
+
+**3. Opret Cron Jobs**
+
+Gå til **Supabase Dashboard → Database → Cron Jobs** og opret to jobs:
+
+#### Daglig Sync (kl. 06:00 Copenhagen tid)
+```sql
+SELECT cron.schedule(
+  'daily-sync',
+  '0 5 * * *',  -- 05:00 UTC = 06:00 Copenhagen (vinter) / 07:00 (sommer)
+  $$
+  SELECT net.http_post(
+    url := 'https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/daily-sync',
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM',
+      'Content-Type', 'application/json'
+    ),
+    body := '{}'::jsonb
+  );
+  $$
+);
+```
+
+#### Ugentlig Metadata Sync (søndag kl. 02:00 Copenhagen tid)
+```sql
+SELECT cron.schedule(
+  'weekly-metadata-sync',
+  '0 1 * * 0',  -- 01:00 UTC søndag = 02:00 Copenhagen (vinter) / 03:00 (sommer)
+  $$
+  SELECT net.http_post(
+    url := 'https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/weekly-metadata-sync',
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM',
+      'Content-Type', 'application/json'
+    ),
+    body := '{}'::jsonb
+  );
+  $$
+);
+```
+
+### Hvad Synces Automatisk
+
+**Daglig kl. 06:00:**
+1. Orders & SKUs for gårsdagens dato
+2. Refunds for gårsdagens dato
+3. Fulfillments for gårsdagens dato (alle shops parallelt)
+
+**Ugentlig søndag kl. 02:00:**
+- Product metadata for alle shops (parallelt)
+
+### Test Automatiske Syncs
+
+**Test daglig sync manuelt:**
+```bash
+curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/daily-sync" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+**Test ugentlig metadata sync manuelt:**
+```bash
+curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/weekly-metadata-sync" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+### Tjek Cron Job Status
+
+**Liste alle cron jobs:**
+```sql
+SELECT jobid, jobname, schedule, active, last_run, run_count
+FROM cron.job
+ORDER BY jobname;
+```
+
+**Se seneste kørsler:**
+```sql
+SELECT *
+FROM cron.job_run_details
+WHERE job_name IN ('daily-sync', 'weekly-metadata-sync')
+ORDER BY start_time DESC
+LIMIT 10;
+```
+
+**Disable/enable et job:**
+```sql
+-- Disable
+SELECT cron.unschedule('daily-sync');
+
+-- Enable igen
+SELECT cron.schedule(...);  -- Brug SQL fra opsætningen ovenfor
+```

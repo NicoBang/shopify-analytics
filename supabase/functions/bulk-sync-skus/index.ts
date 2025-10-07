@@ -406,9 +406,9 @@ async function syncSkusForDay(
       continue; // Skip this SKU if we don't have the actual order date
     }
 
-    // Both created_at and created_at_original should reflect Shopify's actual order date
-    const created_at_original = new Date(shopifyCreatedAt).toISOString();
-    const created_at = new Date().toISOString(); // Sync timestamp for audit trail
+    // CRITICAL: skus.created_at is DATE (not TIMESTAMPTZ)
+    // Must use "YYYY-MM-DD" format as per CLAUDE.md rules
+    const created_at = new Date(shopifyCreatedAt).toISOString().split("T")[0];
 
     batch.push({
       shop,
@@ -425,8 +425,7 @@ async function syncSkusForDay(
       refund_date: null,
       cancelled_qty: 0,
       cancelled_amount_dkk: 0,
-      created_at: created_at,
-      created_at_original: created_at_original,
+      created_at: created_at, // DATE format: "YYYY-MM-DD"
     });
 
     if (batch.length >= BATCH_SIZE) {
@@ -484,16 +483,24 @@ async function upsertSkus(supabase: any, skus: any[]) {
 
   console.log(`🧩 Aggregated SKUs: ${aggregated.length} (from ${skus.length} raw entries)`);
 
+  // Log first SKU for debugging
+  if (aggregated.length > 0) {
+    console.log(`📝 Sample SKU:`, JSON.stringify(aggregated[0]).substring(0, 300));
+  }
+
+  console.log(`📤 Starting upsert of ${aggregated.length} SKUs to Supabase...`);
+
   const { data, error } = await supabase
     .from("skus")
     .upsert(aggregated, { onConflict: "shop,order_id,sku" });
 
   if (error) {
     console.error(`❌ Supabase upsert error:`, JSON.stringify(error, null, 2));
+    console.error(`❌ First failed SKU:`, JSON.stringify(aggregated[0], null, 2));
     throw new Error(`Failed upsert SKUs: ${error.message}`);
   }
 
-  console.log(`✅ Successfully upserted ${aggregated.length} SKUs`);
+  console.log(`✅ Successfully upserted ${aggregated.length} SKUs (returned data count: ${data?.length || 'null'})`);
 }
 
 async function syncRefunds(

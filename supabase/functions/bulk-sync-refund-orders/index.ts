@@ -426,6 +426,27 @@ async function startBulkOperation(
                     shopMoney { amount currencyCode }
                   }
                 }
+                lineItems(first: 250) {
+                  edges {
+                    node {
+                      id
+                      sku
+                      name
+                      variantTitle
+                      quantity
+                      originalUnitPriceSet {
+                        shopMoney { amount currencyCode }
+                      }
+                      discountedUnitPriceSet {
+                        shopMoney { amount currencyCode }
+                      }
+                    }
+                  }
+                }
+                refunds(first: 250) {
+                  id
+                  createdAt
+                }
               }
             }
           }
@@ -531,11 +552,13 @@ async function processJSONL(
   const ordersBatch: any[] = [];
   const skusBatch: any[] = [];
   const orderRefunds: Map<string, any> = new Map();
+  const orderMetadataMap: Map<string, any> = new Map(); // Store order data for lineItems
   const orderIds: string[] = []; // Track all order IDs for cleanup
 
   let ordersProcessed = 0;
   let skusProcessed = 0;
 
+  // FIRST PASS: Collect orders and refund info
   for (const line of lines) {
     const obj = JSON.parse(line);
 
@@ -548,20 +571,18 @@ async function processJSONL(
       const orderId = obj.id.split("/").pop();
       orderIds.push(orderId);
 
+      // Store order metadata for lineItems to reference
+      orderMetadataMap.set(obj.id, obj);
+
+      // Debug first order with refunds
+      if (obj.refunds && obj.refunds.length > 0 && orderRefunds.size === 0) {
+        console.log(`📝 First order with refunds: ${orderId}, refunds count: ${obj.refunds.length}`);
+        console.log(`📝 Refund structure:`, JSON.stringify(obj.refunds[0]).substring(0, 200));
+      }
+
       // Store refund info for later SKU processing
       if (obj.refunds && obj.refunds.length > 0) {
         orderRefunds.set(obj.id, obj.refunds);
-      }
-
-      // Process line items (SKUs)
-      if (obj.lineItems?.edges) {
-        for (const edge of obj.lineItems.edges) {
-          const lineItem = edge.node;
-          const skuData = parseLineItem(lineItem, obj, shop, orderRefunds.get(obj.id));
-          if (skuData) {
-            skusBatch.push(skuData);
-          }
-        }
       }
 
       // Note: We DON'T upsert during parsing - we collect ALL data first,
@@ -570,7 +591,105 @@ async function processJSONL(
     }
   }
 
+  console.log(`📦 Collected ${ordersBatch.length} orders from Shopify`);
+  ordersProcessed = ordersBatch.length;
+
+  // SECOND PASS: Collect refunds (Bulk API returns them as separate JSONL lines)
+  console.log(`🔍 Collecting refunds from JSONL...`);
+  for (const line of lines) {
+    const obj = JSON.parse(line);
+
+    // Refunds have __parentId (references Order) and no sku
+    if (obj.__parentId && !obj.sku && obj.id?.includes("Refund")) {
+      if (!orderRefunds.has(obj.__parentId)) {
+        orderRefunds.set(obj.__parentId, []);
+      }
+      orderRefunds.get(obj.__parentId).push(obj);
+    }
+  }
+
+  console.log(`📦 Found ${orderRefunds.size} orders with refunds in Bulk API response`);
+
+  // THIRD PASS: Process lineItems (Bulk API returns them as separate JSONL lines)
+  console.log(`🔍 Processing lineItems from JSONL...`);
+  for (const line of lines) {
+    const obj = JSON.parse(line);
+
+    // LineItems have __parentId (references Order) and sku field
+    if (!obj.__parentId || !obj.sku) continue;
+
+    const order = orderMetadataMap.get(obj.__parentId);
+    if (!order) continue;
+
+    const skuData = parseLineItem(obj, order, shop, orderRefunds.get(obj.__parentId));
+    if (skuData) {
+      skusBatch.push(skuData);
+    }
+  }
+
   console.log(`📦 Collected ${ordersBatch.length} orders and ${skusBatch.length} SKUs from Shopify`);
+
+  // Fetch full refund details via REST API for orders with refunds
+  if (orderRefunds.size > 0) {
+    console.log(`🔍 Fetching refund details for ${orderRefunds.size} orders via REST API...`);
+    const token = Deno.env.get(`SHOPIFY_TOKEN_${shop.split('-')[1].toUpperCase()}`);
+
+    let fetchedCount = 0;
+    let fetchFailCount = 0;
+
+    for (const [orderId, basicRefunds] of orderRefunds.entries()) {
+      const numericOrderId = orderId.split("/").pop();
+      try {
+        const refundsUrl = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/orders/${numericOrderId}/refunds.json`;
+        const refundsResponse = await fetch(refundsUrl, {
+          headers: { "X-Shopify-Access-Token": token! }
+        });
+
+        if (refundsResponse.ok) {
+          const refundsData = await refundsResponse.json();
+          orderRefunds.set(orderId, refundsData.refunds);
+          fetchedCount++;
+
+          // Debug first refund
+          if (fetchedCount === 1) {
+            console.log(`📝 Sample refund structure for order ${numericOrderId}:`, JSON.stringify(refundsData.refunds[0]).substring(0, 300));
+          }
+        } else {
+          fetchFailCount++;
+          console.error(`⚠️  Failed to fetch refunds for order ${numericOrderId}: ${refundsResponse.status}`);
+        }
+      } catch (err) {
+        fetchFailCount++;
+        console.error(`⚠️  Exception fetching refunds for order ${numericOrderId}:`, err);
+      }
+    }
+
+    console.log(`✅ Fetched ${fetchedCount} refund details successfully, ${fetchFailCount} failed`);
+  } else {
+    console.log(`ℹ️  No orders with refunds detected in Bulk API response`);
+  }
+
+  if (orderRefunds.size > 0) {
+    console.log(`🔄 Re-processing SKUs with full refund data...`);
+
+    // Re-process SKUs with full refund data
+    skusBatch.length = 0; // Clear existing SKUs
+    for (const line of lines) {
+      const obj = JSON.parse(line);
+
+      // LineItems have __parentId, Orders don't
+      if (!obj.__parentId || !obj.sku) continue;
+
+      const order = orderMetadataMap.get(obj.__parentId);
+      if (!order) continue;
+
+      const skuData = parseLineItem(obj, order, shop, orderRefunds.get(obj.__parentId));
+      if (skuData) {
+        skusBatch.push(skuData);
+      }
+    }
+  }
+
   ordersProcessed = ordersBatch.length;
   skusProcessed = skusBatch.length;
 
@@ -696,21 +815,53 @@ function parseLineItem(lineItem: any, order: any, shop: string, refunds: any[]):
   // Calculate price_dkk (ex tax) by subtracting tax from discounted price
   const priceExTax = discountedUnitPrice - totalTaxPerUnit;
 
-  // Find refund data for this SKU
+  // Find refund data for this SKU - match on multiple fields
   let refundedQty = 0;
+  let refundedAmount = 0;
   let refundDate = null;
+  let matchFound = false;
 
   if (refunds) {
     for (const refund of refunds) {
-      for (const edge of refund.refundLineItems?.edges || []) {
-        if (edge.node.lineItem?.id === lineItem.id) {
-          refundedQty += edge.node.quantity || 0;
-          const processedAt = refund.transactions?.edges?.[0]?.node?.processedAt || refund.createdAt;
-          if (processedAt && (!refundDate || new Date(processedAt) > new Date(refundDate))) {
-            refundDate = processedAt;
+      // REST API format: refund.refund_line_items is array
+      const refundLineItems = refund.refund_line_items || [];
+
+      for (const refundLineItem of refundLineItems) {
+        // Extract IDs for matching
+        const refundedLineItemId = refundLineItem.line_item_id;
+        const refundedVariantId = refundLineItem.line_item?.variant_id;
+        const refundedSku = refundLineItem.line_item?.sku;
+
+        const lineItemIdNumeric = lineItem.id.split("/").pop();
+        const variantIdNumeric = lineItem.variant?.id?.split("/").pop() || lineItem.variantId;
+        const currentSku = lineItem.sku;
+
+        // Match on ANY of: line_item_id, variant_id, or sku
+        const idMatch = refundedLineItemId == lineItemIdNumeric;
+        const variantMatch = refundedVariantId && variantIdNumeric && refundedVariantId == variantIdNumeric;
+        const skuMatch = refundedSku && currentSku && refundedSku === currentSku;
+
+        if (idMatch || variantMatch || skuMatch) {
+          matchFound = true;
+          const qty = refundLineItem.quantity || 0;
+          const subtotal = parseFloat(refundLineItem.subtotal || "0");
+
+          refundedQty += qty;
+          refundedAmount += subtotal * rate;
+
+          // Use refund.created_at as refund date
+          const refundCreatedAt = refund.created_at || refund.createdAt;
+
+          if (refundCreatedAt && (!refundDate || new Date(refundCreatedAt) > new Date(refundDate))) {
+            refundDate = refundCreatedAt;
           }
         }
       }
+    }
+
+    // Log warning if order has refunds but no match found for this SKU
+    if (!matchFound && refunds.length > 0) {
+      console.log(`⚠️  No refund match for SKU ${lineItem.sku} in order ${order.id.split("/").pop()}`);
     }
   }
 
@@ -724,6 +875,7 @@ function parseLineItem(lineItem: any, order: any, shop: string, refunds: any[]):
     variant_title: lineItem.variantTitle,
     quantity: lineItem.quantity,
     refunded_qty: refundedQty,
+    refunded_amount_dkk: refundedAmount,
     price_dkk: priceExTax,
     refund_date: refundDate,
     total_discount_dkk: totalDiscount * rate,
