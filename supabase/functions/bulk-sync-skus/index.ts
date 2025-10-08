@@ -218,6 +218,9 @@ async function syncSkusForDay(
                       totalDiscountSet {
                         shopMoney { amount currencyCode }
                       }
+                      variant {
+                        compareAtPrice
+                      }
                       taxLines {
                         rate
                         priceSet { shopMoney { amount } }
@@ -380,6 +383,7 @@ async function syncSkusForDay(
 
     const price = parseFloat(obj.discountedUnitPriceSet?.shopMoney?.amount || "0");
     const originalPrice = parseFloat(obj.originalUnitPriceSet?.shopMoney?.amount || "0");
+    const compareAtPrice = parseFloat(obj.variant?.compareAtPrice || "0");
     const currency = obj.discountedUnitPriceSet?.shopMoney?.currencyCode || "DKK";
     const rate = CURRENCY_RATES[currency] || 1;
 
@@ -409,10 +413,14 @@ async function syncSkusForDay(
     const discountTax = totalDiscountRaw > 0 && price > 0 ? (totalTaxPerUnit * totalDiscountRaw / (price * rate)) : 0;
     const totalDiscountDkk = totalDiscountRaw - discountTax;
 
-    // Calculate sale discount (compareAtPrice - salePrice) ex tax
-    // originalPrice is compareAtPrice, price is discountedUnitPrice (actual sale price)
+    // ✅ CORRECTED: Calculate sale discount using compareAtPrice (not originalPrice)
+    // compareAtPrice = list price before any sale/campaign
+    // originalPrice = price before order-level discounts were applied
+    // price (discountedUnitPrice) = final price customer pays
+    // Sale discount = difference between list price and original price (before order discounts)
+    const compareAtPriceDkk = compareAtPrice > 0 ? (compareAtPrice * rate) - totalTaxPerUnit : 0;
     const originalPriceDkk = originalPrice > 0 ? (originalPrice * rate) - totalTaxPerUnit : 0;
-    const saleDiscountPerUnit = originalPrice > price && originalPrice > 0 ? originalPriceDkk - priceDkk : 0;
+    const saleDiscountPerUnit = compareAtPrice > originalPrice && compareAtPrice > 0 ? compareAtPriceDkk - originalPriceDkk : 0;
     const saleDiscountTotal = saleDiscountPerUnit * (obj.quantity || 1);
 
     // ✅ ALWAYS use Shopify's order creation timestamp
@@ -439,7 +447,7 @@ async function syncSkusForDay(
       price_dkk: priceDkk,
       total_discount_dkk: totalDiscountDkk,
       discount_per_unit_dkk: totalDiscountDkk / (obj.quantity || 1),
-      original_price_dkk: originalPriceDkk,
+      original_price_dkk: compareAtPriceDkk, // ✅ FIXED: Use compareAtPrice instead of originalPrice
       sale_discount_per_unit_dkk: saleDiscountPerUnit,
       sale_discount_total_dkk: saleDiscountTotal,
       country: orderMetadata?.country || null,

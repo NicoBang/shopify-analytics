@@ -547,6 +547,10 @@ async function syncRefundsForChunk(
               console.log(`📝 [AGGREGATE] Adding to existing cancellation for ${sku}: qty+=${quantity}, amount+=${amountDkk.toFixed(2)}`);
               existing.cancelled_qty = (existing.cancelled_qty || 0) + quantity;
               existing.cancelled_amount_dkk = (existing.cancelled_amount_dkk || 0) + amountDkk;
+              // Update refund_date to latest cancellation date
+              if (!existing.refund_date || new Date(refundDate) > new Date(existing.refund_date)) {
+                existing.refund_date = refundDate;
+              }
             } else {
               console.log(`📝 [AGGREGATE] Adding to existing refund for ${sku}: qty+=${quantity}, amount+=${amountDkk.toFixed(2)}`);
               existing.refunded_qty += quantity;
@@ -557,13 +561,13 @@ async function syncRefundsForChunk(
             }
           } else {
             if (isCancellation) {
-              console.log(`📝 [NEW] Creating new cancellation entry for ${sku}: qty=${quantity}, amount=${amountDkk.toFixed(2)} DKK`);
+              console.log(`📝 [NEW] Creating new cancellation entry for ${sku}: qty=${quantity}, amount=${amountDkk.toFixed(2)} DKK, refund_date=${refundDate}`);
               refundUpdates.push({
                 shop,
                 order_id: orderIdStr,
                 sku,
                 refunded_qty: 0,
-                refund_date: null as any, // null for cancellations (no refund date)
+                refund_date: refundDate, // Use refund.created_at for cancellations
                 refunded_amount_dkk: 0,
                 cancelled_qty: quantity,
                 cancelled_amount_dkk: amountDkk,
