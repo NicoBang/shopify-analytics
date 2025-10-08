@@ -331,24 +331,46 @@ class SupabaseService {
     }
 
 
-    // STEP 2: Fetch refund data (SKUs with refund_date in period) - matching Dashboard API logic
-    let refundQuery = this.supabase
-      .from('skus')
-      .select('sku, shop, order_id, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date, discount_per_unit_dkk')
-      .not('refund_date', 'is', null)
-      .gte('refund_date', adjustedStartDate.toISOString())
-      .lte('refund_date', adjustedEndDate.toISOString())
-      .order('refund_date', { ascending: false });
+    // STEP 2: Fetch refund data (SKUs with refund_date in period) - WITH PAGINATION
+    let refundData = [];
+    let refundOffset = 0;
+    let hasMoreRefunds = true;
 
-    if (shop) {
-      refundQuery = refundQuery.eq('shop', shop);
-    }
+    while (hasMoreRefunds) {
+      let refundQuery = this.supabase
+        .from('skus')
+        .select('sku, shop, order_id, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date, discount_per_unit_dkk')
+        .not('refund_date', 'is', null)
+        .gte('refund_date', adjustedStartDate.toISOString())
+        .lte('refund_date', adjustedEndDate.toISOString())
+        .order('refund_date', { ascending: false })
+        .range(refundOffset, refundOffset + batchSize - 1);
 
-    const { data: refundData, error: refundError } = await refundQuery;
+      if (shop) {
+        refundQuery = refundQuery.eq('shop', shop);
+      }
 
-    if (refundError) {
-      console.error('❌ Error fetching refund data:', refundError);
-      throw refundError;
+      const { data: refundBatch, error: refundError } = await refundQuery;
+
+      if (refundError) {
+        console.error('❌ Error fetching refund batch:', refundError);
+        throw refundError;
+      }
+
+      if (refundBatch && refundBatch.length > 0) {
+        refundData = refundData.concat(refundBatch);
+        refundOffset += refundBatch.length;
+
+        console.log(`  ✅ Refund batch: ${refundBatch.length} records, total: ${refundData.length}`);
+
+        if (refundBatch.length < batchSize) {
+          hasMoreRefunds = false;
+          console.log(`  ✅ Reached end of refund data (got ${refundBatch.length} < ${batchSize})`);
+        }
+      } else {
+        hasMoreRefunds = false;
+        console.log(`  ✅ No more refund data available`);
+      }
     }
 
     console.log(`📦 Refund data fetched: ${refundData?.length || 0} rows`);
@@ -602,24 +624,43 @@ class SupabaseService {
       }
     }
 
-    // STEP 2: Fetch refund data
-    let refundQuery = this.supabase
-      .from('skus')
-      .select('sku, shop, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date, discount_per_unit_dkk')
-      .not('refund_date', 'is', null)
-      .gte('refund_date', adjustedStartDate.toISOString())
-      .lte('refund_date', adjustedEndDate.toISOString())
-      .order('refund_date', { ascending: false });
+    // STEP 2: Fetch refund data - WITH PAGINATION
+    let refundData = [];
+    let refundOffset = 0;
+    let hasMoreRefunds = true;
 
-    if (shop) {
-      refundQuery = refundQuery.eq('shop', shop);
-    }
+    while (hasMoreRefunds) {
+      let refundQuery = this.supabase
+        .from('skus')
+        .select('sku, shop, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date, discount_per_unit_dkk')
+        .not('refund_date', 'is', null)
+        .gte('refund_date', adjustedStartDate.toISOString())
+        .lte('refund_date', adjustedEndDate.toISOString())
+        .order('refund_date', { ascending: false })
+        .range(refundOffset, refundOffset + batchSize - 1);
 
-    const { data: refundData, error: refundError } = await refundQuery;
+      if (shop) {
+        refundQuery = refundQuery.eq('shop', shop);
+      }
 
-    if (refundError) {
-      console.error('❌ Error fetching refund data:', refundError);
-      throw refundError;
+      const { data: refundBatch, error: refundError } = await refundQuery;
+
+      if (refundError) {
+        console.error('❌ Error fetching refund batch:', refundError);
+        throw refundError;
+      }
+
+      if (refundBatch && refundBatch.length > 0) {
+        refundData = refundData.concat(refundBatch);
+        refundOffset += refundBatch.length;
+        console.log(`  ✅ Refund batch: ${refundBatch.length} records, total: ${refundData.length}`);
+
+        if (refundBatch.length < batchSize) {
+          hasMoreRefunds = false;
+        }
+      } else {
+        hasMoreRefunds = false;
+      }
     }
 
     // STEP 3: Combine sales and refund data
@@ -756,42 +797,82 @@ class SupabaseService {
 
     console.log(`📅 SKU Analytics query: ${adjustedStartDate.toISOString()} to ${adjustedEndDate.toISOString()}`);
 
-    // STEP 1: Fetch sales data (SKUs created in period)
-    let salesQuery = this.supabase
-      .from('skus')
-      .select('*')
-      .gte('created_at_original', adjustedStartDate.toISOString())
-      .lte('created_at_original', adjustedEndDate.toISOString());
+    // STEP 1: Fetch sales data (SKUs created in period) - WITH PAGINATION
+    let salesData = [];
+    let salesOffset = 0;
+    const batchSize = 1000;
+    let hasMoreSales = true;
 
-    if (shop) {
-      salesQuery = salesQuery.eq('shop', shop);
+    while (hasMoreSales) {
+      let salesQuery = this.supabase
+        .from('skus')
+        .select('*')
+        .gte('created_at_original', adjustedStartDate.toISOString())
+        .lte('created_at_original', adjustedEndDate.toISOString())
+        .order('created_at_original', { ascending: false })
+        .range(salesOffset, salesOffset + batchSize - 1);
+
+      if (shop) {
+        salesQuery = salesQuery.eq('shop', shop);
+      }
+
+      const { data: salesBatch, error: salesError } = await salesQuery;
+
+      if (salesError) {
+        console.error('❌ Error fetching SKU sales batch:', salesError);
+        throw salesError;
+      }
+
+      if (salesBatch && salesBatch.length > 0) {
+        salesData = salesData.concat(salesBatch);
+        salesOffset += salesBatch.length;
+
+        if (salesBatch.length < batchSize) {
+          hasMoreSales = false;
+        }
+      } else {
+        hasMoreSales = false;
+      }
     }
 
-    const { data: salesData, error: salesError } = await salesQuery;
 
-    if (salesError) {
-      console.error('❌ Error fetching SKU sales data:', salesError);
-      throw salesError;
-    }
+    // STEP 2: Fetch refund data (SKUs with refund_date in period) - WITH PAGINATION
+    let refundData = [];
+    let refundOffset = 0;
+    const batchSize = 1000;
+    let hasMoreRefunds = true;
 
+    while (hasMoreRefunds) {
+      let refundQuery = this.supabase
+        .from('skus')
+        .select('*')
+        .not('refund_date', 'is', null)
+        .gte('refund_date', adjustedStartDate.toISOString())
+        .lte('refund_date', adjustedEndDate.toISOString())
+        .order('refund_date', { ascending: false })
+        .range(refundOffset, refundOffset + batchSize - 1);
 
-    // STEP 2: Fetch refund data (SKUs with refund_date in period)
-    let refundQuery = this.supabase
-      .from('skus')
-      .select('*')
-      .not('refund_date', 'is', null)
-      .gte('refund_date', adjustedStartDate.toISOString())
-      .lte('refund_date', adjustedEndDate.toISOString());
+      if (shop) {
+        refundQuery = refundQuery.eq('shop', shop);
+      }
 
-    if (shop) {
-      refundQuery = refundQuery.eq('shop', shop);
-    }
+      const { data: refundBatch, error: refundError } = await refundQuery;
 
-    const { data: refundData, error: refundError } = await refundQuery;
+      if (refundError) {
+        console.error('❌ Error fetching SKU refund batch:', refundError);
+        throw refundError;
+      }
 
-    if (refundError) {
-      console.error('❌ Error fetching SKU refund data:', refundError);
-      throw refundError;
+      if (refundBatch && refundBatch.length > 0) {
+        refundData = refundData.concat(refundBatch);
+        refundOffset += refundBatch.length;
+
+        if (refundBatch.length < batchSize) {
+          hasMoreRefunds = false;
+        }
+      } else {
+        hasMoreRefunds = false;
+      }
     }
 
 
