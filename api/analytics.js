@@ -126,7 +126,7 @@ class SupabaseService {
     while (hasMoreSales) {
       let salesQuery = this.supabase
         .from('skus')
-        .select('shop, order_id, quantity, cancelled_qty, price_dkk, created_at_original, refund_date, refunded_qty, refunded_amount_dkk, cancelled_amount_dkk, discount_per_unit_dkk')
+        .select('shop, order_id, quantity, cancelled_qty, price_dkk, created_at_original, refund_date, refunded_qty, refunded_amount_dkk, cancelled_amount_dkk, discount_per_unit_dkk, sale_discount_per_unit_dkk')
         .gte('created_at_original', startDate.toISOString())
         .lte('created_at_original', endDate.toISOString())
         .order('created_at_original', { ascending: false })
@@ -162,7 +162,7 @@ class SupabaseService {
     while (hasMoreRefunds) {
       let refundQuery = this.supabase
         .from('skus')
-        .select('shop, order_id, quantity, cancelled_qty, price_dkk, created_at_original, refund_date, refunded_qty, refunded_amount_dkk, cancelled_amount_dkk, discount_per_unit_dkk')
+        .select('shop, order_id, quantity, cancelled_qty, price_dkk, created_at_original, refund_date, refunded_qty, refunded_amount_dkk, cancelled_amount_dkk, discount_per_unit_dkk, sale_discount_per_unit_dkk')
         .not('refund_date', 'is', null)
         .gte('refund_date', startDate.toISOString())
         .lte('refund_date', endDate.toISOString())
