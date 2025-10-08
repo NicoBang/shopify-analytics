@@ -839,7 +839,6 @@ class SupabaseService {
     // STEP 2: Fetch refund data (SKUs with refund_date in period) - WITH PAGINATION
     let refundData = [];
     let refundOffset = 0;
-    const batchSize = 1000;
     let hasMoreRefunds = true;
 
     while (hasMoreRefunds) {
