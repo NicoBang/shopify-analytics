@@ -23,24 +23,68 @@ serve(async (req: Request): Promise<Response> => {
     const body = await req.json().catch(() => ({}));
     const { dryRun = false }: CleanupRequest = body;
 
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SERVICE_ROLE_KEY");
+    if (!serviceKey) {
+      throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY environment variable");
+    }
+
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      serviceKey,
       { auth: { persistSession: false } }
     );
 
     console.log(`🧹 Starting SKU cleanup (dryRun: ${dryRun})...`);
 
-    // Step 1: Find all duplicates
-    const { data: duplicates, error: findError } = await supabase.rpc(
-      "find_duplicate_skus"
-    );
+    // Step 1: Find all duplicates using direct SQL query
+    const { data: duplicates, error: findError } = await supabase
+      .from("skus")
+      .select("id, order_id, sku, created_at, refund_date")
+      .order("order_id", { ascending: true })
+      .order("sku", { ascending: true });
 
     if (findError) {
       throw new Error(`Failed to find duplicates: ${findError.message}`);
     }
 
-    if (!duplicates || duplicates.length === 0) {
+    // Filter duplicates in TypeScript (since we can't use window functions in PostgREST)
+    const duplicateGroups = new Map<string, any[]>();
+
+    // Group by order_id + sku
+    duplicates?.forEach((row: any) => {
+      const key = `${row.order_id}|${row.sku}`;
+      if (!duplicateGroups.has(key)) {
+        duplicateGroups.set(key, []);
+      }
+      duplicateGroups.get(key)!.push(row);
+    });
+
+    // Find groups with > 1 row (duplicates)
+    const duplicateRows: any[] = [];
+    duplicateGroups.forEach((rows, key) => {
+      if (rows.length > 1) {
+        // Sort rows: newest created_at first, prefer rows with refund_date, then highest id
+        rows.sort((a, b) => {
+          // First: created_at DESC
+          if (a.created_at !== b.created_at) {
+            return b.created_at > a.created_at ? 1 : -1;
+          }
+          // Second: refund_date presence (rows with refund_date first)
+          const aHasRefund = a.refund_date ? 1 : 0;
+          const bHasRefund = b.refund_date ? 1 : 0;
+          if (aHasRefund !== bHasRefund) {
+            return bHasRefund - aHasRefund;
+          }
+          // Third: id DESC
+          return b.id > a.id ? 1 : -1;
+        });
+
+        // Keep first (newest), mark rest as duplicates
+        duplicateRows.push(...rows.slice(1));
+      }
+    });
+
+    if (duplicateRows.length === 0) {
       console.log("✅ No duplicates found");
 
       const result: CleanupResult = {
@@ -60,19 +104,19 @@ serve(async (req: Request): Promise<Response> => {
       });
     }
 
-    // Count unique groups (order_id + sku combinations)
-    const uniqueGroups = new Set(
-      duplicates.map((d: any) => `${d.order_id}|${d.sku}`)
+    // Count unique groups (order_id + sku combinations) affected by duplicates
+    const affectedGroups = new Set(
+      duplicateRows.map((d: any) => `${d.order_id}|${d.sku}`)
     );
-    const groupsAffected = uniqueGroups.size;
-    const duplicatesFound = duplicates.length;
+    const groupsAffected = affectedGroups.size;
+    const duplicatesFound = duplicateRows.length;
 
     console.log(`📊 Found ${duplicatesFound} duplicate SKUs across ${groupsAffected} groups`);
 
     if (dryRun) {
       console.log("🔍 DRY RUN - No rows will be deleted");
       console.log("Sample duplicates (first 5):");
-      duplicates.slice(0, 5).forEach((d: any, idx: number) => {
+      duplicateRows.slice(0, 5).forEach((d: any, idx: number) => {
         console.log(
           `  ${idx + 1}. Order: ${d.order_id}, SKU: ${d.sku}, ID: ${d.id}`
         );
@@ -96,10 +140,15 @@ serve(async (req: Request): Promise<Response> => {
       });
     }
 
-    // Step 2: Delete duplicates (keep newest based on created_at DESC, id DESC)
+    // Step 2: Delete duplicates (keep newest based on created_at DESC, refund_date presence, id DESC)
     console.log("🗑️ Deleting duplicate SKUs...");
 
-    const { error: deleteError } = await supabase.rpc("delete_duplicate_skus");
+    const duplicateIds = duplicateRows.map((d: any) => d.id);
+
+    const { error: deleteError } = await supabase
+      .from("skus")
+      .delete()
+      .in("id", duplicateIds);
 
     if (deleteError) {
       throw new Error(`Failed to delete duplicates: ${deleteError.message}`);
@@ -123,7 +172,8 @@ serve(async (req: Request): Promise<Response> => {
       headers: { "Content-Type": "application/json" },
     });
   } catch (err: any) {
-    console.error("💥 Cleanup error:", err);
+    const errorMessage = err.message || String(err) || "Unknown cleanup error";
+    console.error("💥 Cleanup error:", errorMessage);
 
     const errorResult: CleanupResult = {
       success: false,
@@ -131,11 +181,14 @@ serve(async (req: Request): Promise<Response> => {
       rowsDeleted: 0,
       groupsAffected: 0,
       timestamp,
-      error: err.message || "Internal Error",
+      error: errorMessage,
+      message: `Cleanup failed: ${errorMessage}`,
     };
 
+    // Always return 200 with success: false instead of HTTP 500
+    // This prevents orchestrator from seeing HTTP errors
     return new Response(JSON.stringify(errorResult), {
-      status: 500,
+      status: 200,
       headers: { "Content-Type": "application/json" },
     });
   }

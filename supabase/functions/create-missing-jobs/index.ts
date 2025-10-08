@@ -35,24 +35,30 @@ serve(async (req: Request): Promise<Response> => {
     );
 
     const body = await req.json();
-    const { startDate, endDate } = body;
+    const { startDate, endDate, objectType } = body;
 
     if (!startDate || !endDate) {
       throw new Error("startDate and endDate are required");
     }
 
-    console.log(`📋 Creating missing jobs for ${startDate} → ${endDate}`);
+    console.log(`📋 Creating missing ${objectType || 'all'} jobs for ${startDate} → ${endDate}`);
 
     // Generate list of all expected jobs
-    const expectedJobs = generateExpectedJobs(startDate, endDate);
+    const expectedJobs = generateExpectedJobs(startDate, endDate, objectType);
     console.log(`   Expected: ${expectedJobs.length} total jobs`);
 
-    // Get existing jobs
-    const { data: existingJobs, error: fetchError } = await supabase
+    // Get existing jobs (filter by object_type if specified)
+    let query = supabase
       .from("bulk_sync_jobs")
       .select("shop, start_date, object_type")
       .gte("start_date", startDate)
       .lte("start_date", endDate);
+
+    if (objectType) {
+      query = query.eq("object_type", objectType);
+    }
+
+    const { data: existingJobs, error: fetchError } = await query;
 
     if (fetchError) {
       throw new Error(`Failed to fetch existing jobs: ${fetchError.message}`);
@@ -130,7 +136,7 @@ serve(async (req: Request): Promise<Response> => {
   }
 });
 
-function generateExpectedJobs(startDate: string, endDate: string): any[] {
+function generateExpectedJobs(startDate: string, endDate: string, objectType?: string): any[] {
   const jobs: any[] = [];
   const start = new Date(startDate);
   const end = new Date(endDate);
@@ -140,25 +146,36 @@ function generateExpectedJobs(startDate: string, endDate: string): any[] {
     const dateStr = d.toISOString().split("T")[0];
 
     for (const shop of SHOPS) {
-      // Orders job
-      jobs.push({
-        shop,
-        start_date: dateStr,
-        end_date: dateStr,
-        object_type: "orders",
-        status: "pending",
-        created_at: new Date().toISOString(),
-      });
+      // If objectType specified, only create that type
+      if (objectType) {
+        jobs.push({
+          shop,
+          start_date: dateStr,
+          end_date: dateStr,
+          object_type: objectType,
+          status: "pending",
+          created_at: new Date().toISOString(),
+        });
+      } else {
+        // Otherwise create all types (orders + skus)
+        jobs.push({
+          shop,
+          start_date: dateStr,
+          end_date: dateStr,
+          object_type: "orders",
+          status: "pending",
+          created_at: new Date().toISOString(),
+        });
 
-      // SKUs job
-      jobs.push({
-        shop,
-        start_date: dateStr,
-        end_date: dateStr,
-        object_type: "skus",
-        status: "pending",
-        created_at: new Date().toISOString(),
-      });
+        jobs.push({
+          shop,
+          start_date: dateStr,
+          end_date: dateStr,
+          object_type: "skus",
+          status: "pending",
+          created_at: new Date().toISOString(),
+        });
+      }
     }
   }
 

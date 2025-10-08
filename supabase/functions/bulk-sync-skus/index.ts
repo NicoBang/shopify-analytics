@@ -20,6 +20,8 @@ interface BulkSyncRequest {
   endDate: string;
   objectType?: "skus";
   includeRefunds?: boolean;
+  targetTable?: "skus" | "sku_price_verification";  // ✅ Support verification table
+  filterQuantity?: number;  // ✅ Optional: only sync quantity > filterQuantity
 }
 
 // ✅ explicit Deno.env fallback for local Supabase CLI
@@ -33,7 +35,14 @@ serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    const { shop, startDate, endDate, includeRefunds = false }: BulkSyncRequest = body;
+    const {
+      shop,
+      startDate,
+      endDate,
+      includeRefunds = false,
+      targetTable = "skus",
+      filterQuantity = 0
+    }: BulkSyncRequest = body;
     if (!shop || !startDate || !endDate) {
       return new Response(
         JSON.stringify({
@@ -370,6 +379,7 @@ async function syncSkusForDay(
     const orderMetadata = orderMetadataMap.get(orderId);
 
     const price = parseFloat(obj.discountedUnitPriceSet?.shopMoney?.amount || "0");
+    const originalPrice = parseFloat(obj.originalUnitPriceSet?.shopMoney?.amount || "0");
     const currency = obj.discountedUnitPriceSet?.shopMoney?.currencyCode || "DKK";
     const rate = CURRENCY_RATES[currency] || 1;
 
@@ -378,11 +388,12 @@ async function syncSkusForDay(
     let totalTaxPerUnit = 0;
 
     if (taxLinesArray.length > 0) {
-      // Use actual tax amounts from taxLines
-      totalTaxPerUnit = taxLinesArray.reduce((sum: number, taxLine: any) => {
+      // taxLines returns TOTAL tax for all units, so divide by quantity to get per-unit tax
+      const totalTaxForAllUnits = taxLinesArray.reduce((sum: number, taxLine: any) => {
         const taxAmount = parseFloat(taxLine.priceSet?.shopMoney?.amount || "0");
         return sum + taxAmount;
       }, 0) * rate;
+      totalTaxPerUnit = totalTaxForAllUnits / (obj.quantity || 1);  // ✅ Divide by quantity
     } else {
       // Fallback: calculate from order-level tax if available
       if (orderMetadata?.totalTax && orderMetadata?.subtotal) {
@@ -397,6 +408,12 @@ async function syncSkusForDay(
     // Calculate tax on discount (proportional to discount amount)
     const discountTax = totalDiscountRaw > 0 && price > 0 ? (totalTaxPerUnit * totalDiscountRaw / (price * rate)) : 0;
     const totalDiscountDkk = totalDiscountRaw - discountTax;
+
+    // Calculate sale discount (compareAtPrice - salePrice) ex tax
+    // originalPrice is compareAtPrice, price is discountedUnitPrice (actual sale price)
+    const originalPriceDkk = originalPrice > 0 ? (originalPrice * rate) - totalTaxPerUnit : 0;
+    const saleDiscountPerUnit = originalPrice > price && originalPrice > 0 ? originalPriceDkk - priceDkk : 0;
+    const saleDiscountTotal = saleDiscountPerUnit * (obj.quantity || 1);
 
     // ✅ ALWAYS use Shopify's order creation timestamp
     const shopifyCreatedAt = orderMetadata?.createdAt;
@@ -420,6 +437,9 @@ async function syncSkusForDay(
       price_dkk: priceDkk,
       total_discount_dkk: totalDiscountDkk,
       discount_per_unit_dkk: totalDiscountDkk / (obj.quantity || 1),
+      original_price_dkk: originalPriceDkk,
+      sale_discount_per_unit_dkk: saleDiscountPerUnit,
+      sale_discount_total_dkk: saleDiscountTotal,
       country: orderMetadata?.country || null,
       refunded_qty: 0,
       refund_date: null,
@@ -452,13 +472,26 @@ async function syncSkusForDay(
   };
 }
 
-async function upsertSkus(supabase: any, skus: any[]) {
-  console.log(`💾 Attempting to upsert ${skus.length} SKUs to database...`);
-  console.log(`🔍 First SKU sample:`, JSON.stringify(skus[0], null, 2));
+async function upsertSkus(supabase: any, skus: any[], targetTable: string = "skus", filterQuantity: number = 0) {
+  // ✅ Filter by quantity if requested
+  const filteredSkus = filterQuantity > 0
+    ? skus.filter(sku => sku.quantity > filterQuantity)
+    : skus;
+
+  if (filteredSkus.length === 0) {
+    console.log(`⏭️  No SKUs match filter (quantity > ${filterQuantity}), skipping upsert`);
+    return;
+  }
+
+  console.log(`💾 Attempting to upsert ${filteredSkus.length} SKUs to ${targetTable}...`);
+  if (filterQuantity > 0) {
+    console.log(`   Filtered from ${skus.length} (only quantity > ${filterQuantity})`);
+  }
+  console.log(`🔍 First SKU sample:`, JSON.stringify(filteredSkus[0], null, 2));
 
   // 🧩 Aggregate duplicates to prevent "ON CONFLICT DO UPDATE command cannot affect row a second time"
   const aggregated = Object.values(
-    skus.reduce((acc, item) => {
+    filteredSkus.reduce((acc, item) => {
       const key = `${item.shop}-${item.order_id}-${item.sku}`;
       if (!acc[key]) {
         acc[key] = { ...item };
@@ -482,17 +515,17 @@ async function upsertSkus(supabase: any, skus: any[]) {
     }, {})
   );
 
-  console.log(`🧩 Aggregated SKUs: ${aggregated.length} (from ${skus.length} raw entries)`);
+  console.log(`🧩 Aggregated SKUs: ${aggregated.length} (from ${filteredSkus.length} raw entries)`);
 
   // Log first SKU for debugging
   if (aggregated.length > 0) {
     console.log(`📝 Sample SKU:`, JSON.stringify(aggregated[0]).substring(0, 300));
   }
 
-  console.log(`📤 Starting upsert of ${aggregated.length} SKUs to Supabase...`);
+  console.log(`📤 Starting upsert of ${aggregated.length} SKUs to ${targetTable}...`);
 
   const { data, error } = await supabase
-    .from("skus")
+    .from(targetTable)
     .upsert(aggregated, { onConflict: "shop,order_id,sku" });
 
   if (error) {

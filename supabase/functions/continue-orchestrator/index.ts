@@ -168,6 +168,8 @@ async function processJob(job: any, supabase: any): Promise<any> {
       functionName = "bulk-sync-orders";
     } else if (object_type === "skus") {
       functionName = "bulk-sync-skus";
+    } else if (object_type === "refunds") {
+      functionName = "bulk-sync-refund-orders";
     } else {
       throw new Error(`Unknown object_type: ${object_type}`);
     }
@@ -185,7 +187,7 @@ async function processJob(job: any, supabase: any): Promise<any> {
           shop,
           startDate: start_date,
           endDate: end_date || start_date,
-          includeRefunds: object_type === "orders",
+          includeRefunds: object_type === "orders" || object_type === "refunds",
         }),
       }
     );

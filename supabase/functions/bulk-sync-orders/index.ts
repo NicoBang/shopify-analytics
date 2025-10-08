@@ -599,8 +599,24 @@ function parseOrder(order: any, shop: string): any {
   // Calculate values
   const currentTotal = parseFloat(order.currentTotalPriceSet?.shopMoney?.amount || "0") * rate;
   const totalTax = parseFloat(order.totalTaxSet?.shopMoney?.amount || "0") * rate;
-  const totalDiscounts = parseFloat(order.totalDiscountsSet?.shopMoney?.amount || "0") * rate;
+  const totalDiscountsInclTax = parseFloat(order.totalDiscountsSet?.shopMoney?.amount || "0") * rate;
   const shippingCostExTax = parseFloat(order.shippingLine?.discountedPriceSet?.shopMoney?.amount || "0") * rate;
+
+  // Calculate discount EX TAX (remove VAT from total discount)
+  // Shopify's totalDiscountsSet includes tax, but we need to store ex tax
+  const subtotal = parseFloat(order.subtotalPriceSet?.shopMoney?.amount || "0") * rate;
+  let totalDiscountsExTax = totalDiscountsInclTax;
+
+  if (subtotal > 0 && totalTax > 0) {
+    const shippingTax = shippingCostExTax * 0.25;
+    const productTax = totalTax - shippingTax;
+    const productSubtotalExTax = subtotal - productTax;
+
+    if (productSubtotalExTax > 0) {
+      const taxRateOnProducts = productTax / productSubtotalExTax;
+      totalDiscountsExTax = totalDiscountsInclTax / (1 + taxRateOnProducts);
+    }
+  }
 
   // Calculate refund data
   let refundedAmount = 0;
@@ -640,10 +656,10 @@ function parseOrder(order: any, shop: string): any {
     refunded_amount: refundedAmount,
     refunded_qty: refundedQty,
     refund_date: refundDate,
-    total_discounts_ex_tax: totalDiscounts,
+    total_discounts_ex_tax: totalDiscountsExTax, // ✅ Now EX TAX
     cancelled_qty: 0, // Will be calculated from SKUs
     sale_discount_total: 0, // Not available in bulk data
-    combined_discount_total: totalDiscounts,
+    combined_discount_total: totalDiscountsExTax, // ✅ Now EX TAX (sale_discount_total will be added later by SQL function)
   };
 }
 

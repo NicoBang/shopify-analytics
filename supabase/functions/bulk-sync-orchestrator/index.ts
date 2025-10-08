@@ -124,10 +124,14 @@ serve(async (req: Request): Promise<Response> => {
     const cleanupResult = await runCleanup(supabase);
 
     if (cleanupResult.success) {
-      console.log(`✅ Cleanup complete: Deleted ${cleanupResult.rowsDeleted} duplicates across ${cleanupResult.groupsAffected} groups`);
+      if (cleanupResult.rowsDeleted > 0) {
+        console.log(`✅ Cleanup complete: Deleted ${cleanupResult.rowsDeleted} duplicates across ${cleanupResult.groupsAffected} groups`);
+      } else {
+        console.log(`✅ Cleanup complete: No duplicates found (${cleanupResult.duplicatesFound} checked)`);
+      }
       console.log("\n🧾 All shops synced and cleanup done successfully! 🎉\n");
     } else {
-      console.error(`❌ Cleanup failed: ${cleanupResult.error}`);
+      console.error(`❌ Cleanup failed: ${cleanupResult.error || "Unknown error"}`);
     }
 
     return new Response(
@@ -511,44 +515,67 @@ async function runCleanup(supabase: any) {
   const timestamp = new Date().toISOString();
 
   try {
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SERVICE_ROLE_KEY");
+    if (!serviceKey) {
+      throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY environment variable");
+    }
+
+    console.log("🔑 Calling cleanup with service key prefix:", serviceKey.substring(0, 20) + "...");
+
     const cleanupResponse = await fetch(
       `${Deno.env.get("SUPABASE_URL")}/functions/v1/cleanup-duplicate-skus`,
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}`,
+          Authorization: `Bearer ${serviceKey}`,
           "Content-Type": "application/json",
         },
+        body: JSON.stringify({ dryRun: false }),
       }
     );
 
-    const cleanupResult = await cleanupResponse.json();
+    console.log("📡 Cleanup response status:", cleanupResponse.status);
 
-    // Log cleanup to bulk_sync_jobs
-    await supabase.from("bulk_sync_jobs").insert({
-      shop: "all",
-      object_type: "cleanup",
-      start_date: timestamp.split("T")[0],
-      end_date: timestamp.split("T")[0],
-      status: cleanupResult.success ? "completed" : "failed",
-      records_processed: cleanupResult.rowsDeleted || 0,
-      error_message: cleanupResult.error || cleanupResult.message,
-      started_at: timestamp,
-      completed_at: new Date().toISOString(),
-    });
+    // Check HTTP status before parsing JSON
+    if (!cleanupResponse.ok) {
+      const errorText = await cleanupResponse.text();
+      throw new Error(`HTTP ${cleanupResponse.status}: ${errorText || "Cleanup function not found"}`);
+    }
+
+    const responseText = await cleanupResponse.text();
+    console.log("📄 Cleanup response body:", responseText.substring(0, 200));
+
+    let cleanupResult;
+    try {
+      cleanupResult = JSON.parse(responseText);
+    } catch (parseErr) {
+      throw new Error(`Invalid JSON response: ${responseText.substring(0, 100)}`);
+    }
+
+    // Validate cleanup result structure
+    if (!cleanupResult || typeof cleanupResult.success === "undefined") {
+      console.warn("⚠️ Cleanup returned empty or invalid response:", cleanupResult);
+      throw new Error("Invalid cleanup response format - missing 'success' field");
+    }
+
+    console.log("✅ Cleanup result parsed:", JSON.stringify(cleanupResult));
+
+    // Log cleanup to bulk_sync_jobs (no longer needed - cleanup logs itself)
+    // await supabase.from("bulk_sync_jobs").insert({...});
 
     return cleanupResult;
   } catch (err: any) {
-    console.error("💥 Cleanup call failed:", err);
+    const errorMessage = err.message || String(err) || "Unknown cleanup error";
+    console.error("💥 Cleanup call failed:", errorMessage);
 
-    // Log cleanup failure
+    // Log cleanup failure to bulk_sync_jobs
     await supabase.from("bulk_sync_jobs").insert({
       shop: "all",
       object_type: "cleanup",
       start_date: timestamp.split("T")[0],
       end_date: timestamp.split("T")[0],
       status: "failed",
-      error_message: err.message || "Unknown error",
+      error_message: errorMessage,
       started_at: timestamp,
       completed_at: new Date().toISOString(),
     });
@@ -558,7 +585,7 @@ async function runCleanup(supabase: any) {
       duplicatesFound: 0,
       rowsDeleted: 0,
       groupsAffected: 0,
-      error: err.message || "Unknown error",
+      error: errorMessage,
     };
   }
 }

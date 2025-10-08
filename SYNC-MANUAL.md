@@ -26,17 +26,28 @@ Komplet guide til at synce Shopify data til Supabase.
 ./sync-date-range.sh 2025-10-01 2025-10-07
 ```
 
-**Note:** For store perioder (>7 dage), brug i stedet:
-```bash
-# Step 1: Opret jobs (vil timeout - det er OK)
-./restart-orchestrator.sh 2025-08-01 2025-09-30
+**⚠️ VIGTIGT:** Dette syncer KUN ordrer, IKKE SKUs! For KOMPLET sync:
 
-# Step 2: Lad auto-continue cron job processe dem (hver 5. minut)
-# Eller kald manuelt:
-curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/continue-orchestrator" \
-  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
-  -d '{}'
+```bash
+# Komplet sync (BÅDE ordrer OG SKUs)
+./sync-complete.sh 2025-10-01 2025-10-07
 ```
+
+**Note:** For store perioder (>7 dage), brug i stedet incremental job creation:
+```bash
+# Step 1: Opret ALLE jobs incrementally (ingen timeout!)
+./create-all-jobs.sh 2025-08-01 2025-09-30
+
+# Step 2: Auto-continue cron job processer dem automatisk (hver 5. minut)
+# Intet at gøre - vent bare og tjek fremskridt:
+./check-sync-status.sh 2025-08-01 2025-09-30
+```
+
+**Vigtigt:**
+- `create-all-jobs.sh` opretter jobs for BÅDE ordrer OG SKUs (2 jobs per dag/shop)
+- Auto-continue cron job processer 20 jobs hver 5. minut automatisk
+- Du behøver ikke gøre noget - systemet kører selv
+- Forventet tid: ~2-3 timer for 61 dage × 5 shops × 2 typer = 610 jobs
 
 ### Sync opdaterede ordrer for en periode (refunds, edits, etc.)
 ```bash
@@ -374,22 +385,48 @@ curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/bulk-sync-or
 
 ## ⚠️ Troubleshooting
 
-### Orchestrator stopper efter 6-7 min
-**Problem:** Orchestrator har ~6-7 min Edge Function timeout.
+### Store perioder (>7 dage) - Incremental Job Creation
 
-**Løsning:** Brug to-trins incremental pattern:
+**Problem:** `restart-orchestrator.sh` har 6-7 min timeout - kan ikke oprette alle jobs for store perioder.
+
+**Løsning:** Brug `create-all-jobs.sh` der opretter jobs incrementally:
+
 ```bash
-# Step 1: Opret alle jobs (vil timeout - det er OK)
+# Opret alle jobs (ingen timeout!)
+./create-all-jobs.sh 2025-08-01 2025-09-30
+```
+
+**Output:**
+```
+📋 Creating all missing jobs for 2025-08-01 → 2025-09-30
+
+🔄 Iteration 1...
+   ✅ Created: 100 jobs
+   📊 Remaining: 510 jobs
+
+🔄 Iteration 2...
+   ✅ Created: 100 jobs
+   📊 Remaining: 410 jobs
+
+... (fortsætter indtil alle er oprettet)
+
+✅ All jobs created!
+```
+
+**Derefter:**
+- Auto-continue cron job processer dem automatisk hver 5. minut
+- Tjek fremskridt: `./check-sync-status.sh 2025-08-01 2025-09-30`
+- Forventet tid: ~2-3 timer for 61 dage × 5 shops × 2 typer = 610 jobs
+
+**Hvordan det virker:**
+1. `create-missing-jobs` Edge Function opretter 100 jobs ad gangen
+2. `create-all-jobs.sh` kalder den gentagne gange indtil alle jobs er oprettet
+3. Auto-continue cron job processer pending jobs automatisk
+
+**Gammel metode (anbefales IKKE):**
+```bash
+# ❌ Virker ikke for store perioder - vil timeout
 ./restart-orchestrator.sh 2025-08-01 2025-09-30
-
-# Step 2: Lad auto-continue cron job processe dem automatisk (hver 5. minut)
-# Eller kald manuelt:
-curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/continue-orchestrator" \
-  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
-  -d '{}'
-
-# Step 3: Tjek status
-./check-sync-status.sh 2025-08-01 2025-09-30
 ```
 
 ### Jobs står fast som "running"
@@ -489,7 +526,8 @@ VERCEL_API_URL=https://shopify-analytics-9ckj1fm3r-nicolais-projects-291e9559.ve
 
 | Task | Command |
 |------|---------|
-| Full sync (created_at) | `./sync-date-range.sh START END` |
+| **Complete sync (ANBEFALET)** | `./sync-complete.sh START END` |
+| Orders only (IKKE anbefalet) | `./sync-date-range.sh START END` |
 | Refund sync (updated_at) | `./sync-date-range-refunds.sh START END` |
 | Fulfillments sync | `./sync-fulfillments.sh START END` |
 | Metadata sync | `./sync-metadata.sh` |
