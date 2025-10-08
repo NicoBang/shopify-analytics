@@ -115,6 +115,8 @@ class SupabaseService {
     // Aggregate dashboard data from SKUs table using same logic as Style Analytics
     // This fixes the qty calculation issue by using consistent date filtering
 
+    console.log('🔍 DEBUG [getDashboardFromSkus] Start:', { startDate: startDate.toISOString(), endDate: endDate.toISOString(), shop });
+
     // STEP 1: Get ALL SKUs created in period (sales) - WITH PAGINATION
     const salesData = [];
     let salesOffset = 0;
@@ -149,10 +151,13 @@ class SupabaseService {
       }
     }
 
+    console.log('📊 DEBUG [getDashboardFromSkus] Sales data fetched:', salesData.length);
+
     // STEP 2: Get ALL SKUs with refund_date in period (returns) - WITH PAGINATION
     const refundData = [];
     let refundOffset = 0;
     let hasMoreRefunds = true;
+    let lastRefundBatchSize = 0;
 
     while (hasMoreRefunds) {
       let refundQuery = this.supabase
@@ -176,12 +181,16 @@ class SupabaseService {
 
       if (refundBatch && refundBatch.length > 0) {
         refundData.push(...refundBatch);
+        lastRefundBatchSize = refundBatch.length;
         hasMoreRefunds = refundBatch.length === batchSize;
         refundOffset += batchSize;
       } else {
         hasMoreRefunds = false;
       }
     }
+
+    console.log('📊 DEBUG [getDashboardFromSkus] Refund data fetched:', refundData.length);
+    console.log('📦 DEBUG [getDashboardFromSkus] Last refund batch size:', lastRefundBatchSize);
 
     // STEP 2.5: Get orders for shipping data - WITH PAGINATION
     const ordersData = [];
@@ -246,9 +255,27 @@ class SupabaseService {
         shopMap[shop].orderIds.add(order.order_id);
       }
 
-      // Track shipping
+      // Calculate shipping ex. tax using dynamic tax rate
+      // discounted_total = items_inkl_tax + shipping_inkl_tax
+      // tax = total tax (items + shipping)
       const shipping = Number(order.shipping) || 0;
-      shopMap[shop].shipping += shipping;
+      const discountedTotal = Number(order.discounted_total) || 0;
+      const tax = Number(order.tax) || 0;
+
+      let shippingExTax = 0;
+      if (shipping > 0 && discountedTotal > 0 && tax > 0) {
+        // Calculate tax rate: tax_rate = tax / (discounted_total - tax)
+        const itemsAndShippingExTax = discountedTotal - tax;
+        const taxRate = itemsAndShippingExTax > 0 ? tax / itemsAndShippingExTax : 0.25;
+
+        // shipping_ex_tax = shipping / (1 + tax_rate)
+        shippingExTax = shipping / (1 + taxRate);
+      } else if (shipping > 0) {
+        // Fallback: assume 25% tax if we can't calculate
+        shippingExTax = shipping / 1.25;
+      }
+
+      shopMap[shop].shipping += shippingExTax;
 
       // Track orders with returns
       const refundedAmount = Number(order.refunded_amount) || 0;
@@ -256,6 +283,25 @@ class SupabaseService {
         shopMap[shop].returnOrderIds.add(order.order_id);
       }
     });
+
+    // DEBUG: Track refund metrics before processing
+    let totalRefundedQtyBeforeFilter = 0;
+    let refundsOutsidePeriod = 0;
+    let refundsInPeriodFromSales = 0;
+
+    // Calculate total refunded_qty from salesData BEFORE filtering
+    (salesData || []).forEach(item => {
+      const refunded = Number(item.refunded_qty) || 0;
+      totalRefundedQtyBeforeFilter += refunded;
+    });
+
+    // Calculate total refunded_qty from refundData BEFORE filtering
+    (refundData || []).forEach(item => {
+      const refunded = Number(item.refunded_qty) || 0;
+      totalRefundedQtyBeforeFilter += refunded;
+    });
+
+    console.log('📊 DEBUG [getDashboardFromSkus] Total refunded_qty BEFORE filtering:', totalRefundedQtyBeforeFilter);
 
     // Process sales data
     (salesData || []).forEach(item => {
@@ -279,9 +325,11 @@ class SupabaseService {
       shopMap[shop].bruttoomsætning += bruttoRevenue;
       shopMap[shop].nettoomsætning += bruttoRevenue; // Start with brutto, then subtract refunds
 
-      // Track total discounts
+      // Track total discounts (order-level + sale discounts, both ex. moms)
       const discountPerUnit = Number(item.discount_per_unit_dkk) || 0;
-      shopMap[shop].totalDiscounts += discountPerUnit * quantity;
+      const saleDiscountPerUnit = Number(item.sale_discount_per_unit_dkk) || 0;
+      const totalDiscountPerUnit = discountPerUnit + saleDiscountPerUnit;
+      shopMap[shop].totalDiscounts += totalDiscountPerUnit * quantity;
 
       // Only count refunds if they happened in the same period
       const hasRefundInPeriod = item.refund_date &&
@@ -296,15 +344,26 @@ class SupabaseService {
         shopMap[shop].returQty += refunded;
         shopMap[shop].nettoomsætning -= refundedAmount;
         shopMap[shop].refundedAmount += refundedAmount;
+        refundsInPeriodFromSales += refunded;
 
         // Track order with return (if not already tracked from orders table)
         if (refunded > 0 && item.order_id) {
           shopMap[shop].returnOrderIds.add(item.order_id);
         }
+      } else if (item.refund_date) {
+        // Refund exists but outside period
+        const refunded = Number(item.refunded_qty) || 0;
+        refundsOutsidePeriod += refunded;
       }
     });
 
+    console.log('📊 DEBUG [getDashboardFromSkus] Refunds in period (from sales):', refundsInPeriodFromSales);
+    console.log('🚫 DEBUG [getDashboardFromSkus] Refunds outside period boundaries:', refundsOutsidePeriod);
+
     // Process return data (returns from orders created outside period)
+    let refundsFilteredByDoubleCount = 0;
+    let refundsAddedFromRefundData = 0;
+
     (refundData || []).forEach(item => {
       const shop = item.shop;
       if (!shopMap[shop]) return;
@@ -323,13 +382,26 @@ class SupabaseService {
         shopMap[shop].returQty += refunded;
         shopMap[shop].nettoomsætning -= refundedAmount;
         shopMap[shop].refundedAmount += refundedAmount;
+        refundsAddedFromRefundData += refunded;
 
         // Track order with return (if not already tracked from orders table)
         if (refunded > 0 && item.order_id) {
           shopMap[shop].returnOrderIds.add(item.order_id);
         }
+      } else {
+        // Already counted in sales - this is the "double-counting prevention"
+        const refunded = Number(item.refunded_qty) || 0;
+        refundsFilteredByDoubleCount += refunded;
       }
     });
+
+    console.log('✅ DEBUG [getDashboardFromSkus] Refunds added from refund-only data:', refundsAddedFromRefundData);
+    console.log('🚫 DEBUG [getDashboardFromSkus] Refunds filtered (double-counting):', refundsFilteredByDoubleCount);
+
+    // Calculate total refunds AFTER filtering
+    const totalRefundsAfterFilter = refundsInPeriodFromSales + refundsAddedFromRefundData;
+    console.log('📊 DEBUG [getDashboardFromSkus] Total refunded_qty AFTER filtering:', totalRefundsAfterFilter);
+    console.log('🔍 DEBUG [getDashboardFromSkus] Difference (before - after):', totalRefundedQtyBeforeFilter - totalRefundsAfterFilter);
 
     // Build result array with revenue data
     const result = [];

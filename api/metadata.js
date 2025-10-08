@@ -281,6 +281,12 @@ class SupabaseService {
     adjustedEndDate.setHours(23, 59, 59, 999);
 
     console.log(`📅 Style Analytics query: ${adjustedStartDate.toISOString()} to ${adjustedEndDate.toISOString()}`);
+    console.log('🔍 DEBUG [getStyleAnalytics] Date comparison:', {
+      originalStart: new Date(startDate).toISOString(),
+      originalEnd: new Date(endDate).toISOString(),
+      adjustedStart: adjustedStartDate.toISOString(),
+      adjustedEnd: adjustedEndDate.toISOString()
+    });
 
     // STEP 1: Fetch sales data (SKUs created in period) - similar to Dashboard API
     let salesData = [];
@@ -350,6 +356,29 @@ class SupabaseService {
     console.log(`📦 Total refunded_qty from refund query: ${totalRefundedQty}`);
 
 
+    // DEBUG: Track refund metrics before processing
+    let totalRefundedQtyBeforeFilter = 0;
+    let refundsOutsidePeriod = 0;
+    let refundsInPeriodFromSales = 0;
+    let refundsFilteredByDoubleCount = 0;
+    let refundsAddedFromRefundData = 0;
+    let lastRefundBatchSize = refundData?.length || 0;
+
+    // Calculate total refunded_qty from salesData BEFORE filtering
+    (salesData || []).forEach(item => {
+      const refunded = Number(item.refunded_qty) || 0;
+      totalRefundedQtyBeforeFilter += refunded;
+    });
+
+    // Calculate total refunded_qty from refundData BEFORE filtering
+    (refundData || []).forEach(item => {
+      const refunded = Number(item.refunded_qty) || 0;
+      totalRefundedQtyBeforeFilter += refunded;
+    });
+
+    console.log('📊 DEBUG [getStyleAnalytics] Total refunded_qty BEFORE filtering:', totalRefundedQtyBeforeFilter);
+    console.log('📦 DEBUG [getStyleAnalytics] Last refund batch size:', lastRefundBatchSize);
+
     // STEP 3: Combine sales and refund data correctly
     // Sales data: Include quantity as sold, but refunded_qty should be 0 unless refund happened in same period
     // Refund data: Only include refunded_qty, quantity should not be counted as additional sales
@@ -361,6 +390,15 @@ class SupabaseService {
         new Date(item.refund_date) >= adjustedStartDate &&
         new Date(item.refund_date) <= adjustedEndDate;
 
+      if (hasRefundInPeriod) {
+        const refunded = Number(item.refunded_qty) || 0;
+        refundsInPeriodFromSales += refunded;
+      } else if (item.refund_date) {
+        // Refund exists but outside period
+        const refunded = Number(item.refunded_qty) || 0;
+        refundsOutsidePeriod += refunded;
+      }
+
       combinedData.push({
         ...item,
         // For sales: include the quantity sold, but only count refunded_qty if refund happened in period
@@ -369,6 +407,9 @@ class SupabaseService {
         source: 'sales'
       });
     });
+
+    console.log('📊 DEBUG [getStyleAnalytics] Refunds in period (from sales):', refundsInPeriodFromSales);
+    console.log('🚫 DEBUG [getStyleAnalytics] Refunds outside period boundaries:', refundsOutsidePeriod);
 
     // Add refund data (don't double-count quantities, only add refunds that aren't already counted)
     refundData.forEach(item => {
@@ -381,14 +422,29 @@ class SupabaseService {
 
       if (!alreadyInSales) {
         // This is a refund for an order created outside the period
+        const refunded = Number(item.refunded_qty) || 0;
+        refundsAddedFromRefundData += refunded;
+
         combinedData.push({
           ...item,
           quantity: 0, // Don't count as new sales
           refunded_qty: item.refunded_qty || 0,
           source: 'refund_only'
         });
+      } else {
+        // Already counted in sales - this is the "double-counting prevention"
+        const refunded = Number(item.refunded_qty) || 0;
+        refundsFilteredByDoubleCount += refunded;
       }
     });
+
+    console.log('✅ DEBUG [getStyleAnalytics] Refunds added from refund-only data:', refundsAddedFromRefundData);
+    console.log('🚫 DEBUG [getStyleAnalytics] Refunds filtered (double-counting):', refundsFilteredByDoubleCount);
+
+    // Calculate total refunds AFTER filtering
+    const totalRefundsAfterFilter = refundsInPeriodFromSales + refundsAddedFromRefundData;
+    console.log('📊 DEBUG [getStyleAnalytics] Total refunded_qty AFTER filtering:', totalRefundsAfterFilter);
+    console.log('🔍 DEBUG [getStyleAnalytics] Difference (before - after):', totalRefundedQtyBeforeFilter - totalRefundsAfterFilter);
 
     const data = combinedData;
 
