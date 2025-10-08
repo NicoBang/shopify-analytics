@@ -5,6 +5,8 @@ const SHOPIFY_API_VERSION = "2024-10";
 const POLL_INTERVAL_MS = 10000;
 const MAX_POLL_ATTEMPTS = 720; // 2 hours max (720 * 10s)
 const BATCH_SIZE = 500;
+const EDGE_FUNCTION_TIMEOUT_MS = 270000; // 4.5 minutes (Edge Functions have ~5 min hard limit)
+const CHUNK_HOURS = 12; // Process 12-hour chunks to avoid timeouts
 
 const CURRENCY_RATES: Record<string, number> = {
   DKK: 1.0,
@@ -16,6 +18,7 @@ interface BulkSyncRequest {
   shop: string;
   startDate: string;
   endDate: string;
+  jobId?: string; // Optional jobId for orchestrator integration
 }
 
 interface RefundUpdate {
@@ -42,8 +45,8 @@ serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    const { shop, startDate, endDate }: BulkSyncRequest = body;
-    console.log(`📋 Request params: shop=${shop}, startDate=${startDate}, endDate=${endDate}`);
+    const { shop, startDate, endDate, jobId }: BulkSyncRequest = body;
+    console.log(`📋 Request params: shop=${shop}, startDate=${startDate}, endDate=${endDate}, jobId=${jobId || 'none'}`);
 
     if (!shop || !startDate || !endDate) {
       console.error("❌ Missing required fields");
@@ -72,21 +75,130 @@ serve(async (req: Request): Promise<Response> => {
       throw new Error(error);
     }
 
-    console.log(`🚀 Starting refund sync for ${shop} from ${startDate} to ${endDate}`);
-    console.log(`🔍 [DEBUG] Input parameters: shop=${shop}, startDate=${startDate}, endDate=${endDate}`);
-    const days = generateDailyIntervals(startDate, endDate);
-    console.log(`📅 Processing ${days.length} days`);
-    console.log(`📅 [DEBUG] Daily intervals:`, JSON.stringify(days, null, 2));
+    // Create or update job record
+    let job: any;
+    if (jobId) {
+      console.log(`📋 Using existing job ${jobId}`);
+      const { data, error } = await supabase
+        .from("bulk_sync_jobs")
+        .select("*")
+        .eq("id", jobId)
+        .single();
 
-    const results: any[] = [];
+      if (error || !data) {
+        throw new Error(`Job ${jobId} not found: ${error?.message}`);
+      }
+      job = data;
 
-    for (const day of days) {
-      console.log(`💸 Syncing refunds for ${day.date}`);
-      const res = await syncRefundsForDay(shop, token, supabase, day.startISO, day.endISO);
-      results.push(res);
+      // Update to running status
+      await supabase
+        .from("bulk_sync_jobs")
+        .update({
+          status: "running",
+          started_at: new Date().toISOString()
+        })
+        .eq("id", jobId);
+    } else {
+      console.log(`📋 Creating new job for ${shop} (${startDate} to ${endDate})`);
+      const { data, error: jobError } = await supabase
+        .from("bulk_sync_jobs")
+        .insert({
+          shop,
+          start_date: startDate,
+          end_date: endDate,
+          object_type: "refunds",
+          status: "running",
+          started_at: new Date().toISOString(),
+        })
+        .select()
+        .single();
+
+      if (jobError || !data) {
+        throw new Error(`Failed to create job: ${jobError?.message}`);
+      }
+      job = data;
+      console.log(`📋 Created job ${job.id}`);
     }
 
-    const response = { success: true, results };
+    console.log(`🚀 Starting refund sync for ${shop} from ${startDate} to ${endDate}`);
+    console.log(`🔍 [DEBUG] Input parameters: shop=${shop}, startDate=${startDate}, endDate=${endDate}`);
+    const chunks = generateChunkedIntervals(startDate, endDate, CHUNK_HOURS);
+    console.log(`📅 Processing ${chunks.length} chunks (${CHUNK_HOURS}h each)`);
+    console.log(`📅 [DEBUG] Chunked intervals:`, JSON.stringify(chunks, null, 2));
+
+    const results: any[] = [];
+    const startTime = Date.now();
+    let timedOut = false;
+    let totalRefunds = 0;
+
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+
+      // ⏰ Check if approaching Edge Function timeout
+      const elapsedMs = Date.now() - startTime;
+      if (elapsedMs > EDGE_FUNCTION_TIMEOUT_MS) {
+        console.log(`⚠️ Approaching Edge Function timeout (${elapsedMs}ms elapsed). Stopping gracefully.`);
+        timedOut = true;
+
+        // Update job with partial progress
+        await supabase
+          .from("bulk_sync_jobs")
+          .update({
+            status: "pending", // Set back to pending so orchestrator can restart
+            error_message: `Edge Function timeout after processing ${i}/${chunks.length} chunks`,
+            records_processed: totalRefunds,
+          })
+          .eq("id", job.id);
+
+        return new Response(
+          JSON.stringify({
+            success: false,
+            timedOut: true,
+            jobId: job.id,
+            error: "Edge Function timeout",
+            chunksProcessed: i,
+            totalChunks: chunks.length,
+            refundsProcessed: totalRefunds,
+            message: `Processed ${i}/${chunks.length} chunks before timeout. Orchestrator will restart.`,
+          }),
+          { status: 500, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      console.log(`💸 Syncing refunds for chunk ${i + 1}/${chunks.length} (${chunk.startISO} to ${chunk.endISO})`);
+      const res = await syncRefundsForChunk(shop, token, supabase, chunk.startISO, chunk.endISO);
+      results.push(res);
+      totalRefunds += res.refundsProcessed || 0;
+
+      // Update job progress
+      await supabase
+        .from("bulk_sync_jobs")
+        .update({
+          records_processed: totalRefunds,
+        })
+        .eq("id", job.id);
+    }
+
+    // Mark job as completed
+    await supabase
+      .from("bulk_sync_jobs")
+      .update({
+        status: "completed",
+        records_processed: totalRefunds,
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", job.id);
+
+    const response = {
+      success: true,
+      timedOut: false,
+      jobId: job.id,
+      status: "completed",
+      chunksProcessed: chunks.length,
+      totalChunks: chunks.length,
+      refundsProcessed: totalRefunds,
+      results
+    };
     console.log(`🎉 Final response:`, JSON.stringify(response));
 
     return new Response(JSON.stringify(response), {
@@ -96,6 +208,30 @@ serve(async (req: Request): Promise<Response> => {
   } catch (err: any) {
     console.error("💥 Uncaught error:", err);
     console.error("Stack trace:", err.stack);
+
+    // Try to update job status to failed
+    try {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const supabase = createClient(supabaseUrl, supabaseKey, {
+        auth: { persistSession: false }
+      });
+
+      const { shop, startDate, endDate, jobId }: BulkSyncRequest = body;
+      if (jobId) {
+        await supabase
+          .from("bulk_sync_jobs")
+          .update({
+            status: "failed",
+            error_message: err.message || String(err),
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", jobId);
+      }
+    } catch (updateErr) {
+      console.error("❌ Failed to update job status:", updateErr);
+    }
+
     return new Response(
       JSON.stringify({ error: err.message || String(err) }),
       { status: 500, headers: { "Content-Type": "application/json" } }
@@ -114,29 +250,37 @@ function getShopifyToken(shop: string): string | null {
   return map[shop] || null;
 }
 
-function generateDailyIntervals(start: string, end: string) {
-  console.log(`🔧 [DEBUG] generateDailyIntervals input: start=${start}, end=${end}`);
+function generateChunkedIntervals(start: string, end: string, chunkHours: number) {
+  console.log(`🔧 [DEBUG] generateChunkedIntervals input: start=${start}, end=${end}, chunkHours=${chunkHours}`);
 
-  // Parse dates at midnight UTC to avoid timezone shifts
   const startDate = new Date(start + 'T00:00:00Z');
-  const endDate = new Date(end + 'T00:00:00Z');
-  const days: Array<{ date: string; startISO: string; endISO: string }> = [];
+  const endDate = new Date(end + 'T23:59:59Z');
+  const chunks: Array<{ startISO: string; endISO: string }> = [];
 
   console.log(`🔧 [DEBUG] Parsed dates: startDate=${startDate.toISOString()}, endDate=${endDate.toISOString()}`);
 
-  for (let d = new Date(startDate); d <= endDate; d.setUTCDate(d.getUTCDate() + 1)) {
-    const dateStr = d.toISOString().split("T")[0];
-    const startISO = `${dateStr}T00:00:00Z`;
-    const endISO = `${dateStr}T23:59:59Z`;
-    days.push({ date: dateStr, startISO, endISO });
-    console.log(`📅 [DEBUG] Generated interval: ${dateStr} (${startISO} to ${endISO})`);
+  const chunkMs = chunkHours * 60 * 60 * 1000; // Convert hours to milliseconds
+  let currentStart = new Date(startDate);
+
+  while (currentStart < endDate) {
+    const currentEnd = new Date(Math.min(
+      currentStart.getTime() + chunkMs - 1, // -1ms to avoid overlap
+      endDate.getTime()
+    ));
+
+    const startISO = currentStart.toISOString();
+    const endISO = currentEnd.toISOString();
+    chunks.push({ startISO, endISO });
+    console.log(`📅 [DEBUG] Generated chunk: ${startISO} to ${endISO}`);
+
+    currentStart = new Date(currentEnd.getTime() + 1); // Move to next millisecond
   }
 
-  console.log(`🔧 [DEBUG] Generated ${days.length} daily intervals`);
-  return days;
+  console.log(`🔧 [DEBUG] Generated ${chunks.length} chunks of ${chunkHours}h each`);
+  return chunks;
 }
 
-async function syncRefundsForDay(
+async function syncRefundsForChunk(
   shop: string,
   token: string,
   supabase: any,
@@ -144,8 +288,7 @@ async function syncRefundsForDay(
   endISO: string
 ) {
   try {
-    const day = startISO.split("T")[0];
-    console.log(`💸 Fetching orders with refunds for ${day} from database`);
+    console.log(`💸 Fetching orders with refunds from ${startISO} to ${endISO} from database`);
 
     // Get order_ids from database for the specific date range
     // This ensures we only check orders that were created in the target period
@@ -181,7 +324,6 @@ async function syncRefundsForDay(
     if (uniqueOrderIds.length === 0) {
       console.log(`⚠️ No orders found in database for shop ${shop}`);
       return {
-        day,
         status: "success",
         ordersFetched: 0,
         refundsProcessed: 0,
@@ -457,17 +599,16 @@ async function syncRefundsForDay(
   const updatedCount = await updateRefundsInDatabase(supabase, refundUpdates);
 
   const result = {
-    day,
     status: "success",
     ordersFetched: processedOrders,
     refundsProcessed: refundUpdates.length,
     skusUpdated: updatedCount,
   };
 
-  console.log(`✅ Day ${day} complete:`, JSON.stringify(result));
+  console.log(`✅ Chunk complete:`, JSON.stringify(result));
   return result;
   } catch (err: any) {
-    console.error(`❌ Error in syncRefundsForDay:`, err);
+    console.error(`❌ Error in syncRefundsForChunk:`, err);
     console.error("Stack trace:", err.stack);
     throw err;
   }

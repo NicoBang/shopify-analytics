@@ -21,10 +21,31 @@ serve(async (req: Request): Promise<Response> => {
 
     console.log("🐕 Watchdog: Checking for stale running jobs...");
 
-    // Mark jobs running >2 minutes as failed
+    // Different timeouts for different object types:
+    // - refunds: 5 minutes (Edge Function limit ~5 min)
+    // - orders/skus: 2 minutes (faster operations)
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
     const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
 
-    const { data: staleJobs, error } = await supabase
+    // Clean up refund jobs running >5 minutes
+    const { data: staleRefundJobs, error: refundError } = await supabase
+      .from("bulk_sync_jobs")
+      .update({
+        status: "failed",
+        error_message: "Edge Function timeout detected by watchdog - refund job exceeded 5 minute limit",
+        completed_at: new Date().toISOString(),
+      })
+      .eq("status", "running")
+      .eq("object_type", "refunds")
+      .lt("started_at", fiveMinutesAgo)
+      .select("shop, start_date, object_type, started_at");
+
+    if (refundError) {
+      console.error("❌ Watchdog error (refunds):", refundError);
+    }
+
+    // Clean up other jobs running >2 minutes
+    const { data: staleOtherJobs, error: otherError } = await supabase
       .from("bulk_sync_jobs")
       .update({
         status: "failed",
@@ -32,8 +53,12 @@ serve(async (req: Request): Promise<Response> => {
         completed_at: new Date().toISOString(),
       })
       .eq("status", "running")
+      .neq("object_type", "refunds")
       .lt("started_at", twoMinutesAgo)
       .select("shop, start_date, object_type, started_at");
+
+    const error = otherError;
+    const staleJobs = [...(staleRefundJobs || []), ...(staleOtherJobs || [])];
 
     if (error) {
       console.error("❌ Watchdog error:", error);

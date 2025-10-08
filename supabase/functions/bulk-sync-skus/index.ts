@@ -427,6 +427,8 @@ async function syncSkusForDay(
     // Must use "YYYY-MM-DD" format as per CLAUDE.md rules
     const created_at = new Date(shopifyCreatedAt).toISOString().split("T")[0];
 
+    // NOTE: cancelled_qty and cancelled_amount_dkk are set to 0 here
+    // They are populated by bulk-sync-refunds function (RestockType = CANCEL)
     batch.push({
       shop,
       order_id: orderId,
