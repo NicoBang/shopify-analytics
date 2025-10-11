@@ -1,9 +1,0 @@
-🔄 Starting refund sync from 2025-10-01 to 2025-10-07
-   Log: refund-sync-20251008-022702.log
-   Failed jobs will be saved to: refund-sync-failed.txt
-
-📅 Processing 7 days × 5 shops = 35 total jobs
-
-📆 2025-10-01
-   ✅ da: 0 orders, 0 SKUs
-   ✅ de: 0 orders, 0 SKUs

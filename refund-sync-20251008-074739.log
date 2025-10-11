@@ -1,9 +1,0 @@
-🔄 Starting refund sync from 2025-08-07T06:00 to 2025-08-07T12:00
-   Log: refund-sync-20251008-074739.log
-   Failed jobs will be saved to: refund-sync-failed.txt
-   ⏰ Time-based mode: using exact timestamps
-   🏪 Shop filter: pompdelux-da.myshopify.com only
-
-📅 Processing 1 time range × 1 shops = 1 total jobs
-
-📆 2025-08-07T06:00 → 2025-08-07T12:00

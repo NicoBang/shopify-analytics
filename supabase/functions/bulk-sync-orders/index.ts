@@ -1,53 +1,31 @@
-// Shopify Bulk Operations Edge Sync
-// Handles large dataset syncs without timeout limitations
-// Uses Shopify Admin API Bulk Operations + Supabase Edge Functions
+// Shopify Bulk Sync Orders - Optimized version
+// Purpose: Sync order-level data from Shopify to Supabase orders table
+// Note: This function ONLY handles orders, not SKUs (separated concerns)
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { SHOPIFY_CONFIG } from "../_shared/config.ts";
+import { getShopifyToken as getToken, getCurrencyMultiplier, getTaxRate, withRetry } from "../_shared/shopify.ts";
+import { createAuthenticatedClient, batchUpsert } from "../_shared/supabase.ts";
+import type { ShopifyOrder, OrderRecord, BulkSyncJob, BulkOperationResult, ShopifyBulkOperation } from "../_shared/types.ts";
 
-const SHOPIFY_API_VERSION = "2024-10";
+// Bulk Operations Configuration
 const POLL_INTERVAL_MS = 10000; // 10 seconds
-const BATCH_SIZE = 500;
-const MAX_POLL_ATTEMPTS = 360; // 1 hour max (360 * 10s)
-const MAX_RETRIES = 3; // Max retries per day on errors
-const EDGE_FUNCTION_TIMEOUT_MS = 300000; // 5 minutes (Edge Functions have ~6-7 min hard limit)
-
-// Currency conversion rates (DKK base)
-const CURRENCY_RATES: Record<string, number> = {
-  DKK: 1.0,
-  EUR: 7.46,
-  CHF: 6.84,
-};
+const MAX_POLL_ATTEMPTS = 360; // 1 hour max
+const EDGE_FUNCTION_TIMEOUT_MS = 300000; // 5 minutes safety margin
 
 interface BulkSyncRequest {
   shop: string;
   startDate: string;
   endDate: string;
-  objectType?: "orders" | "skus" | "both";
-}
-
-interface ShopifyBulkOperation {
-  id: string;
-  status: string;
-  errorCode?: string;
-  url?: string;
-  objectCount?: number;
-  fileSize?: number;
-}
-
-interface DayResult {
-  day: string;
-  status: "success" | "failed" | "skipped";
-  ordersProcessed: number;
-  skusProcessed: number;
-  durationMs: number;
-  error?: string;
+  testMode?: boolean; // For testing without affecting production
 }
 
 serve(async (req) => {
+  const functionStartTime = Date.now();
+
   try {
-    // Parse request
-    const { shop, startDate, endDate, objectType = "both" }: BulkSyncRequest = await req.json();
+    // Parse and validate request
+    const { shop, startDate, endDate, testMode = false }: BulkSyncRequest = await req.json();
 
     if (!shop || !startDate || !endDate) {
       return new Response(
@@ -56,341 +34,287 @@ serve(async (req) => {
       );
     }
 
-    // Initialize Supabase client
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey, {
-      auth: { persistSession: false }
+    console.log(`📦 Starting order sync for ${shop} (${startDate} to ${endDate})${testMode ? ' [TEST MODE]' : ''}`);
+
+    // Initialize clients
+    const supabase = createAuthenticatedClient();
+    const shopifyToken = getToken(shop);
+
+    // Create or update job record
+    const jobResult = await createOrUpdateJob(supabase, {
+      shop,
+      object_type: "orders",
+      start_date: startDate,
+      end_date: endDate,
+      status: "running",
+    }, testMode);
+
+    if (!jobResult.success || !jobResult.jobId) {
+      throw new Error(jobResult.error || "Failed to create job");
+    }
+
+    // Process date range day by day
+    const results = await processDailyBatches({
+      shop,
+      shopifyToken,
+      startDate,
+      endDate,
+      supabase,
+      testMode,
+      jobId: jobResult.jobId,
+      functionStartTime,
     });
 
-    // Get Shopify access token
-    const shopifyToken = getShopifyToken(shop);
-    if (!shopifyToken) {
-      return new Response(
-        JSON.stringify({ error: `No access token found for shop: ${shop}` }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    // Create job record
-    const { data: job, error: jobError } = await supabase
-      .from("bulk_sync_jobs")
-      .insert({
-        shop,
-        start_date: startDate,
-        end_date: endDate,
-        object_type: objectType,
-        status: "pending",
-      })
-      .select()
-      .single();
-
-    if (jobError || !job) {
-      throw new Error(`Failed to create job: ${jobError?.message}`);
-    }
-
-    console.log(`📋 Created job ${job.id} for ${shop} (${startDate} to ${endDate})`);
-
-    // Start multi-day processing
-    await supabase
-      .from("bulk_sync_jobs")
-      .update({ status: "running", started_at: new Date().toISOString() })
-      .eq("id", job.id);
-
-    const startTime = Date.now();
-    const days = generateDailyIntervals(startDate, endDate);
-    const dayResults: DayResult[] = [];
-
-    console.log(`📅 Processing ${days.length} day(s) from ${startDate} to ${endDate}`);
-
-    let totalOrders = 0;
-    let totalSkus = 0;
-
-    for (let i = 0; i < days.length; i++) {
-      const day = days[i];
-      const dayStart = Date.now();
-
-      // Check if we're approaching Edge Function timeout
-      const elapsedMs = Date.now() - startTime;
-      if (elapsedMs > EDGE_FUNCTION_TIMEOUT_MS) {
-        console.log(`⚠️ Approaching Edge Function timeout (${elapsedMs}ms elapsed). Stopping gracefully.`);
-
-        // Mark job as failed with timeout
-        await supabase
-          .from("bulk_sync_jobs")
-          .update({
-            status: "failed",
-            error_message: `Edge Function timeout after processing ${i}/${days.length} days`,
-            completed_at: new Date().toISOString(),
-            records_processed: totalOrders,
-          })
-          .eq("id", job.id);
-
-        return new Response(
-          JSON.stringify({
-            success: false,
-            error: "Edge Function timeout",
-            daysProcessed: i,
-            totalDays: days.length,
-            ordersProcessed: totalOrders,
-          }),
-          { status: 500, headers: { "Content-Type": "application/json" } }
-        );
-      }
-
-      console.log(`\n🔄 Day ${i + 1}/${days.length}: ${day.date} (${day.startISO} to ${day.endISO})`);
-
-      const dayResult = await processSingleDay(
-        shop,
-        shopifyToken,
-        day.startISO,
-        day.endISO,
-        supabase,
-        job.id,
-        day.date
-      );
-
-      dayResults.push(dayResult);
-
-      if (dayResult.status === "success") {
-        totalOrders += dayResult.ordersProcessed;
-        totalSkus += dayResult.skusProcessed;
-        const dayDuration = (dayResult.durationMs / 1000).toFixed(1);
-        console.log(`✅ Day completed: ${day.date} (${dayResult.ordersProcessed} orders, ${dayDuration}s)`);
-      } else if (dayResult.status === "skipped") {
-        console.log(`⏭️  Day skipped: ${day.date} - ${dayResult.error}`);
-      } else {
-        console.log(`❌ Day failed: ${day.date} - ${dayResult.error}`);
-      }
-    }
-
-    // Mark job complete
-    const totalDuration = Date.now() - startTime;
-    await supabase
-      .from("bulk_sync_jobs")
-      .update({
-        status: "completed",
-        orders_synced: totalOrders,
-        skus_synced: totalSkus,
-        records_processed: totalOrders + totalSkus,
-        completed_at: new Date().toISOString(),
-      })
-      .eq("id", job.id);
-
-    const successfulDays = dayResults.filter((r) => r.status === "success").length;
-    const failedDays = dayResults.filter((r) => r.status === "failed").length;
-    const skippedDays = dayResults.filter((r) => r.status === "skipped").length;
-
-    console.log(`\n🟡 Summary: ${totalOrders} orders synced in ${successfulDays} days, ${(totalDuration / 1000).toFixed(0)}s total`);
-    console.log(`   ✅ Successful: ${successfulDays} | ❌ Failed: ${failedDays} | ⏭️  Skipped: ${skippedDays}`);
+    // Update job with final status
+    await updateJobStatus(supabase, jobResult.jobId, {
+      status: results.hasErrors ? "failed" : "completed",
+      records_processed: results.totalRecords,
+      error_message: results.errors.join("; "),
+    }, testMode);
 
     return new Response(
       JSON.stringify({
-        success: true,
-        jobId: job.id,
-        status: "completed",
-        totalDays: days.length,
-        successfulDays,
-        failedDays,
-        skippedDays,
-        ordersProcessed: totalOrders,
-        skusProcessed: totalSkus,
-        recordsProcessed: totalOrders + totalSkus,
-        durationSec: Math.round(totalDuration / 1000),
-        dayResults,
+        success: !results.hasErrors,
+        message: `Processed ${results.totalRecords} orders across ${results.daysProcessed} days`,
+        details: results,
+        testMode,
       }),
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
 
-  } catch (error: any) {
-    console.error("❌ Error:", error.message);
-
-    // Try to update job status
-    try {
-      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-      const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-      const supabase = createClient(supabaseUrl, supabaseKey, {
-        auth: { persistSession: false }
-      });
-
-      // Find most recent pending/running job
-      const { data: jobs } = await supabase
-        .from("bulk_sync_jobs")
-        .select("id")
-        .in("status", ["pending", "running", "polling", "downloading", "processing"])
-        .order("created_at", { ascending: false })
-        .limit(1);
-
-      if (jobs && jobs.length > 0) {
-        await supabase
-          .from("bulk_sync_jobs")
-          .update({
-            status: "failed",
-            error_message: error.message,
-            completed_at: new Date().toISOString(),
-          })
-          .eq("id", jobs[0].id);
-      }
-    } catch (updateError) {
-      console.error("Failed to update job status:", updateError);
-    }
-
+  } catch (error) {
+    console.error("❌ Fatal error in bulk-sync-orders:", error);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({
+        error: error instanceof Error ? error.message : "Unknown error",
+        testMode: false
+      }),
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
 });
 
-function getShopifyToken(shop: string): string | null {
-  const shopMap: Record<string, string> = {
-    "pompdelux-da.myshopify.com": Deno.env.get("SHOPIFY_TOKEN_DA")!,
-    "pompdelux-de.myshopify.com": Deno.env.get("SHOPIFY_TOKEN_DE")!,
-    "pompdelux-nl.myshopify.com": Deno.env.get("SHOPIFY_TOKEN_NL")!,
-    "pompdelux-int.myshopify.com": Deno.env.get("SHOPIFY_TOKEN_INT")!,
-    "pompdelux-chf.myshopify.com": Deno.env.get("SHOPIFY_TOKEN_CHF")!,
-  };
-  return shopMap[shop] || null;
-}
-
-function generateDailyIntervals(startDate: string, endDate: string): Array<{ date: string; startISO: string; endISO: string }> {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  const days: Array<{ date: string; startISO: string; endISO: string }> = [];
-
-  let current = new Date(start);
-  while (current <= end) {
-    const dateStr = current.toISOString().split("T")[0];
-    const startISO = `${dateStr}T00:00:00Z`;
-    const endISO = `${dateStr}T23:59:59Z`;
-
-    days.push({ date: dateStr, startISO, endISO });
-
-    current.setDate(current.getDate() + 1);
+async function createOrUpdateJob(
+  supabase: any,
+  jobData: Partial<BulkSyncJob>,
+  testMode: boolean
+): Promise<{ success: boolean; jobId?: string; error?: string }> {
+  if (testMode) {
+    // In test mode, don't create actual job records
+    return { success: true, jobId: `test-${Date.now()}` };
   }
 
-  return days;
+  const { data, error } = await supabase
+    .from("bulk_sync_jobs")
+    .insert({
+      ...jobData,
+      started_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  return { success: true, jobId: data.id };
 }
 
-async function processSingleDay(
-  shop: string,
-  token: string,
-  startISO: string,
-  endISO: string,
+async function updateJobStatus(
   supabase: any,
   jobId: string,
-  day: string
-): Promise<DayResult> {
-  const dayStart = Date.now();
-  let retries = 0;
+  updates: Partial<BulkSyncJob>,
+  testMode: boolean
+): Promise<void> {
+  if (testMode) {
+    console.log(`[TEST MODE] Would update job ${jobId}:`, updates);
+    return;
+  }
 
-  while (retries < MAX_RETRIES) {
+  await supabase
+    .from("bulk_sync_jobs")
+    .update({
+      ...updates,
+      completed_at: updates.status === "completed" || updates.status === "failed"
+        ? new Date().toISOString()
+        : undefined,
+    })
+    .eq("id", jobId);
+}
+
+interface ProcessingConfig {
+  shop: string;
+  shopifyToken: string;
+  startDate: string;
+  endDate: string;
+  supabase: any;
+  testMode: boolean;
+  jobId: string;
+  functionStartTime: number;
+}
+
+interface ProcessingResults {
+  totalRecords: number;
+  daysProcessed: number;
+  errors: string[];
+  hasErrors: boolean;
+}
+
+async function processDailyBatches(config: ProcessingConfig): Promise<ProcessingResults> {
+  const results: ProcessingResults = {
+    totalRecords: 0,
+    daysProcessed: 0,
+    errors: [],
+    hasErrors: false,
+  };
+
+  const days = getDaysBetween(config.startDate, config.endDate);
+  console.log(`📅 Processing ${days.length} days...`);
+
+  for (const day of days) {
+    // Check timeout
+    if (Date.now() - config.functionStartTime > EDGE_FUNCTION_TIMEOUT_MS) {
+      console.log("⏱️ Approaching timeout, stopping gracefully");
+      break;
+    }
+
     try {
-      // Start bulk operation for this day
-      const bulkOp = await startBulkOperation(shop, token, startISO, endISO);
+      const dayResult = await processSingleDay({
+        ...config,
+        startDate: day,
+        endDate: day,
+      });
 
-      await supabase
-        .from("bulk_sync_jobs")
-        .update({
-          bulk_operation_id: bulkOp.id,
-          status: "polling",
-          day: day
-        })
-        .eq("id", jobId);
+      results.totalRecords += dayResult.recordsProcessed || 0;
+      results.daysProcessed++;
 
-      // Poll for completion
-      const completedOp = await pollBulkOperation(shop, token, bulkOp.id, jobId, supabase);
-
-      if (completedOp.status === "FAILED") {
-        const errorCode = completedOp.errorCode || "UNKNOWN";
-
-        // Retry on throttling or transient errors
-        if (errorCode === "THROTTLED" || errorCode === "INTERNAL_SERVER_ERROR") {
-          retries++;
-          console.log(`⚠️  Day ${day} failed with ${errorCode}, retry ${retries}/${MAX_RETRIES}...`);
-          await new Promise((resolve) => setTimeout(resolve, 5000 * retries)); // Exponential backoff
-          continue;
-        }
-
-        // Non-retryable error
-        return {
-          day,
-          status: "failed",
-          ordersProcessed: 0,
-          skusProcessed: 0,
-          durationMs: Date.now() - dayStart,
-          error: `Bulk operation failed: ${errorCode}`,
-        };
-      }
-
-      // Download and process
-      await supabase
-        .from("bulk_sync_jobs")
-        .update({
-          status: "processing",
-          file_url: completedOp.url,
-          file_size_bytes: completedOp.fileSize
-        })
-        .eq("id", jobId);
-
-      const { ordersProcessed, skusProcessed } = await processJSONL(
-        completedOp.url!,
-        shop,
-        supabase,
-        jobId
-      );
-
-      return {
-        day,
-        status: "success",
-        ordersProcessed,
-        skusProcessed,
-        durationMs: Date.now() - dayStart,
-      };
-
-    } catch (error: any) {
-      retries++;
-      console.log(`⚠️  Day ${day} error: ${error.message}, retry ${retries}/${MAX_RETRIES}...`);
-
-      if (retries >= MAX_RETRIES) {
-        return {
-          day,
-          status: "failed",
-          ordersProcessed: 0,
-          skusProcessed: 0,
-          durationMs: Date.now() - dayStart,
-          error: error.message,
-        };
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 5000 * retries));
+      console.log(`✅ Day ${day}: ${dayResult.recordsProcessed} orders`);
+    } catch (error) {
+      const errorMsg = `Failed ${day}: ${error instanceof Error ? error.message : "Unknown error"}`;
+      console.error(errorMsg);
+      results.errors.push(errorMsg);
+      results.hasErrors = true;
     }
   }
 
-  // Should never reach here
-  return {
-    day,
-    status: "failed",
-    ordersProcessed: 0,
-    skusProcessed: 0,
-    durationMs: Date.now() - dayStart,
-    error: "Max retries exceeded",
-  };
+  return results;
+}
+
+async function processSingleDay(config: ProcessingConfig): Promise<BulkOperationResult> {
+  const { shop, shopifyToken, startDate, endDate, supabase, testMode } = config;
+
+  console.log(`📅 Processing ${startDate} for ${shop}...`);
+
+  // Start bulk operation
+  const bulkOp = await startBulkOperation(shop, shopifyToken, startDate, endDate);
+  if (!bulkOp.success || !bulkOp.operation) {
+    const errorMsg = bulkOp.error || "Failed to start bulk operation";
+    console.error(`❌ Failed to start bulk operation: ${errorMsg}`);
+    throw new Error(errorMsg);
+  }
+
+  console.log(`🚀 Bulk operation started: ${bulkOp.operation.id}`);
+
+  // Poll for completion
+  const resultUrl = await pollBulkOperation(shop, shopifyToken, bulkOp.operation.id);
+  if (!resultUrl) {
+    // Check the specific operation status
+    const finalStatus = await checkBulkOperationStatus(shop, shopifyToken, bulkOp.operation.id);
+    if (finalStatus?.errorCode === "ACCESS_DENIED") {
+      throw new Error("ACCESS_DENIED: The Shopify token may lack required permissions for bulk operations");
+    } else if (finalStatus?.status === "FAILED") {
+      throw new Error(`Bulk operation failed with error: ${finalStatus.errorCode || "Unknown error"}`);
+    } else {
+      throw new Error("Bulk operation timed out or was cancelled");
+    }
+  }
+
+  // Download and process results
+  console.log(`📥 Downloading results from: ${resultUrl}`);
+  const orders = await downloadBulkResults(resultUrl);
+
+  if (orders.length === 0) {
+    console.log(`ℹ️ No orders found for ${startDate}`);
+    return { success: true, message: "No orders found", recordsProcessed: 0 };
+  }
+
+  console.log(`📦 Found ${orders.length} orders to process`);
+
+  // Transform orders for database
+  const orderRecords = orders.map(order => transformOrder(order, shop));
+
+  // Insert to database
+  if (testMode) {
+    console.log(`[TEST MODE] Would insert ${orderRecords.length} orders`);
+    return { success: true, message: "Test mode - no data written", recordsProcessed: orderRecords.length };
+  }
+
+  const { success, error } = await batchUpsert(
+    supabase,
+    "orders",
+    orderRecords,
+    ["shop", "order_id"]
+  );
+
+  if (!success) {
+    throw new Error(error?.message || "Failed to insert orders");
+  }
+
+  console.log(`✅ Successfully synced ${orderRecords.length} orders for ${startDate}`);
+  return { success: true, message: "Orders synced", recordsProcessed: orderRecords.length };
 }
 
 async function startBulkOperation(
   shop: string,
-  token: string,
+  shopifyToken: string,
   startDate: string,
   endDate: string
-): Promise<ShopifyBulkOperation> {
-  // Shopify Bulk Operations requires FLAT query - all objects at top-level with __parentId
+): Promise<{ success: boolean; operation?: ShopifyBulkOperation; error?: string }> {
+  // First, check if there's an existing bulk operation
+  const existingOp = await checkBulkOperationStatus(shop, shopifyToken);
+
+  if (existingOp) {
+    console.log(`ℹ️ Found existing bulk operation: Status=${existingOp.status}, Error=${existingOp.errorCode || 'None'}`);
+
+    // Handle different statuses
+    if (existingOp.status === "RUNNING" || existingOp.status === "CREATED") {
+      console.log("⚠️ Cancelling active bulk operation...");
+      const cancelResult = await cancelBulkOperation(shop, shopifyToken);
+      if (cancelResult.success) {
+        console.log("✅ Cancelled existing bulk operation");
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } else {
+        console.error("❌ Failed to cancel:", cancelResult.error);
+      }
+    } else if (existingOp.status === "FAILED") {
+      console.warn(`⚠️ Previous operation failed with ${existingOp.errorCode} - ignoring and proceeding...`);
+      // Failed operations should not block new ones
+      // Shopify should allow a new operation even if the last one failed
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    } else if (existingOp.status === "COMPLETED") {
+      console.log("ℹ️ Previous operation completed - safe to start new one");
+    }
+  }
+
+  // For same-day queries, add a small delay to allow Shopify indexing
+  const queryDate = new Date(startDate);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (queryDate.getTime() === today.getTime()) {
+    console.log("⏳ Same-day query detected, adding 3-second delay for Shopify indexing...");
+    await new Promise(resolve => setTimeout(resolve, 3000));
+  }
+
   const query = `
     mutation {
       bulkOperationRunQuery(
         query: """
         {
-          orders(query: "created_at:>=${startDate} created_at:<=${endDate}") {
+          orders(
+            query: "created_at:>='${startDate}T00:00:00Z' AND created_at:<='${endDate}T23:59:59Z'"
+            sortKey: CREATED_AT
+          ) {
             edges {
               node {
                 id
@@ -398,30 +322,37 @@ async function startBulkOperation(
                 createdAt
                 updatedAt
                 cancelledAt
-                shippingAddress {
-                  countryCode
-                }
-                currentTotalPriceSet {
-                  shopMoney { amount currencyCode }
-                }
-                originalTotalPriceSet {
-                  shopMoney { amount currencyCode }
-                }
                 subtotalPriceSet {
-                  shopMoney { amount currencyCode }
+                  shopMoney {
+                    amount
+                    currencyCode
+                  }
                 }
                 totalDiscountsSet {
-                  shopMoney { amount currencyCode }
+                  shopMoney {
+                    amount
+                  }
+                }
+                totalPriceSet {
+                  shopMoney {
+                    amount
+                  }
                 }
                 totalTaxSet {
-                  shopMoney { amount currencyCode }
-                }
-                shippingLine {
-                  discountedPriceSet {
-                    shopMoney { amount currencyCode }
+                  shopMoney {
+                    amount
                   }
-                  originalPriceSet {
-                    shopMoney { amount currencyCode }
+                }
+                totalShippingPriceSet {
+                  shopMoney {
+                    amount
+                  }
+                }
+                lineItems(first: 250) {
+                  edges {
+                    node {
+                      id
+                    }
                   }
                 }
               }
@@ -442,36 +373,186 @@ async function startBulkOperation(
     }
   `;
 
-  const response = await fetch(`https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Shopify-Access-Token": token,
-    },
-    body: JSON.stringify({ query }),
+  return withRetry(async () => {
+    const response = await fetch(
+      `https://${shop}/admin/api/${SHOPIFY_CONFIG.API_VERSION}/graphql.json`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": shopifyToken,
+        },
+        body: JSON.stringify({ query }),
+      }
+    );
+
+    const data = await response.json();
+    if (data.errors) {
+      // Check if error is about existing operation
+      const errorStr = JSON.stringify(data.errors);
+      if (errorStr.includes("already running") || errorStr.includes("bulk operation")) {
+        return {
+          success: false,
+          error: "Bulk operation conflict - another operation may be running. Please try again in a moment."
+        };
+      }
+      throw new Error(errorStr);
+    }
+
+    const result = data.data?.bulkOperationRunQuery;
+    if (result?.userErrors?.length > 0) {
+      const userErrorStr = JSON.stringify(result.userErrors);
+      // Check for bulk operation already running error
+      if (userErrorStr.includes("already running") || userErrorStr.includes("bulk operation")) {
+        return {
+          success: false,
+          error: "A bulk operation is already running. Please wait and try again."
+        };
+      }
+      throw new Error(userErrorStr);
+    }
+
+    if (!result?.bulkOperation) {
+      return {
+        success: false,
+        error: "No bulk operation returned from Shopify"
+      };
+    }
+
+    console.log(`✅ Bulk operation started with ID: ${result.bulkOperation.id}`);
+    return {
+      success: true,
+      operation: result.bulkOperation as ShopifyBulkOperation
+    };
   });
+}
 
-  const result = await response.json();
+async function cancelBulkOperation(
+  shop: string,
+  shopifyToken: string
+): Promise<{ success: boolean; error?: string }> {
+  const query = `
+    mutation {
+      bulkOperationCancel {
+        bulkOperation {
+          id
+          status
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
 
-  if (result.errors) {
-    throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  try {
+    const response = await fetch(
+      `https://${shop}/admin/api/${SHOPIFY_CONFIG.API_VERSION}/graphql.json`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": shopifyToken,
+        },
+        body: JSON.stringify({ query }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (data.errors) {
+      return { success: false, error: JSON.stringify(data.errors) };
+    }
+
+    const result = data.data?.bulkOperationCancel;
+    if (result?.userErrors?.length > 0) {
+      return { success: false, error: JSON.stringify(result.userErrors) };
+    }
+
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error cancelling operation"
+    };
   }
-
-  if (result.data?.bulkOperationRunQuery?.userErrors?.length > 0) {
-    throw new Error(`User errors: ${JSON.stringify(result.data.bulkOperationRunQuery.userErrors)}`);
-  }
-
-  return result.data.bulkOperationRunQuery.bulkOperation;
 }
 
 async function pollBulkOperation(
   shop: string,
-  token: string,
-  operationId: string,
-  jobId: string,
-  supabase: any
-): Promise<ShopifyBulkOperation> {
-  const query = `
+  shopifyToken: string,
+  operationId: string
+): Promise<string | null> {
+  console.log(`📊 Polling bulk operation ${operationId}...`);
+  let lastStatus = "";
+
+  for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+
+    // Try to get the specific operation by ID first
+    let status = await checkBulkOperationStatus(shop, shopifyToken, operationId);
+
+    // If that fails, fall back to currentBulkOperation
+    if (!status) {
+      status = await checkBulkOperationStatus(shop, shopifyToken);
+      if (status && status.id !== operationId) {
+        console.log(`⚠️ Current operation is different (${status.id}), waiting for our operation...`);
+        continue;
+      }
+    }
+
+    if (!status) {
+      console.log(`⚠️ Poll attempt ${attempt + 1}: No status returned`);
+      continue;
+    }
+
+    // Only log if status changed
+    if (status.status !== lastStatus) {
+      console.log(`📊 Poll attempt ${attempt + 1}: Status = ${status.status}, Objects = ${status.objectCount || 0}`);
+      lastStatus = status.status;
+    }
+
+    if (status.status === "COMPLETED" && status.url) {
+      console.log(`✅ Bulk operation completed! Objects processed: ${status.objectCount || 0}`);
+      return status.url;
+    }
+
+    if (status.status === "FAILED") {
+      console.error(`❌ Bulk operation FAILED with error: ${status.errorCode || "Unknown error"}`);
+      return null;
+    }
+
+    if (status.status === "CANCELLED") {
+      console.error(`🚫 Bulk operation was CANCELLED`);
+      return null;
+    }
+  }
+
+  console.error(`⏱️ Bulk operation timed out after ${MAX_POLL_ATTEMPTS} attempts`);
+  return null;
+}
+
+async function checkBulkOperationStatus(
+  shop: string,
+  shopifyToken: string,
+  operationId?: string
+): Promise<ShopifyBulkOperation | null> {
+  // If we have a specific operation ID, try to get it directly
+  const query = operationId ? `
+    query {
+      node(id: "${operationId}") {
+        ... on BulkOperation {
+          id
+          status
+          errorCode
+          url
+          objectCount
+          fileSize
+        }
+      }
+    }
+  ` : `
     query {
       currentBulkOperation {
         id
@@ -484,275 +565,130 @@ async function pollBulkOperation(
     }
   `;
 
-  for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
-    const response = await fetch(`https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Access-Token": token,
-      },
-      body: JSON.stringify({ query }),
-    });
+  try {
+    const response = await fetch(
+      `https://${shop}/admin/api/${SHOPIFY_CONFIG.API_VERSION}/graphql.json`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": shopifyToken,
+        },
+        body: JSON.stringify({ query }),
+      }
+    );
 
-    const result = await response.json();
-    const operation: ShopifyBulkOperation = result.data?.currentBulkOperation;
+    const data = await response.json();
 
-    if (!operation) {
-      throw new Error("No current bulk operation found");
+    if (operationId) {
+      // When querying by ID, the result is in node
+      return data.data?.node;
+    } else {
+      // When querying currentBulkOperation
+      return data.data?.currentBulkOperation;
     }
-
-    console.log(`📊 Poll #${attempt + 1}: ${operation.status} (${operation.objectCount || 0} objects)`);
-
-    if (operation.status === "COMPLETED" || operation.status === "FAILED") {
-      return operation;
-    }
-
-    // Wait before next poll
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+  } catch (error) {
+    console.error("Error checking bulk operation status:", error);
+    return null;
   }
-
-  throw new Error("Polling timeout: operation did not complete within maximum attempts");
 }
 
-async function processJSONL(
-  url: string,
-  shop: string,
-  supabase: any,
-  jobId: string
-): Promise<{ ordersProcessed: number; skusProcessed: number }> {
+async function downloadBulkResults(url: string): Promise<ShopifyOrder[]> {
   const response = await fetch(url);
   const text = await response.text();
-  const lines = text.split("\n").filter((line) => line.trim());
 
-  console.log(`📄 Processing ${lines.length} JSONL lines...`);
-
-  const ordersBatch: any[] = [];
-  const skusBatch: any[] = [];
-  const orderRefunds: Map<string, any> = new Map();
-
-  let ordersProcessed = 0;
-  let skusProcessed = 0;
+  const orders: ShopifyOrder[] = [];
+  const lines = text.trim().split('\n');
 
   for (const line of lines) {
-    const obj = JSON.parse(line);
-
-    // Process order
-    if (obj.__typename === "Order" || obj.id?.includes("Order")) {
-      const orderData = parseOrder(obj, shop);
-      ordersBatch.push(orderData);
-
-      // Store refund info for later SKU processing
-      if (obj.refunds && obj.refunds.length > 0) {
-        orderRefunds.set(obj.id, obj.refunds);
+    if (!line) continue;
+    try {
+      const data = JSON.parse(line);
+      if (data.id && data.id.includes("Order")) {
+        orders.push(data);
       }
-
-      // Process line items (SKUs)
-      if (obj.lineItems?.edges) {
-        for (const edge of obj.lineItems.edges) {
-          const lineItem = edge.node;
-          const skuData = parseLineItem(lineItem, obj, shop, orderRefunds.get(obj.id));
-          if (skuData) {
-            skusBatch.push(skuData);
-          }
-        }
-      }
-
-      // Batch upsert when reaching batch size
-      if (ordersBatch.length >= BATCH_SIZE) {
-        await upsertOrders(supabase, ordersBatch);
-        ordersProcessed += ordersBatch.length;
-        ordersBatch.length = 0;
-
-        console.log(`✅ Upserted ${ordersProcessed} orders...`);
-      }
-
-      if (skusBatch.length >= BATCH_SIZE) {
-        await upsertSkus(supabase, skusBatch);
-        skusProcessed += skusBatch.length;
-        skusBatch.length = 0;
-
-        console.log(`✅ Upserted ${skusProcessed} SKUs...`);
-      }
+    } catch (e) {
+      console.error("Error parsing line:", e);
     }
   }
 
-  // Final batch upsert
-  if (ordersBatch.length > 0) {
-    await upsertOrders(supabase, ordersBatch);
-    ordersProcessed += ordersBatch.length;
-  }
-
-  if (skusBatch.length > 0) {
-    await upsertSkus(supabase, skusBatch);
-    skusProcessed += skusBatch.length;
-  }
-
-  console.log(`✅ Processed ${ordersProcessed} orders and ${skusProcessed} SKUs`);
-
-  return { ordersProcessed, skusProcessed };
+  return orders;
 }
 
-function parseOrder(order: any, shop: string): any {
-  const currency = order.currentTotalPriceSet?.shopMoney?.currencyCode || "DKK";
-  const rate = CURRENCY_RATES[currency] || 1.0;
+function transformOrder(order: ShopifyOrder, shop: string): OrderRecord {
+  const currencyMultiplier = getCurrencyMultiplier(shop);
+  const taxRate = getTaxRate(shop);
 
-  // Calculate values
-  const currentTotal = parseFloat(order.currentTotalPriceSet?.shopMoney?.amount || "0") * rate;
-  const totalTax = parseFloat(order.totalTaxSet?.shopMoney?.amount || "0") * rate;
-  const totalDiscountsInclTax = parseFloat(order.totalDiscountsSet?.shopMoney?.amount || "0") * rate;
-  const shippingCostExTax = parseFloat(order.shippingLine?.discountedPriceSet?.shopMoney?.amount || "0") * rate;
+  const subtotal = parseFloat(order.subtotalPriceSet.shopMoney.amount) * currencyMultiplier;
+  const total = parseFloat(order.totalPriceSet.shopMoney.amount) * currencyMultiplier;
+  const totalDiscount = parseFloat(order.totalDiscountsSet.shopMoney.amount) * currencyMultiplier;
+  const totalTax = parseFloat(order.totalTaxSet.shopMoney.amount) * currencyMultiplier;
+  const shipping = parseFloat(order.totalShippingPriceSet.shopMoney.amount) * currencyMultiplier;
 
-  // Calculate discount EX TAX (remove VAT from total discount)
-  // Shopify's totalDiscountsSet includes tax, but we need to store ex tax
-  const subtotal = parseFloat(order.subtotalPriceSet?.shopMoney?.amount || "0") * rate;
-  let totalDiscountsExTax = totalDiscountsInclTax;
+  // Extract order ID
+  const orderId = order.id.split('/').pop() || order.id;
 
-  if (subtotal > 0 && totalTax > 0) {
-    const shippingTax = shippingCostExTax * 0.25;
-    const productTax = totalTax - shippingTax;
-    const productSubtotalExTax = subtotal - productTax;
-
-    if (productSubtotalExTax > 0) {
-      const taxRateOnProducts = productTax / productSubtotalExTax;
-      totalDiscountsExTax = totalDiscountsInclTax / (1 + taxRateOnProducts);
-    }
-  }
-
-  // Calculate refund data
-  let refundedAmount = 0;
-  let refundedQty = 0;
-  let refundDate = null;
-
-  if (order.refunds && order.refunds.length > 0) {
-    for (const refund of order.refunds) {
-      refundedAmount += parseFloat(refund.totalRefundedSet?.shopMoney?.amount || "0") * rate;
-
-      for (const edge of refund.refundLineItems?.edges || []) {
-        refundedQty += edge.node.quantity || 0;
-      }
-
-      const processedAt = refund.transactions?.edges?.[0]?.node?.processedAt || refund.createdAt;
-      if (processedAt && (!refundDate || new Date(processedAt) > new Date(refundDate))) {
-        refundDate = processedAt;
-      }
-    }
-  }
-
-  // Item count
-  let itemCount = 0;
-  for (const edge of order.lineItems?.edges || []) {
-    itemCount += edge.node.quantity || 0;
-  }
+  // Calculate values for the actual database schema
+  const discountedTotal = total - shipping; // Total minus shipping
+  const totalDiscountsExTax = totalDiscount; // Discount amount
 
   return {
     shop,
-    order_id: order.id.split("/").pop(),
+    order_id: orderId,
     created_at: order.createdAt,
-    country: order.shippingAddress?.countryCode || "DK",
-    discounted_total: currentTotal,
-    tax: totalTax,
-    shipping: shippingCostExTax,
-    item_count: itemCount,
-    refunded_amount: refundedAmount,
-    refunded_qty: refundedQty,
-    refund_date: refundDate,
-    total_discounts_ex_tax: totalDiscountsExTax, // ✅ Now EX TAX
-    cancelled_qty: 0, // Will be calculated from SKUs
-    sale_discount_total: 0, // Not available in bulk data
-    combined_discount_total: totalDiscountsExTax, // ✅ Now EX TAX (sale_discount_total will be added later by SQL function)
+    updated_at: order.updatedAt || order.createdAt,
+    country: shop.includes('-da') ? 'DK' :
+            shop.includes('-de') ? 'DE' :
+            shop.includes('-nl') ? 'NL' :
+            shop.includes('-chf') ? 'CH' : 'INT',
+    discounted_total: discountedTotal,
+    tax: totalTax > 0 ? totalTax : calculateTax(subtotal, totalDiscount, taxRate),
+    shipping: shipping,
+    item_count: order.lineItems?.edges?.length || 0,
+    refunded_amount: 0, // Will be updated by bulk-sync-refunds
+    refunded_qty: 0, // Will be updated by bulk-sync-refunds
+    refund_date: null, // Will be updated by bulk-sync-refunds
+    total_discounts_ex_tax: totalDiscountsExTax,
+    cancelled_qty: 0, // Will be updated by bulk-sync-refunds if order is cancelled
+    raw_data: {
+      tax: totalTax > 0 ? totalTax : calculateTax(subtotal, totalDiscount, taxRate),
+      shop,
+      country: shop.includes('-da') ? 'DK' :
+              shop.includes('-de') ? 'DE' :
+              shop.includes('-nl') ? 'NL' :
+              shop.includes('-chf') ? 'CH' : 'INT',
+      orderId,
+      shipping,
+      createdAt: order.createdAt,
+      itemCount: order.lineItems?.edges?.length || 0,
+      refundDate: "",
+      refundedQty: 0,
+      cancelledQty: 0,
+      refundedAmount: 0,
+      discountedTotal,
+      saleDiscountTotal: 0, // Will be calculated from SKU data
+      totalDiscountsExTax: totalDiscountsExTax,
+      combinedDiscountTotal: totalDiscountsExTax
+    },
+    sale_discount_total: 0, // Will be calculated from SKU data
+    combined_discount_total: totalDiscountsExTax
   };
 }
 
-function parseLineItem(lineItem: any, order: any, shop: string, refunds: any[]): any {
-  if (!lineItem.sku) return null;
-
-  const currency = lineItem.originalUnitPriceSet?.shopMoney?.currencyCode || "DKK";
-  const rate = CURRENCY_RATES[currency] || 1.0;
-
-  // Prices (incl. tax)
-  const originalUnitPrice = parseFloat(lineItem.originalUnitPriceSet?.shopMoney?.amount || "0") * rate;
-  const discountedUnitPrice = parseFloat(lineItem.discountedUnitPriceSet?.shopMoney?.amount || "0") * rate;
-  const totalDiscount = parseFloat(lineItem.totalDiscountSet?.shopMoney?.amount || "0") * rate;
-
-  // Tax amount per unit
-  // Try to get tax from taxLines if available
-  const taxLinesArray = Array.isArray(lineItem.taxLines) ? lineItem.taxLines : (lineItem.taxLines?.edges?.map((e: any) => e.node) || []);
-  let totalTaxPerUnit = 0;
-
-  if (taxLinesArray.length > 0) {
-    // Use actual tax amounts from taxLines
-    totalTaxPerUnit = taxLinesArray.reduce((sum: number, taxLine: any) => {
-      const taxAmount = parseFloat(taxLine.priceSet?.shopMoney?.amount || "0");
-      return sum + taxAmount;
-    }, 0) * rate;
-  } else {
-    // Fallback: calculate tax proportionally from order-level tax
-    // This ensures we don't use hardcoded rates
-    const orderTotalTax = parseFloat(order.totalTaxSet?.shopMoney?.amount || "0") * rate;
-    const orderSubtotal = parseFloat(order.subtotalPriceSet?.shopMoney?.amount || "0") * rate;
-
-    if (orderSubtotal > 0) {
-      // Calculate this item's share of total tax based on its price
-      const itemProportion = discountedUnitPrice / orderSubtotal;
-      totalTaxPerUnit = orderTotalTax * itemProportion;
-    }
-  }
-
-  // Calculate price_dkk (ex tax) by subtracting tax from discounted price
-  const priceExTax = discountedUnitPrice - totalTaxPerUnit;
-
-  // Find refund data for this SKU
-  let refundedQty = 0;
-  let refundDate = null;
-
-  if (refunds) {
-    for (const refund of refunds) {
-      for (const edge of refund.refundLineItems?.edges || []) {
-        if (edge.node.lineItem?.id === lineItem.id) {
-          refundedQty += edge.node.quantity || 0;
-          const processedAt = refund.transactions?.edges?.[0]?.node?.processedAt || refund.createdAt;
-          if (processedAt && (!refundDate || new Date(processedAt) > new Date(refundDate))) {
-            refundDate = processedAt;
-          }
-        }
-      }
-    }
-  }
-
-  return {
-    shop,
-    order_id: order.id.split("/").pop(),
-    sku: lineItem.sku,
-    created_at: order.createdAt,
-    country: order.shippingAddress?.countryCode || "DK",
-    product_title: lineItem.name,
-    variant_title: lineItem.variantTitle,
-    quantity: lineItem.quantity,
-    refunded_qty: refundedQty,
-    price_dkk: priceExTax,
-    refund_date: refundDate,
-    total_discount_dkk: totalDiscount * rate,
-    discount_per_unit_dkk: (totalDiscount * rate) / lineItem.quantity,
-    cancelled_qty: 0, // Will be updated separately if needed
-  };
+function calculateTax(subtotal: number, discount: number, taxRate: number): number {
+  return (subtotal - discount) * taxRate;
 }
 
-async function upsertOrders(supabase: any, orders: any[]): Promise<void> {
-  const { error } = await supabase
-    .from("orders")
-    .upsert(orders, { onConflict: "shop,order_id" });
+function getDaysBetween(startDate: string, endDate: string): string[] {
+  const days: string[] = [];
+  const current = new Date(startDate);
+  const end = new Date(endDate);
 
-  if (error) {
-    throw new Error(`Failed to upsert orders: ${error.message}`);
+  while (current <= end) {
+    days.push(current.toISOString().split('T')[0]);
+    current.setDate(current.getDate() + 1);
   }
+
+  return days;
 }
 
-async function upsertSkus(supabase: any, skus: any[]): Promise<void> {
-  const { error } = await supabase
-    .from("skus")
-    .upsert(skus, { onConflict: "shop,order_id,sku" });
-
-  if (error) {
-    throw new Error(`Failed to upsert SKUs: ${error.message}`);
-  }
-}

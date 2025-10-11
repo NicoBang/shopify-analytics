@@ -1,7 +1,9 @@
-# CLAUDE.md - Shopify Analytics Project Documentation
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## 🧩 Project Context
-This project syncs Shopify order and SKU data to Supabase for analytics and reporting.
+This project syncs Shopify order and SKU data to Supabase for analytics and reporting. It replaces a legacy Google Apps Script solution with a modern Node.js/Supabase architecture, achieving 100x faster performance.
 
 **Architecture:**
 - Supabase Edge Functions (TypeScript/Deno runtime)
@@ -32,14 +34,20 @@ This project syncs Shopify order and SKU data to Supabase for analytics and repo
 
 ## 🔄 Sync Functions
 
-### **bulk-sync-orders**
+### **bulk-sync-orders** ✅ FIXED (2025-10-11)
 - **Purpose:** Syncs order-level data to `orders` table only
 - **Method:** Shopify Bulk Operations API (GraphQL)
 - **Does NOT write to `skus` table** (handled by bulk-sync-skus)
+- **Fixed Issues:**
+  - ✅ Removed `customer` and `billingAddress` fields (ACCESS_DENIED)
+  - ✅ Changed from `current*` field names to standard names
+  - ✅ Updated to match actual database schema
+  - ✅ Now successfully syncs orders for all shops
 
-### **bulk-sync-skus**
+### **bulk-sync-skus** ✅ VERIFIED (2025-10-11)
 - **Purpose:** Syncs SKU/line item data to `skus` table
 - **Method:** Shopify Bulk Operations API (GraphQL)
+- **Status:** Working correctly in production
 - **Features:**
   - ✅ Duplikat-aggregering (prevents ON CONFLICT errors)
   - ✅ Sets `created_at_original` from Shopify order timestamp
@@ -48,6 +56,8 @@ This project syncs Shopify order and SKU data to Supabase for analytics and repo
     - `sale_discount_per_unit_dkk` (compareAtPrice - sellingPrice)
     - `original_price_dkk` (compareAtPrice from Shopify)
   - ✅ Handles cancelled_qty/cancelled_amount_dkk (set to 0, updated by bulk-sync-refunds)
+  - ✅ No ACCESS_DENIED issues (doesn't query customer/billingAddress)
+  - ✅ Successfully syncs SKUs to database
 
 ### **bulk-sync-refunds**
 - **Purpose:** Updates SKU refund/cancellation data
@@ -106,6 +116,68 @@ This project syncs Shopify order and SKU data to Supabase for analytics and repo
   .lte("created_at", "2025-09-30T23:59:59Z")
   ```
 
+## 🛠️ Development Commands
+
+### Testing
+```bash
+# Run all tests
+npm test
+
+# Run reconciliation tests (analytics accuracy)
+npm run test:reconciliation
+
+# Watch mode for development
+npm run test:watch
+
+# Coverage report
+npm run test:coverage
+
+# Test specific functionality
+node src/test-complete.js              # Full system test
+node src/test-fetch-orders.js         # Test order fetching
+node src/test-config.js               # Test configuration
+```
+
+### Sync Operations
+```bash
+# Complete sync for date range (BOTH orders AND SKUs)
+./sync-complete.sh 2025-10-01 2025-10-07
+
+# Large backfill (>7 days) - use incremental job creation
+./create-all-jobs.sh 2025-08-01 2025-09-30
+./check-sync-status.sh 2025-08-01 2025-09-30
+
+# Smart incremental sync (auto-detects missing data)
+./smart-incremental-sync.sh 2024-09-30 2025-10-10
+
+# Fix failed syncs
+./fix-failed-sku-sync.sh
+./retry-failed-jobs.sh
+```
+
+### Monitoring & Status
+```bash
+# Check sync job status
+./check-sync-status.sh 2025-08-01 2025-09-30
+./real-status.sh                      # Real-time status
+./live-sync-monitor.sh                # Live monitoring
+
+# Test watchdog (cleanup stale jobs)
+./test-watchdog.sh
+
+# Manual cleanup
+./cleanup-stale-jobs.sh
+```
+
+### Deployment
+```bash
+# Deploy Edge Function
+npx supabase functions deploy <function-name> --no-verify-jwt
+
+# Deploy smart sync functions
+./deploy-smart-sync.sh
+```
+
 ## ⚙️ Development Style
 - Keep answers concise and focused
 - No session history summaries or context reconstruction
@@ -114,15 +186,50 @@ This project syncs Shopify order and SKU data to Supabase for analytics and repo
 - **IMPORTANT:** When providing SQL for user to run manually, ALWAYS output raw SQL in code block (never use mcp__supabase__execute_sql which times out)
 
 ## 🧱 Technical Stack
-- **Runtime:** Deno (Supabase Edge)
+- **Runtime:** Deno (Supabase Edge Functions)
 - **API:** Shopify Admin GraphQL Bulk Operations API
 - **Database:** Supabase (PostgreSQL)
-- **Language:** TypeScript
+- **Language:** TypeScript (Edge Functions), JavaScript (Vercel API)
 - **Scheduling:** pg_cron + pg_net extensions
+- **Testing:** Jest with 30-second timeout for API calls
 
-## 📦 Deployment
+## 🏗️ High-Level Architecture
+
+### Data Flow
+1. **Shopify → Edge Functions**: Bulk Operations API fetches order/SKU data in parallel
+2. **Edge Functions → Database**: Upserts to PostgreSQL with conflict resolution
+3. **Orchestrator Pattern**: Job queue prevents timeouts on large operations
+4. **Cron Jobs**: Automated processing via pg_cron + pg_net
+5. **API → Google Sheets**: Vercel endpoints serve analytics data
+
+### Key Design Decisions
+- **Bulk Operations API**: Handles millions of records without timeout
+- **Job Queue Pattern**: Breaks large syncs into manageable chunks
+- **Duplicate Aggregation**: Prevents conflicts by pre-aggregating SKU duplicates
+- **Separate Tables**: Orders and SKUs in different tables for performance
+- **Smart Sync**: Auto-detects and fills missing data gaps
+
+### Multi-Shop Support
+The system handles 5 Shopify shops with automatic currency conversion:
+- 🇩🇰 `pompdelux-da.myshopify.com` (DKK)
+- 🇩🇪 `pompdelux-de.myshopify.com` (EUR → DKK)
+- 🇳🇱 `pompdelux-nl.myshopify.com` (EUR → DKK)
+- 🌍 `pompdelux-int.myshopify.com` (EUR → DKK)
+- 🇨🇭 `pompdelux-chf.myshopify.com` (CHF → DKK)
+
+### Environment Variables Required
 ```bash
-npx supabase functions deploy <function-name> --no-verify-jwt
+# Supabase
+SUPABASE_URL=https://[project-id].supabase.co
+SUPABASE_SERVICE_ROLE_KEY=eyJ...  # Service role key for Edge Functions
+SERVICE_ROLE_KEY=eyJ...            # Alternative name for same key
+
+# Shopify (one token per shop)
+SHOPIFY_TOKEN_DA=shpat_...
+SHOPIFY_TOKEN_DE=shpat_...
+SHOPIFY_TOKEN_NL=shpat_...
+SHOPIFY_TOKEN_INT=shpat_...
+SHOPIFY_TOKEN_CHF=shpat_...
 ```
 
 ## 🔄 Orchestration Pattern for Large Backfills
@@ -235,23 +342,42 @@ SELECT cron.schedule(
 - `supabase/functions/bulk-sync-skus/index.ts` - SKU sync (skus table with full discount logic)
 - `supabase/functions/bulk-sync-refunds/index.ts` - Refund/cancellation updates
 - `supabase/functions/bulk-sync-orchestrator/index.ts` - Job creator
-- `supabase/functions/continue-orchestrator/index.ts` - Job processor
+- `supabase/functions/continue-orchestrator/index.ts` - Job processor (processes 20 jobs per run)
 - `supabase/functions/watchdog/index.ts` - Stale job cleanup
+- `supabase/functions/smart-order-sync/index.ts` - Smart incremental order sync
+- `supabase/functions/smart-sku-sync/index.ts` - Smart incremental SKU sync
 
-### API Endpoints
-- `api/analytics.js` - Main analytics API
+### API Endpoints (Vercel)
+- `api/analytics.js` - Main analytics API (dashboard data)
 - `api/metadata.js` - Product metadata API
 - `api/fulfillments.js` - Delivery analytics API
 
 ### Helper Scripts
-- `restart-orchestrator.sh` - Start large backfills
-- `check-sync-status.sh` - Check job status
-- `test-watchdog.sh` - Test watchdog cleanup
-- `cleanup-stale-jobs.sh` - Manual cleanup
+- **Sync Scripts:**
+  - `sync-complete.sh` - Complete sync for date range (recommended)
+  - `smart-incremental-sync.sh` - Auto-detect and fill gaps
+  - `create-all-jobs.sh` - Create jobs for large backfills
+
+- **Monitoring:**
+  - `check-sync-status.sh` - Check job status
+  - `real-status.sh` - Real-time status
+  - `live-sync-monitor.sh` - Continuous monitoring
+
+- **Recovery:**
+  - `fix-failed-sku-sync.sh` - Fix failed SKU syncs
+  - `retry-failed-jobs.sh` - Retry all failed jobs
+  - `cleanup-stale-jobs.sh` - Manual cleanup
+
+### Test Files
+- `tests/analytics/reconciliation.test.js` - Data accuracy tests
+- `tests/setup.js` - Test environment configuration
+- `src/test-complete.js` - Full system test
+- `src/test-fetch-orders.js` - Order fetching test
 
 ### Documentation
-- `SYNC-MANUAL.md` - Sync workflow guide (Danish)
-- `CLAUDE.md` - This file
+- `SYNC-MANUAL.md` - Complete sync workflow guide (Danish)
+- `README.md` - Project overview and migration guide
+- `DEPLOYMENT.md` - Deployment instructions
 
 ## 🎯 Critical Rules
 
@@ -262,3 +388,25 @@ SELECT cron.schedule(
 5. **Table Separation:** bulk-sync-orders → orders table, bulk-sync-skus → skus table
 6. **Extensions:** pg_cron + pg_net must both be enabled for automation
 7. **Deployment:** Always use `--no-verify-jwt` flag
+
+## 🔍 Quick Troubleshooting Guide
+
+### "Missing data in dashboard"
+1. Check if SKUs were synced (not just orders): `./check-sync-status.sh <date-range>`
+2. Verify filtering by `created_at_original` in queries
+3. Run complete sync: `./sync-complete.sh <start> <end>`
+
+### "Sync timeout on large date range"
+1. Use incremental job creation: `./create-all-jobs.sh <start> <end>`
+2. Jobs process automatically every 5 minutes
+3. Monitor progress: `./live-sync-monitor.sh`
+
+### "Duplicate key violations"
+1. bulk-sync-skus should aggregate duplicates automatically
+2. If persists, check for race conditions in parallel syncs
+3. Use smart sync to auto-fix: `./smart-incremental-sync.sh <date-range>`
+
+### "Jobs stuck as 'running'"
+1. Check watchdog is active: `./test-watchdog.sh`
+2. Ensure pg_net extension is enabled in Supabase
+3. Manual cleanup: `./cleanup-stale-jobs.sh`

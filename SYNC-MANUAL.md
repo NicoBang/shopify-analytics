@@ -113,6 +113,61 @@ curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/bulk-sync-or
 
 ---
 
+### Continue Orchestrator (SKUs & Refunds)
+
+Brug: Processeer pending jobs i `bulk_sync_jobs` for enten `skus` eller `refunds` (default: `skus`). Understøtter valgfri `shop`-filter og kører i små batches for at undgå timeouts.
+
+1) Opret pending jobs for perioden 2025-10-01 → 2025-10-10 (refunds)
+
+Via Edge Function (hvis du har `create-missing-jobs`):
+
+```bash
+curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/create-missing-jobs" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "shop": "pompdelux-da.myshopify.com",
+    "startDate": "2025-01-01",
+    "endDate": "2025-01-07",
+    "objectType": "refunds"
+  }'
+```
+
+Eller direkte insert i tabellen (enkelt job for hele perioden):
+
+```bash
+curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/rest/v1/bulk_sync_jobs" \
+  -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM" \
+  -H "Content-Type: application/json" \
+  -H "Prefer: return=representation" \
+  -d '{
+    "shop": "pompdelux-da.myshopify.com",
+    "start_date": "2025-10-01",
+    "end_date": "2025-10-10",
+    "object_type": "refunds",
+    "status": "pending"
+  }'
+```
+
+2) Kør continue-orchestrator for refunds (valgfrit med shop-filter)
+
+```bash
+curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/continue-orchestrator" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "objectType": "refunds",
+    "shop": "pompdelux-da.myshopify.com"
+  }'
+```
+
+Udelad `shop` for at processe alle shops. Kald flere gange indtil svaret er `{ "complete": true }`.
+
+Eksempel (SKUs): `-d '{ "objectType": "skus" }'`
+
+---
+
 ### 2. Sync Orders (Manual)
 
 **Brug:** Sync enkelte shop/dato kombinationer for orders.
@@ -161,7 +216,7 @@ curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/bulk-sync-sk
 **Vigtigt:** Dette fanger ordrer fra tidligere perioder der får refund i den valgte periode.
 
 ```bash
-curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/bulk-sync-refund-orders" \
+curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/bulk-sync-refunds" \
   -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM" \
   -H "Content-Type: application/json" \
   -d '{
@@ -471,7 +526,7 @@ Watchdog funktionen kører automatisk hver 2. minut og cleaner stalled jobs.
 **Problem:** Samme ordre/SKU eksisterer flere gange.
 
 **Løsning:** Upsert håndterer normalt dette automatisk. Hvis det sker:
-- bulk-sync-refund-orders har pre-cleanup
+- bulk-sync-refunds har pre-cleanup
 - Manuel cleanup kan køres hvis nødvendigt
 
 ---
@@ -529,6 +584,7 @@ VERCEL_API_URL=https://shopify-analytics-9ckj1fm3r-nicolais-projects-291e9559.ve
 | **Complete sync (ANBEFALET)** | `./sync-complete.sh START END` |
 | Orders only (IKKE anbefalet) | `./sync-date-range.sh START END` |
 | Refund sync (updated_at) | `./sync-date-range-refunds.sh START END` |
+| Continue orchestrator (refunds) | `curl -X POST "$SUPABASE_URL/functions/v1/continue-orchestrator" -H "Authorization: Bearer $SERVICE_ROLE_KEY" -H "Content-Type: application/json" -d '{"objectType":"refunds"}'` |
 | Fulfillments sync | `./sync-fulfillments.sh START END` |
 | Metadata sync | `./sync-metadata.sh` |
 | Check status | `./check-sync-status.sh START END` |
@@ -536,7 +592,7 @@ VERCEL_API_URL=https://shopify-analytics-9ckj1fm3r-nicolais-projects-291e9559.ve
 | Cleanup stale | `./cleanup-stale-jobs.sh` |
 | Single order sync | `bulk-sync-orders` + curl |
 | Single SKU sync | `bulk-sync-skus` + curl |
-| Manual refund sync | `bulk-sync-refund-orders` + curl |
+| Manual refund sync | `bulk-sync-refunds` + curl |
 
 ---
 
@@ -546,7 +602,8 @@ VERCEL_API_URL=https://shopify-analytics-9ckj1fm3r-nicolais-projects-291e9559.ve
 Køres på Supabase infrastruktur med service role key:
 - `bulk-sync-orders` - Syncer ordrer baseret på `created_at`
 - `bulk-sync-skus` - Syncer SKU data baseret på ordre dato
-- `bulk-sync-refund-orders` - Syncer refund data baseret på `updated_at`
+- `bulk-sync-refunds` - Syncer refund data baseret på `updated_at`
+- `continue-orchestrator` - Processeer pending jobs (skus/refunds) i små batches
 - `bulk-sync-orchestrator` - Koordinerer syncs på tværs af shops og datoer
 
 ### Vercel API'er
@@ -601,6 +658,19 @@ SELECT cron.schedule(
 ```
 
 **Formål:** Processor automatisk pending jobs fra `bulk_sync_jobs` tabellen. Bruges til at fortsætte store backfills uden manuel intervention.
+
+Refunds-only (valgfrit): Fokusér kun på refunds-jobs ved at sende body:
+
+```sql
+SELECT net.http_post(
+  url := 'https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/continue-orchestrator',
+  headers := jsonb_build_object(
+    'Authorization', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM',
+    'Content-Type', 'application/json'
+  ),
+  body := '{"objectType":"refunds"}'::jsonb
+);
+```
 
 #### Daglig Sync (kl. 06:00 Copenhagen tid)
 ```sql

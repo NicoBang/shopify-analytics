@@ -22,6 +22,67 @@ interface BulkSyncRequest {
   includeRefunds?: boolean;
   targetTable?: "skus" | "sku_price_verification";  // ✅ Support verification table
   filterQuantity?: number;  // ✅ Optional: only sync quantity > filterQuantity
+  testMode?: boolean;  // ✅ Skip job logging in test mode
+}
+
+interface BulkSyncJob {
+  shop: string;
+  object_type: "skus";
+  start_date: string;
+  end_date: string;
+  status: "pending" | "running" | "completed" | "failed";
+  records_processed?: number;
+  error_message?: string;
+}
+
+// Job logging helper functions
+async function createJobLog(
+  supabase: any,
+  jobData: BulkSyncJob,
+  testMode: boolean
+): Promise<{ success: boolean; jobId?: string; error?: string }> {
+  if (testMode) {
+    console.log("[TEST MODE] Skipping job log creation");
+    return { success: true, jobId: `test-${Date.now()}` };
+  }
+
+  const { data, error } = await supabase
+    .from("bulk_sync_jobs")
+    .insert({
+      ...jobData,
+      started_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("⚠️ Failed to create job log:", error.message);
+    return { success: false, error: error.message };
+  }
+
+  return { success: true, jobId: data.id };
+}
+
+async function updateJobStatus(
+  supabase: any,
+  jobId: string,
+  updates: Partial<BulkSyncJob>,
+  testMode: boolean
+): Promise<void> {
+  if (testMode) {
+    console.log(`[TEST MODE] Would update job ${jobId}:`, updates);
+    return;
+  }
+
+  await supabase
+    .from("bulk_sync_jobs")
+    .update({
+      ...updates,
+      completed_at: updates.status === "completed" || updates.status === "failed"
+        ? new Date().toISOString()
+        : undefined,
+    })
+    .eq("id", jobId);
 }
 
 // ✅ explicit Deno.env fallback for local Supabase CLI
@@ -41,7 +102,8 @@ serve(async (req: Request): Promise<Response> => {
       endDate,
       includeRefunds = false,
       targetTable = "skus",
-      filterQuantity = 0
+      filterQuantity = 0,
+      testMode = false
     }: BulkSyncRequest = body;
     if (!shop || !startDate || !endDate) {
       return new Response(
@@ -63,6 +125,21 @@ serve(async (req: Request): Promise<Response> => {
     const token = getShopifyToken(shop);
     if (!token) throw new Error(`No Shopify token found for shop ${shop}`);
 
+    // Create job log
+    const jobLogResult = await createJobLog(
+      supabase,
+      {
+        shop,
+        object_type: "skus",
+        start_date: startDate,
+        end_date: endDate,
+        status: "running",
+      },
+      testMode
+    );
+
+    const jobId = jobLogResult.jobId;
+
     const days = generateDailyIntervals(startDate, endDate);
     const results: any[] = [];
     const startTime = Date.now();
@@ -75,13 +152,29 @@ serve(async (req: Request): Promise<Response> => {
       if (elapsedMs > EDGE_FUNCTION_TIMEOUT_MS) {
         console.log(`⚠️ Approaching Edge Function timeout (${elapsedMs}ms elapsed). Stopping gracefully.`);
 
+        const skusProcessed = results.reduce((sum, r) => sum + (r.skusProcessed || 0), 0);
+
+        // Update job status to failed
+        if (jobId) {
+          await updateJobStatus(
+            supabase,
+            jobId,
+            {
+              status: "failed",
+              records_processed: skusProcessed,
+              error_message: `Edge Function timeout after ${elapsedMs}ms - processed ${i}/${days.length} days`,
+            },
+            testMode
+          );
+        }
+
         return new Response(
           JSON.stringify({
             success: false,
             error: "Edge Function timeout",
             daysProcessed: i,
             totalDays: days.length,
-            skusProcessed: results.reduce((sum, r) => sum + (r.skusProcessed || 0), 0),
+            skusProcessed,
             message: `Processed ${i}/${days.length} days before timeout`,
           }),
           { status: 500, headers: { "Content-Type": "application/json" } }
@@ -93,7 +186,21 @@ serve(async (req: Request): Promise<Response> => {
       results.push(res);
     }
 
-    const skuSyncResult = { success: true, results };
+    const totalSkusProcessed = results.reduce((sum, r) => sum + (r.skusProcessed || 0), 0);
+    const skuSyncResult = { success: true, results, skusProcessed: totalSkusProcessed };
+
+    // Update job status to completed
+    if (jobId) {
+      await updateJobStatus(
+        supabase,
+        jobId,
+        {
+          status: "completed",
+          records_processed: totalSkusProcessed,
+        },
+        testMode
+      );
+    }
 
     // 🎯 Sequential orchestration: call bulk-sync-refunds if requested
     if (includeRefunds) {
@@ -139,8 +246,42 @@ serve(async (req: Request): Promise<Response> => {
     });
   } catch (err: any) {
     console.error("Function error:", err);
+
+    // Update job status to failed if we have a jobId
+    const errorMessage = err.message || "Internal Error";
+
+    // Try to get supabase client for error logging
+    try {
+      const supabase = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+        { auth: { persistSession: false } }
+      );
+
+      const body = await req.json().catch(() => ({}));
+      const testMode = body.testMode || false;
+
+      // If we can extract shop/dates from body, create a failed job log
+      if (body.shop && body.startDate && body.endDate) {
+        await createJobLog(
+          supabase,
+          {
+            shop: body.shop,
+            object_type: "skus",
+            start_date: body.startDate,
+            end_date: body.endDate,
+            status: "failed",
+            error_message: errorMessage.substring(0, 500),
+          },
+          testMode
+        );
+      }
+    } catch (logError) {
+      console.error("⚠️ Failed to log error to bulk_sync_jobs:", logError);
+    }
+
     return new Response(
-      JSON.stringify({ error: err.message || "Internal Error" }),
+      JSON.stringify({ error: errorMessage }),
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
