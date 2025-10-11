@@ -6,7 +6,20 @@ export interface ShopifyOrder {
   createdAt: string;
   updatedAt: string;
   cancelledAt: string | null;
-  subtotalPriceSet: {
+  // Original values at purchase time (unaffected by refunds)
+  originalTotalPriceSet: {
+    shopMoney: {
+      amount: string;
+      currencyCode: string;
+    };
+  };
+  originalTotalLineItemsPriceSet: {
+    shopMoney: {
+      amount: string;
+      currencyCode: string;
+    };
+  };
+  originalTotalShippingSet: {
     shopMoney: {
       amount: string;
       currencyCode: string;
@@ -17,21 +30,20 @@ export interface ShopifyOrder {
       amount: string;
     };
   };
-  totalPriceSet: {
-    shopMoney: {
-      amount: string;
-    };
-  };
   totalTaxSet: {
     shopMoney: {
       amount: string;
     };
   };
-  totalShippingPriceSet: {
-    shopMoney: {
-      amount: string;
+  // Refunds - to be calculated from refunds array
+  refunds?: Array<{
+    createdAt: string;
+    totalRefundedSet: {
+      shopMoney: {
+        amount: string;
+      };
     };
-  };
+  }>;
   // Customer and billingAddress removed - causes ACCESS_DENIED in bulk operations
   // customer: {
   //   email: string | null;

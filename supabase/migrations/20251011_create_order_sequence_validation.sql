@@ -20,6 +20,9 @@ CREATE TABLE order_sequence_validation (
     shopify_order_number BIGINT NOT NULL,
     order_id BIGINT NOT NULL,
 
+    -- Shopify order timestamp
+    created_at TIMESTAMPTZ NOT NULL,
+
     -- Metadata for tracking
     first_seen_at TIMESTAMPTZ DEFAULT NOW(),
     last_verified_at TIMESTAMPTZ DEFAULT NOW(),
@@ -131,6 +134,7 @@ SELECT
     osv.shop,
     osv.shopify_order_number,
     osv.order_id,
+    osv.created_at,
     osv.exists_in_orders,
     osv.exists_in_skus,
     osv.first_seen_at,

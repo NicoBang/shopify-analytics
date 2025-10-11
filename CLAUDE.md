@@ -32,6 +32,20 @@ This project syncs Shopify order and SKU data to Supabase for analytics and repo
 - Job queue for orchestrator pattern
 - Tracks sync progress: pending → running → completed/failed
 
+### `order_sequence_validation` table ✨ NEW (2025-10-11)
+- **Purpose:** Data consistency validation - detect missing orders
+- **Source:** Fetched directly from Shopify (separate from orders/skus sync)
+- **Columns:**
+  - `shop`, `shopify_order_number` (sequential 1,2,3...), `order_id`
+  - `created_at` (Shopify order timestamp)
+  - `exists_in_orders`, `exists_in_skus` (validation flags)
+- **Use Case:** Find gaps in order sequences (e.g., missing order #847 when shop has #1-#1459)
+- **Views:**
+  - `order_sequence_gaps` - finds missing order numbers in sequence
+  - `order_sequence_missing_data` - finds orders missing from orders/skus tables
+- **Sync:** `./sync-order-sequences.sh [shop] [startDate] [endDate]`
+- **Validation:** `./check-order-sequence.sh [shop]`
+
 ## 🔄 Sync Functions
 
 ### **bulk-sync-orders** ✅ FIXED (2025-10-11)
@@ -77,6 +91,14 @@ This project syncs Shopify order and SKU data to Supabase for analytics and repo
 ### **watchdog**
 - **Purpose:** Cleans up stale jobs stuck in "running" status (>2 minutes)
 - **Auto-scheduled:** Runs every minute via pg_cron
+
+### **sync-order-sequences** ✨ NEW (2025-10-11)
+- **Purpose:** Fetch order sequence numbers from Shopify for validation
+- **Data:** `shop`, `orderNumber` (1,2,3...), `order_id`, `createdAt`
+- **Writes to:** `order_sequence_validation` table
+- **Use:** Detect missing orders by comparing against orders/skus tables
+- **Manual:** `./sync-order-sequences.sh [shop] [startDate] [endDate]`
+- **Deploy:** `npx supabase functions deploy sync-order-sequences --no-verify-jwt`
 
 ## 📊 Discount Calculation Logic
 
@@ -153,6 +175,10 @@ node src/test-config.js               # Test configuration
 # Fix failed syncs
 ./fix-failed-sku-sync.sh
 ./retry-failed-jobs.sh
+
+# Order sequence validation (detect missing orders)
+./sync-order-sequences.sh [shop] [startDate] [endDate]
+./check-order-sequence.sh [shop]
 ```
 
 ### Monitoring & Status
@@ -208,6 +234,7 @@ npx supabase functions deploy <function-name> --no-verify-jwt
 - **Duplicate Aggregation**: Prevents conflicts by pre-aggregating SKU duplicates
 - **Separate Tables**: Orders and SKUs in different tables for performance
 - **Smart Sync**: Auto-detects and fills missing data gaps
+- **Order Sequence Validation**: Independent data source from Shopify to detect missing orders
 
 ### Multi-Shop Support
 The system handles 5 Shopify shops with automatic currency conversion:

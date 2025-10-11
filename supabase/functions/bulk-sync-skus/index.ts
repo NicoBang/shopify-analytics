@@ -125,7 +125,37 @@ serve(async (req: Request): Promise<Response> => {
     const token = getShopifyToken(shop);
     if (!token) throw new Error(`No Shopify token found for shop ${shop}`);
 
-    // Create job log
+    // === 🧹 Step 1: Auto-cleanup stale running jobs (older than 10 min) ===
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    await supabase
+      .from("bulk_sync_jobs")
+      .update({
+        status: "failed",
+        error_message: "Auto-cleanup: running > 10 min",
+      })
+      .eq("object_type", "skus")
+      .eq("status", "running")
+      .lt("started_at", tenMinutesAgo);
+
+    // === 🔍 Step 2: Check for other concurrent running SKU jobs ===
+    const { data: runningJobs, error: checkError } = await supabase
+      .from("bulk_sync_jobs")
+      .select("id, shop, start_date, status")
+      .eq("shop", shop)
+      .eq("object_type", "skus")
+      .eq("status", "running");
+
+    if (checkError) console.warn("⚠️ Failed to check running jobs:", checkError.message);
+
+    if (runningJobs && runningJobs.length > 0) {
+      console.log(`⏸️ Skipping SKU sync for ${shop} — another SKU job already running`);
+      return new Response(
+        JSON.stringify({ error: "Another SKU job already running", jobId: runningJobs[0].id }),
+        { status: 409 }
+      );
+    }
+
+    // === ✅ Step 3: Create job log ===
     const jobLogResult = await createJobLog(
       supabase,
       {
@@ -137,6 +167,10 @@ serve(async (req: Request): Promise<Response> => {
       },
       testMode
     );
+
+    if (!jobLogResult.success) {
+      throw new Error(`Failed to create job log: ${jobLogResult.error}`);
+    }
 
     const jobId = jobLogResult.jobId;
 
@@ -240,6 +274,20 @@ serve(async (req: Request): Promise<Response> => {
       }
     }
 
+    // Refresh materialized view for order existence checks
+    try {
+      console.log("🔄 Refreshing skus_order_index materialized view...");
+      const { error: refreshError } = await supabase.rpc('refresh_skus_order_index');
+
+      if (refreshError) {
+        console.error("⚠️ Failed to refresh skus_order_index:", refreshError.message);
+      } else {
+        console.log("✅ skus_order_index refreshed successfully");
+      }
+    } catch (refreshError: any) {
+      console.error("⚠️ Failed to refresh skus_order_index:", refreshError.message);
+    }
+
     return new Response(JSON.stringify(skuSyncResult), {
       status: 200,
       headers: { "Content-Type": "application/json" },
@@ -341,6 +389,8 @@ async function syncSkusForDay(
                 currencyCode
                 taxesIncluded
                 shippingAddress { countryCode }
+                subtotalPriceSet { shopMoney { amount currencyCode } }
+                totalTaxSet { shopMoney { amount currencyCode } }
                 lineItems {
                   edges {
                     node {
@@ -489,7 +539,7 @@ async function syncSkusForDay(
   }
 
   // 🌍 Build order metadata mapping from Orders (Order → LineItem relation)
-  const orderMetadataMap = new Map<string, { country: string | null; createdAt: string }>();
+  const orderMetadataMap = new Map<string, { country: string | null; createdAt: string; subtotal: string | null; totalTax: string | null }>();
   for (const line of lines) {
     const obj = JSON.parse(line);
     // Orders don't have __parentId, LineItems do
@@ -503,7 +553,9 @@ async function syncSkusForDay(
 
       orderMetadataMap.set(orderId, {
         country: obj.shippingAddress?.countryCode || null,
-        createdAt: obj.createdAt, // Use Shopify's timestamp, not current time
+        createdAt: obj.createdAt,
+        subtotal: obj.subtotalPriceSet?.shopMoney?.amount || null,
+        totalTax: obj.totalTaxSet?.shopMoney?.amount || null,
       });
     }
   }
@@ -601,8 +653,7 @@ async function syncSkusForDay(
     });
 
     if (batch.length >= BATCH_SIZE) {
-      await upsertSkus(supabase, batch);
-      skusCount += batch.length;
+      skusCount += await upsertSkus(supabase, batch);
       batch.length = 0;
     }
   }
@@ -610,8 +661,7 @@ async function syncSkusForDay(
   console.log(`✅ LineItems found and processed: ${lineItemsFound}`);
 
   if (batch.length > 0) {
-    await upsertSkus(supabase, batch);
-    skusCount += batch.length;
+    skusCount += await upsertSkus(supabase, batch);
   }
 
   console.log(`💾 Total SKUs upserted to database: ${skusCount}`);
@@ -631,7 +681,7 @@ async function upsertSkus(supabase: any, skus: any[], targetTable: string = "sku
 
   if (filteredSkus.length === 0) {
     console.log(`⏭️  No SKUs match filter (quantity > ${filterQuantity}), skipping upsert`);
-    return;
+    return 0; // Return 0 affected
   }
 
   console.log(`💾 Attempting to upsert ${filteredSkus.length} SKUs to ${targetTable}...`);
@@ -675,17 +725,27 @@ async function upsertSkus(supabase: any, skus: any[], targetTable: string = "sku
 
   console.log(`📤 Starting upsert of ${aggregated.length} SKUs to ${targetTable}...`);
 
-  const { data, error } = await supabase
-    .from(targetTable)
-    .upsert(aggregated, { onConflict: "shop,order_id,sku" });
+  const MAX_RETRIES = 3;
 
-  if (error) {
-    console.error(`❌ Supabase upsert error:`, JSON.stringify(error, null, 2));
-    console.error(`❌ First failed SKU:`, JSON.stringify(aggregated[0], null, 2));
-    throw new Error(`Failed upsert SKUs: ${error.message}`);
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const { data, error } = await supabase
+      .from(targetTable)
+      .upsert(aggregated, { onConflict: "shop,order_id,sku" })
+      .select();
+
+    if (error) {
+      console.error(`❌ Batch failed (attempt ${attempt}): ${error.message}`);
+      if (attempt < MAX_RETRIES) await new Promise((r) => setTimeout(r, attempt * 1000));
+    } else {
+      const affected = data?.length || 0;
+      if (affected === 0)
+        console.warn(`⚠️ No matching rows found in batch`);
+      console.log(`✅ Batch updated ${affected} rows`);
+      return affected;
+    }
   }
 
-  console.log(`✅ Successfully upserted ${aggregated.length} SKUs (returned data count: ${data?.length || 'null'})`);
+  throw new Error(`Failed to upsert after ${MAX_RETRIES} attempts`);
 }
 
 async function syncRefunds(

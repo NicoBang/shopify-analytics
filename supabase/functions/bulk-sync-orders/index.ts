@@ -322,7 +322,19 @@ async function startBulkOperation(
                 createdAt
                 updatedAt
                 cancelledAt
-                subtotalPriceSet {
+                originalTotalPriceSet {
+                  shopMoney {
+                    amount
+                    currencyCode
+                  }
+                }
+                originalTotalLineItemsPriceSet {
+                  shopMoney {
+                    amount
+                    currencyCode
+                  }
+                }
+                originalTotalShippingSet {
                   shopMoney {
                     amount
                     currencyCode
@@ -333,17 +345,7 @@ async function startBulkOperation(
                     amount
                   }
                 }
-                totalPriceSet {
-                  shopMoney {
-                    amount
-                  }
-                }
                 totalTaxSet {
-                  shopMoney {
-                    amount
-                  }
-                }
-                totalShippingPriceSet {
                   shopMoney {
                     amount
                   }
@@ -619,18 +621,20 @@ function transformOrder(order: ShopifyOrder, shop: string): OrderRecord {
   const currencyMultiplier = getCurrencyMultiplier(shop);
   const taxRate = getTaxRate(shop);
 
-  const subtotal = parseFloat(order.subtotalPriceSet.shopMoney.amount) * currencyMultiplier;
-  const total = parseFloat(order.totalPriceSet.shopMoney.amount) * currencyMultiplier;
+  // Use ORIGINAL values at purchase time (unaffected by refunds)
+  const originalSubtotal = parseFloat(order.originalTotalLineItemsPriceSet.shopMoney.amount) * currencyMultiplier;
+  const originalTotal = parseFloat(order.originalTotalPriceSet.shopMoney.amount) * currencyMultiplier;
+  const originalShipping = parseFloat(order.originalTotalShippingSet.shopMoney.amount) * currencyMultiplier;
   const totalDiscount = parseFloat(order.totalDiscountsSet.shopMoney.amount) * currencyMultiplier;
   const totalTax = parseFloat(order.totalTaxSet.shopMoney.amount) * currencyMultiplier;
-  const shipping = parseFloat(order.totalShippingPriceSet.shopMoney.amount) * currencyMultiplier;
 
   // Extract order ID
   const orderId = order.id.split('/').pop() || order.id;
 
-  // Calculate values for the actual database schema
-  const discountedTotal = total - shipping; // Total minus shipping
-  const totalDiscountsExTax = totalDiscount; // Discount amount
+  // discounted_total = originalTotalPriceSet (which already includes all discounts and shipping)
+  // Since originalTotalPriceSet is the final total at purchase time, we use it directly
+  const discountedTotal = originalTotal;
+  const totalDiscountsExTax = totalDiscount;
 
   return {
     shop,
@@ -642,8 +646,8 @@ function transformOrder(order: ShopifyOrder, shop: string): OrderRecord {
             shop.includes('-nl') ? 'NL' :
             shop.includes('-chf') ? 'CH' : 'INT',
     discounted_total: discountedTotal,
-    tax: totalTax > 0 ? totalTax : calculateTax(subtotal, totalDiscount, taxRate),
-    shipping: shipping,
+    tax: totalTax > 0 ? totalTax : calculateTax(originalSubtotal, totalDiscount, taxRate),
+    shipping: originalShipping,
     item_count: order.lineItems?.edges?.length || 0,
     refunded_amount: 0, // Will be updated by bulk-sync-refunds
     refunded_qty: 0, // Will be updated by bulk-sync-refunds
@@ -651,14 +655,14 @@ function transformOrder(order: ShopifyOrder, shop: string): OrderRecord {
     total_discounts_ex_tax: totalDiscountsExTax,
     cancelled_qty: 0, // Will be updated by bulk-sync-refunds if order is cancelled
     raw_data: {
-      tax: totalTax > 0 ? totalTax : calculateTax(subtotal, totalDiscount, taxRate),
+      tax: totalTax > 0 ? totalTax : calculateTax(originalSubtotal, totalDiscount, taxRate),
       shop,
       country: shop.includes('-da') ? 'DK' :
               shop.includes('-de') ? 'DE' :
               shop.includes('-nl') ? 'NL' :
               shop.includes('-chf') ? 'CH' : 'INT',
       orderId,
-      shipping,
+      shipping: originalShipping,
       createdAt: order.createdAt,
       itemCount: order.lineItems?.edges?.length || 0,
       refundDate: "",

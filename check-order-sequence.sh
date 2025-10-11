@@ -18,13 +18,8 @@ NC='\033[0m' # No Color
 
 # Configuration
 SUPABASE_URL="${SUPABASE_URL:-https://ihawjrtfwysyokfotewn.supabase.co}"
+SERVICE_ROLE_KEY="${SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM}"
 SUPABASE_SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-${SERVICE_ROLE_KEY}}"
-
-# Check required environment variables
-if [ -z "$SUPABASE_SERVICE_KEY" ]; then
-    echo -e "${RED}Error: SUPABASE_SERVICE_ROLE_KEY or SERVICE_ROLE_KEY environment variable not set${NC}"
-    exit 1
-fi
 
 SHOP="${1:-all}"
 
