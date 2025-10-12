@@ -179,29 +179,29 @@ class SupabaseService {
     }
   }
 
-  async updateProductMetadata(metadata) {
+  async updateProductMetadata(metadata, tableName = 'product_metadata') {
     if (!metadata || metadata.length === 0) return { count: 0 };
 
-    console.log(`📋 Updating ${metadata.length} product metadata items...`);
+    console.log(`📋 Updating ${metadata.length} product metadata items to ${tableName}...`);
 
     const dbMetadata = metadata.map(item => ({
       ...item,
-      last_updated: new Date().toISOString()
+      updated_at: new Date().toISOString()
     }));
 
     const { data, error } = await this.supabase
-      .from('product_metadata')
+      .from(tableName)
       .upsert(dbMetadata, {
         onConflict: 'sku',
         ignoreDuplicates: false
       });
 
     if (error) {
-      console.error('❌ Error updating product metadata:', error);
+      console.error(`❌ Error updating ${tableName}:`, error);
       throw error;
     }
 
-    console.log(`✅ Successfully updated ${metadata.length} product metadata items`);
+    console.log(`✅ Successfully updated ${metadata.length} items in ${tableName}`);
     return { count: metadata.length, data };
   }
 
