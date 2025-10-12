@@ -109,13 +109,19 @@ This project syncs Shopify order and SKU data to Supabase for analytics and repo
 - Stored in: `discount_per_unit_dkk`, `total_discount_dkk`
 
 ### Sale/Campaign Discounts
-- Difference between list price (compareAtPrice) and selling price
+- Difference between original price and discounted selling price
 - Stored in: `sale_discount_per_unit_dkk`, `sale_discount_total_dkk`
-- `original_price_dkk` = compareAtPrice (the "before sale" price)
+- `original_price_dkk` = MAX(originalUnitPrice, compareAtPrice)
+
+**Shopify Price Logic:**
+- When item is NOT on sale: `price` = 679, `compareAtPrice` = 0
+- When item IS on sale: `price` = 203.70, `compareAtPrice` = 679
+- Therefore: `original_price_dkk` = MAX(originalUnitPrice, compareAtPrice)
+- Sale discount = original_price - discounted_price
 
 **CRITICAL FIX (October 2025):**
-- Previously used `originalUnitPriceSet` (wrong - that's price before order discounts)
-- Now correctly uses `compareAtPrice` (list price before any sales/campaigns)
+- Previously used `compareAtPrice - originalPrice` (wrong - both are same when on sale)
+- Now correctly uses `MAX(originalPrice, compareAtPrice) - discountedPrice`
 - Dashboard API must SELECT both `discount_per_unit_dkk` AND `sale_discount_per_unit_dkk`
 
 ## 🧭 Date and Timestamp Handling Rules

@@ -606,15 +606,25 @@ async function syncSkusForDay(
     const discountTax = totalDiscountRaw > 0 && price > 0 ? (totalTaxPerUnit * totalDiscountRaw / (price * rate)) : 0;
     const totalDiscountDkk = totalDiscountRaw - discountTax;
 
-    // ✅ CORRECTED: Calculate sale discount using compareAtPrice (not originalPrice)
-    // compareAtPrice = list price before any sale/campaign
-    // originalPrice = price before order-level discounts were applied
-    // price (discountedUnitPrice) = final price customer pays
-    // Sale discount = difference between list price and original price (before order discounts)
-    const compareAtPriceDkk = compareAtPrice > 0 ? (compareAtPrice * rate) - totalTaxPerUnit : 0;
+    // ✅ SOLUTION: Calculate order-level discounts from Shopify LineItem data
+    //
+    // ORDER-LEVEL DISCOUNT (from Shopify):
+    // - originalUnitPriceSet = price before order-level discounts (coupon codes, automatic discounts)
+    // - discountedUnitPriceSet = final price customer pays
+    // - Order discount = originalUnitPrice - discountedUnitPrice
+    //
+    // SALE/CAMPAIGN DISCOUNT (from product_metadata):
+    // - Will be calculated AFTER upsert via updateOriginalPricesFromMetadata()
+    // - product_metadata has historical compareAt prices
+    // - We'll convert to ex VAT before comparison
+    //
+    // NOTE: Shopify's variant.compareAtPrice returns CURRENT price, not historical
+    // Therefore we cannot use it for historical orders - must use product_metadata
     const originalPriceDkk = originalPrice > 0 ? (originalPrice * rate) - totalTaxPerUnit : 0;
-    const saleDiscountPerUnit = compareAtPrice > originalPrice && compareAtPrice > 0 ? compareAtPriceDkk - originalPriceDkk : 0;
-    const saleDiscountTotal = saleDiscountPerUnit * (obj.quantity || 1);
+
+    // For now, set these to 0 - will be calculated from product_metadata
+    const saleDiscountPerUnit = 0;
+    const saleDiscountTotal = 0;
 
     // ✅ ALWAYS use Shopify's order creation timestamp
     const shopifyCreatedAt = orderMetadata?.createdAt;
@@ -640,7 +650,7 @@ async function syncSkusForDay(
       price_dkk: priceDkk,
       total_discount_dkk: totalDiscountDkk,
       discount_per_unit_dkk: totalDiscountDkk / (obj.quantity || 1),
-      original_price_dkk: compareAtPriceDkk, // ✅ FIXED: Use compareAtPrice instead of originalPrice
+      original_price_dkk: originalPriceDkk, // ✅ SOLUTION 1: Use Shopify's originalUnitPriceSet
       sale_discount_per_unit_dkk: saleDiscountPerUnit,
       sale_discount_total_dkk: saleDiscountTotal,
       country: orderMetadata?.country || null,
@@ -665,6 +675,12 @@ async function syncSkusForDay(
   }
 
   console.log(`💾 Total SKUs upserted to database: ${skusCount}`);
+
+  // ✅ Update sale discounts from product_metadata (all shops)
+  if (skusCount > 0) {
+    console.log(`\n🔄 Updating original_price_dkk from product_metadata...`);
+    await updateOriginalPricesFromMetadata(supabase, shop, startISO.split("T")[0]);
+  }
 
   return {
     day: startISO.split("T")[0],
@@ -746,6 +762,125 @@ async function upsertSkus(supabase: any, skus: any[], targetTable: string = "sku
   }
 
   throw new Error(`Failed to upsert after ${MAX_RETRIES} attempts`);
+}
+
+/**
+ * Update original_price_dkk and sale_discount fields using product_metadata
+ * CRITICAL: Convert product_metadata prices to ex VAT before comparison
+ * Multi-currency support: DK uses product_metadata, EUR shops use product_metadata_eur, CHF uses product_metadata_chf
+ */
+async function updateOriginalPricesFromMetadata(
+  supabase: SupabaseClient,
+  shop: string,
+  startDate: string
+): Promise<void> {
+  console.log(`\n🔄 Updating sale discounts from product_metadata for ${shop} on ${startDate}...`);
+
+  // Determine metadata table and VAT rate based on shop
+  let metadataTable: string;
+  let vatRate: number;
+
+  if (shop === 'pompdelux-da.myshopify.com') {
+    metadataTable = 'product_metadata';
+    vatRate = 1.25; // DK: 25% VAT
+  } else if (shop === 'pompdelux-chf.myshopify.com') {
+    metadataTable = 'product_metadata_chf';
+    vatRate = 1.077; // CHF: 7.7% VAT
+  } else {
+    // pompdelux-de, pompdelux-nl, pompdelux-int
+    metadataTable = 'product_metadata_eur';
+    vatRate = 1.25; // EUR: 25% VAT (Denmark standard for these shops)
+  }
+
+  console.log(`📋 Using metadata table: ${metadataTable} with VAT rate: ${vatRate}`);
+
+  // Step 1: Get SKUs for this day
+  const { data: skus, error: fetchError } = await supabase
+    .from('skus')
+    .select('shop, order_id, sku, price_dkk, quantity')
+    .eq('shop', shop)
+    .eq('created_at_original', startDate);
+
+  if (fetchError) {
+    console.error(`❌ Error fetching SKUs:`, fetchError);
+    throw fetchError;
+  }
+
+  if (!skus || skus.length === 0) {
+    console.log(`ℹ️ No SKUs found for ${shop} on ${startDate}`);
+    return;
+  }
+
+  console.log(`📊 Found ${skus.length} SKUs to check against ${metadataTable}`);
+
+  // Step 2: Get product_metadata for these SKUs
+  const skuList = skus.map(s => s.sku);
+  const { data: metadata, error: metaError } = await supabase
+    .from(metadataTable)
+    .select('sku, price, compare_at_price')
+    .in('sku', skuList);
+
+  if (metaError) {
+    console.error(`❌ Error fetching ${metadataTable}:`, metaError);
+    throw metaError;
+  }
+
+  if (!metadata || metadata.length === 0) {
+    console.log(`ℹ️ No ${metadataTable} found for these SKUs`);
+    return;
+  }
+
+  console.log(`📊 Found ${metadata.length} products in ${metadataTable}`);
+
+  // Step 3: Join SKUs with metadata and calculate discounts
+  const metadataMap = new Map(metadata.map(m => [m.sku, m]));
+
+  const updates = skus
+    .filter(sku => metadataMap.has(sku.sku))
+    .map((sku: any) => {
+      const pm = metadataMap.get(sku.sku)!;
+      // Convert from INCL VAT to EX VAT using shop-specific VAT rate
+      const compareAtPriceExVat = (pm.compare_at_price || 0) / vatRate;
+      const priceExVat = (pm.price || 0) / vatRate;
+
+      // Original price = MAX(compareAt, price) converted to ex VAT
+      const originalPriceDkk = compareAtPriceExVat > priceExVat ? compareAtPriceExVat : priceExVat;
+
+      // Sale discount = original - actual selling price (both ex VAT)
+      const saleDiscountPerUnit = Math.max(originalPriceDkk - sku.price_dkk, 0);
+      const saleDiscountTotal = saleDiscountPerUnit * sku.quantity;
+
+      return {
+        shop: sku.shop,
+        order_id: sku.order_id,
+        sku: sku.sku,
+        original_price_dkk: originalPriceDkk,
+        sale_discount_per_unit_dkk: saleDiscountPerUnit,
+        sale_discount_total_dkk: saleDiscountTotal
+      };
+    });
+
+  // Step 3: Batch update SKUs
+  const { error: updateError } = await supabase
+    .from('skus')
+    .upsert(updates, { onConflict: 'shop,order_id,sku' });
+
+  if (updateError) {
+    console.error(`❌ Error updating SKUs:`, updateError);
+    throw updateError;
+  }
+
+  console.log(`✅ Updated ${updates.length} SKUs with sale discounts from product_metadata`);
+
+  // Step 4: Update orders.sale_discount_total by aggregating from skus
+  console.log(`🔄 Aggregating sale_discount_total to orders table...`);
+  const { error: aggError } = await supabase.rpc('update_order_sale_discount');
+
+  if (aggError) {
+    console.error(`❌ Error aggregating to orders:`, aggError);
+  } else {
+    console.log(`✅ Aggregated sale_discount_total to orders`);
+  }
 }
 
 async function syncRefunds(
