@@ -348,6 +348,16 @@ async function startBulkOperation(
                     amount
                   }
                 }
+                taxLines {
+                  title
+                  rate
+                  ratePercentage
+                  priceSet {
+                    shopMoney {
+                      amount
+                    }
+                  }
+                }
                 lineItems(first: 250) {
                   edges {
                     node {
@@ -628,6 +638,16 @@ function transformOrder(order: ShopifyOrder, shop: string): OrderRecord {
   // Extract order ID
   const orderId = order.id.split('/').pop() || order.id;
 
+  // Extract tax rate from taxLines (use first tax line, typically only one)
+  let actualTaxRate: number | null = null;
+  if (order.taxLines && order.taxLines.length > 0) {
+    // Use rate field (decimal format like 0.25 for 25%)
+    actualTaxRate = order.taxLines[0].rate;
+    console.log(`📊 Order ${orderId}: tax rate ${actualTaxRate} (${actualTaxRate * 100}%)`);
+  } else {
+    console.log(`⚠️ Order ${orderId}: No taxLines found, will store null`);
+  }
+
   // Calculate values for the actual database schema
   const discountedTotal = total - shipping; // Total minus shipping
   const totalDiscountsExTax = totalDiscount; // Discount amount
@@ -643,6 +663,7 @@ function transformOrder(order: ShopifyOrder, shop: string): OrderRecord {
             shop.includes('-chf') ? 'CH' : 'INT',
     discounted_total: discountedTotal,
     tax: totalTax > 0 ? totalTax : calculateTax(subtotal, totalDiscount, taxRate),
+    tax_rate: actualTaxRate, // Actual tax rate from Shopify taxLines
     shipping: shipping,
     item_count: order.lineItems?.edges?.length || 0,
     refunded_amount: 0, // Will be updated by bulk-sync-refunds

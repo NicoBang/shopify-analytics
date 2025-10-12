@@ -391,6 +391,12 @@ async function syncSkusForDay(
                 shippingAddress { countryCode }
                 subtotalPriceSet { shopMoney { amount currencyCode } }
                 totalTaxSet { shopMoney { amount currencyCode } }
+                taxLines {
+                  rate
+                  title
+                  ratePercentage
+                  priceSet { shopMoney { amount } }
+                }
                 lineItems {
                   edges {
                     node {
@@ -539,7 +545,7 @@ async function syncSkusForDay(
   }
 
   // 🌍 Build order metadata mapping from Orders (Order → LineItem relation)
-  const orderMetadataMap = new Map<string, { country: string | null; createdAt: string; subtotal: string | null; totalTax: string | null }>();
+  const orderMetadataMap = new Map<string, { country: string | null; createdAt: string; subtotal: string | null; totalTax: string | null; taxRate: number | null }>();
   for (const line of lines) {
     const obj = JSON.parse(line);
     // Orders don't have __parentId, LineItems do
@@ -551,11 +557,18 @@ async function syncSkusForDay(
         console.warn(`[WARN] Missing created_at on order ${orderId}`);
       }
 
+      // Extract tax rate from order's taxLines (use first tax line)
+      let taxRate: number | null = null;
+      if (obj.taxLines && obj.taxLines.length > 0) {
+        taxRate = obj.taxLines[0].rate; // Decimal format (0.25 = 25%)
+      }
+
       orderMetadataMap.set(orderId, {
         country: obj.shippingAddress?.countryCode || null,
         createdAt: obj.createdAt,
         subtotal: obj.subtotalPriceSet?.shopMoney?.amount || null,
         totalTax: obj.totalTaxSet?.shopMoney?.amount || null,
+        taxRate: taxRate,
       });
     }
   }
@@ -580,31 +593,46 @@ async function syncSkusForDay(
     const currency = obj.discountedUnitPriceSet?.shopMoney?.currencyCode || "DKK";
     const rate = CURRENCY_RATES[currency] || 1;
 
-    // Calculate tax amount from taxLines
-    const taxLinesArray = Array.isArray(obj.taxLines) ? obj.taxLines : (obj.taxLines?.edges?.map((e: any) => e.node) || []);
-    let totalTaxPerUnit = 0;
+    // ✅ Calculate price_dkk using tax_rate (not Shopify's rounded taxLines)
+    // This ensures accurate ex-VAT pricing without rounding errors
+    const taxRate = orderMetadata?.taxRate;
+    let priceDkk: number;
 
-    if (taxLinesArray.length > 0) {
-      // taxLines returns TOTAL tax for all units, so divide by quantity to get per-unit tax
-      const totalTaxForAllUnits = taxLinesArray.reduce((sum: number, taxLine: any) => {
-        const taxAmount = parseFloat(taxLine.priceSet?.shopMoney?.amount || "0");
-        return sum + taxAmount;
-      }, 0) * rate;
-      totalTaxPerUnit = totalTaxForAllUnits / (obj.quantity || 1);  // ✅ Divide by quantity
+    if (taxRate !== null && taxRate !== undefined) {
+      // Convert INCL VAT to EX VAT using actual tax rate
+      const priceInclVat = price * rate; // Price in DKK including VAT
+      const priceExVat = priceInclVat / (1 + taxRate); // Price in DKK excluding VAT
+      priceDkk = priceExVat;
     } else {
-      // Fallback: calculate from order-level tax if available
-      if (orderMetadata?.totalTax && orderMetadata?.subtotal) {
+      // Fallback: use old method with taxLines if no tax_rate available
+      const taxLinesArray = Array.isArray(obj.taxLines) ? obj.taxLines : (obj.taxLines?.edges?.map((e: any) => e.node) || []);
+      let totalTaxPerUnit = 0;
+
+      if (taxLinesArray.length > 0) {
+        const totalTaxForAllUnits = taxLinesArray.reduce((sum: number, taxLine: any) => {
+          const taxAmount = parseFloat(taxLine.priceSet?.shopMoney?.amount || "0");
+          return sum + taxAmount;
+        }, 0) * rate;
+        totalTaxPerUnit = totalTaxForAllUnits / (obj.quantity || 1);
+      } else if (orderMetadata?.totalTax && orderMetadata?.subtotal) {
         const itemProportion = price / parseFloat(orderMetadata.subtotal);
         totalTaxPerUnit = parseFloat(orderMetadata.totalTax) * itemProportion * rate;
       }
+      priceDkk = (price * rate) - totalTaxPerUnit;
     }
-
-    const priceDkk = (price * rate) - totalTaxPerUnit;
     const totalDiscountRaw = parseFloat(obj.totalDiscountSet?.shopMoney?.amount || "0") * rate;
 
-    // Calculate tax on discount (proportional to discount amount)
-    const discountTax = totalDiscountRaw > 0 && price > 0 ? (totalTaxPerUnit * totalDiscountRaw / (price * rate)) : 0;
-    const totalDiscountDkk = totalDiscountRaw - discountTax;
+    // Calculate tax on discount using tax_rate
+    let totalDiscountDkk: number;
+    if (taxRate !== null && taxRate !== undefined) {
+      // Discount is INCL VAT, convert to EX VAT
+      totalDiscountDkk = totalDiscountRaw / (1 + taxRate);
+    } else {
+      // Fallback: proportional method
+      const totalTaxPerUnit = (price * rate) - priceDkk; // Tax amount
+      const discountTax = totalDiscountRaw > 0 && price > 0 ? (totalTaxPerUnit * totalDiscountRaw / (price * rate)) : 0;
+      totalDiscountDkk = totalDiscountRaw - discountTax;
+    }
 
     // ✅ SOLUTION: Calculate order-level discounts from Shopify LineItem data
     //
@@ -620,7 +648,17 @@ async function syncSkusForDay(
     //
     // NOTE: Shopify's variant.compareAtPrice returns CURRENT price, not historical
     // Therefore we cannot use it for historical orders - must use product_metadata
-    const originalPriceDkk = originalPrice > 0 ? (originalPrice * rate) - totalTaxPerUnit : 0;
+    let originalPriceDkk = 0;
+    if (originalPrice > 0) {
+      if (taxRate !== null && taxRate !== undefined) {
+        // Convert INCL VAT to EX VAT using tax_rate
+        originalPriceDkk = (originalPrice * rate) / (1 + taxRate);
+      } else {
+        // Fallback: calculate tax amount
+        const totalTaxPerUnit = (price * rate) - priceDkk;
+        originalPriceDkk = (originalPrice * rate) - totalTaxPerUnit;
+      }
+    }
 
     // For now, set these to 0 - will be calculated from product_metadata
     const saleDiscountPerUnit = 0;
@@ -638,8 +676,8 @@ async function syncSkusForDay(
     // Must use "YYYY-MM-DD" format as per CLAUDE.md rules
     const created_at = new Date(shopifyCreatedAt).toISOString().split("T")[0];
 
-    // NOTE: cancelled_qty and cancelled_amount_dkk are set to 0 here
-    // They are populated by bulk-sync-refunds function (RestockType = CANCEL)
+    // NOTE: Refund fields (refunded_qty, refund_date, cancelled_qty, etc.) are NOT set here
+    // They are exclusively managed by bulk-sync-refunds function
     batch.push({
       shop,
       order_id: orderId,
@@ -654,12 +692,9 @@ async function syncSkusForDay(
       sale_discount_per_unit_dkk: saleDiscountPerUnit,
       sale_discount_total_dkk: saleDiscountTotal,
       country: orderMetadata?.country || null,
-      refunded_qty: 0,
-      refund_date: null,
-      cancelled_qty: 0,
-      cancelled_amount_dkk: 0,
       created_at: created_at, // DATE format: "YYYY-MM-DD"
       created_at_original: shopifyCreatedAt, // TIMESTAMPTZ: full Shopify order timestamp
+      tax_rate: orderMetadata?.taxRate || null, // VAT rate from order taxLines
     });
 
     if (batch.length >= BATCH_SIZE) {
@@ -716,14 +751,9 @@ async function upsertSkus(supabase: any, skus: any[], targetTable: string = "sku
         // Sum numeric fields for duplicate SKUs
         acc[key].quantity += item.quantity || 0;
         acc[key].total_discount_dkk += item.total_discount_dkk || 0;
-        acc[key].refunded_qty += item.refunded_qty || 0;
-        acc[key].cancelled_qty += item.cancelled_qty || 0;
-        acc[key].cancelled_amount_dkk += item.cancelled_amount_dkk || 0;
 
-        // Keep latest refund_date
-        if (item.refund_date && (!acc[key].refund_date || new Date(item.refund_date) > new Date(acc[key].refund_date))) {
-          acc[key].refund_date = item.refund_date;
-        }
+        // NOTE: Refund fields (refunded_qty, cancelled_qty, etc.) are NOT aggregated here
+        // They are exclusively managed by bulk-sync-refunds function
 
         // Recalculate per-unit discount after aggregation
         acc[key].discount_per_unit_dkk = acc[key].total_discount_dkk / (acc[key].quantity || 1);
@@ -813,6 +843,22 @@ async function updateOriginalPricesFromMetadata(
 
   console.log(`📊 Found ${skus.length} SKUs to check against ${metadataTable}`);
 
+  // Step 1.5: Get tax_rate from orders for these SKUs
+  const orderIds = [...new Set(skus.map(s => s.order_id))];
+  const { data: orders, error: orderError } = await supabase
+    .from('orders')
+    .select('order_id, tax_rate')
+    .eq('shop', shop)
+    .in('order_id', orderIds);
+
+  if (orderError) {
+    console.error(`❌ Error fetching orders:`, orderError);
+    throw orderError;
+  }
+
+  const taxRateMap = new Map(orders?.map(o => [o.order_id, o.tax_rate]) || []);
+  console.log(`📊 Found tax rates for ${taxRateMap.size} orders`);
+
   // Step 2: Get product_metadata for these SKUs
   const skuList = skus.map(s => s.sku);
   const { data: metadata, error: metaError } = await supabase
@@ -839,9 +885,16 @@ async function updateOriginalPricesFromMetadata(
     .filter(sku => metadataMap.has(sku.sku))
     .map((sku: any) => {
       const pm = metadataMap.get(sku.sku)!;
-      // Convert from INCL VAT to EX VAT using shop-specific VAT rate
-      const compareAtPriceExVat = (pm.compare_at_price || 0) / vatRate;
-      const priceExVat = (pm.price || 0) / vatRate;
+
+      // Get actual tax_rate from order (fallback to default vatRate if null)
+      const actualTaxRate = taxRateMap.get(sku.order_id);
+      const effectiveVatMultiplier = actualTaxRate !== null && actualTaxRate !== undefined
+        ? (1 + actualTaxRate)  // Use actual tax rate from order
+        : vatRate;              // Fallback to default VAT rate
+
+      // Convert from INCL VAT to EX VAT using actual tax rate
+      const compareAtPriceExVat = (pm.compare_at_price || 0) / effectiveVatMultiplier;
+      const priceExVat = (pm.price || 0) / effectiveVatMultiplier;
 
       // Original price = MAX(compareAt, price) converted to ex VAT
       const originalPriceDkk = compareAtPriceExVat > priceExVat ? compareAtPriceExVat : priceExVat;
@@ -856,7 +909,8 @@ async function updateOriginalPricesFromMetadata(
         sku: sku.sku,
         original_price_dkk: originalPriceDkk,
         sale_discount_per_unit_dkk: saleDiscountPerUnit,
-        sale_discount_total_dkk: saleDiscountTotal
+        sale_discount_total_dkk: saleDiscountTotal,
+        tax_rate: actualTaxRate  // Store tax_rate in SKU
       };
     });
 

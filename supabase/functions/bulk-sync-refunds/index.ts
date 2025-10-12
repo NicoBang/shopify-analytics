@@ -60,7 +60,7 @@ async function fetchAllSkus(supabase, shop, startISO, endISO) {
   while (true) {
     const { data: page, error } = await supabase
       .from("skus")
-      .select("order_id, created_at_original")
+      .select("order_id, created_at_original, tax_rate")
       .eq("shop", shop)
       .gte("created_at_original", startISO)
       .lte("created_at_original", endISO)
@@ -187,6 +187,14 @@ async function syncRefundsForChunk(shop, token, supabase, startISO, endISO) {
   const orders = await fetchAllSkus(supabase, shop, startISO, endISO);
   console.log(`📦 Found ${orders.length} orders in SKUs table`);
 
+  // Build tax_rate map: order_id → tax_rate
+  const taxRateMap = new Map();
+  for (const order of orders) {
+    if (order.tax_rate !== null && order.tax_rate !== undefined) {
+      taxRateMap.set(String(order.order_id), order.tax_rate);
+    }
+  }
+
   const uniqueOrderIds = [...new Set(orders.map((o) => String(o.order_id)))];
   if (uniqueOrderIds.length === 0) {
     console.warn(`⚠️ No orders found for ${shop} (${startISO} → ${endISO})`);
@@ -237,20 +245,52 @@ async function syncRefundsForChunk(shop, token, supabase, startISO, endISO) {
         const quantity = item.quantity || 0;
         let amountDkk = 0;
 
+        // ✅ Get tax_rate from database (same as bulk-sync-skus)
+        const taxRate = taxRateMap.get(cleanOrderId);
+
         if (isCancellation) {
           const subtotal = parseFloat(item.subtotal_set?.shop_money?.amount || "0");
-          const tax = parseFloat(item.total_tax_set?.shop_money?.amount || "0");
           const currency = item.subtotal_set?.shop_money?.currency_code || "DKK";
-          amountDkk = (subtotal - tax) * (CURRENCY_RATES[currency] || 1);
+          const rate = CURRENCY_RATES[currency] || 1;
+
+          // ✅ Use database tax_rate for accuracy (same as bulk-sync-skus)
+          // Shopify's refund subtotal is INCL VAT: 16.95 EUR
+          // Remove VAT: 16.95 / (1 + 0.2) = 14.125 EUR EX VAT
+          // Convert to DKK: 14.125 × 7.46 = 105.37 DKK
+          if (taxRate !== null && taxRate !== undefined) {
+            const subtotalInclVatDkk = subtotal * rate;
+            amountDkk = subtotalInclVatDkk / (1 + taxRate);
+          } else {
+            // Fallback: calculate from Shopify's tax data
+            const tax = parseFloat(item.total_tax_set?.shop_money?.amount || "0");
+            const calculatedTaxRate = tax > 0 && subtotal > 0 ? tax / (subtotal - tax) : 0;
+            const subtotalExVat = subtotal / (1 + calculatedTaxRate);
+            amountDkk = subtotalExVat * rate;
+          }
         } else {
           const subtotal = parseFloat(item.subtotal_set?.shop_money?.amount || "0");
           const tax = parseFloat(item.total_tax_set?.shop_money?.amount || "0");
-          const proportion = totalTheoretical > 0 ? (subtotal + tax) / totalTheoretical : 0;
-          const actualInclVat = actualRefundAmount * proportion;
-          const taxRate = subtotal > 0 ? tax / subtotal : 0;
-          const actualExVat = actualInclVat / (1 + taxRate);
           const currency = item.subtotal_set?.shop_money?.currency_code || "DKK";
-          amountDkk = actualExVat * (CURRENCY_RATES[currency] || 1);
+          const rate = CURRENCY_RATES[currency] || 1;
+
+          // ✅ Calculate proportion based on INCL VAT (subtotal + tax)
+          const itemTotal = subtotal + tax;
+          const proportion = totalTheoretical > 0 ? itemTotal / totalTheoretical : 0;
+
+          // ✅ actualRefundAmount is INCL VAT in original currency
+          // Distribute proportionally and convert to DKK
+          const actualInclVat = actualRefundAmount * proportion;
+
+          // ✅ Use database tax_rate for accuracy (same as bulk-sync-skus)
+          if (taxRate !== null && taxRate !== undefined) {
+            const actualExVat = actualInclVat / (1 + taxRate);
+            amountDkk = actualExVat * rate;
+          } else {
+            // Fallback: calculate from Shopify's tax data
+            const calculatedTaxRate = subtotal > 0 ? tax / subtotal : 0;
+            const actualExVat = actualInclVat / (1 + calculatedTaxRate);
+            amountDkk = actualExVat * rate;
+          }
         }
 
         const existing = refundUpdates.find((r) => r.shop === shop && r.order_id === cleanOrderId && r.sku === sku);
