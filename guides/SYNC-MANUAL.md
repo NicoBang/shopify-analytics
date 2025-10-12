@@ -297,6 +297,22 @@ echo "✅ Alle shops synkroniseret med product metadata"
 ./sync-metadata.sh
 ```
 
+# For EUR og CHF:
+
+**EUR**
+
+```bash
+curl -s -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
+  "https://shopify-analytics-nu.vercel.app/api/sync-shop?shop=pompdelux-de.myshopify.com&type=metadata-eur"
+```
+**CHF**
+
+```bash
+curl -s -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
+  "https://shopify-analytics-nu.vercel.app/api/sync-shop?shop=pompdelux-chf.myshopify.com&type=metadata-chf"
+```
+
+
 **Features:**
 - Syncer produkt metadata (program, season, gender, tags, etc.)
 - **Ingen dato-interval** - henter aktuel metadata fra Shopify
