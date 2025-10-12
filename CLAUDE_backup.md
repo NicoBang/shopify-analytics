@@ -59,7 +59,7 @@ Shopify API → /api/sync-shop → Supabase → /api/analytics → Google Sheets
 - **Metadata API**: `https://shopify-analytics-nu.vercel.app/api/metadata`
 
 **Current Deployment** (for reference only - changes with each deploy):
-- `https://shopify-analytics-nhq316m6m-nicolais-projects-291e9559.vercel.app`
+- `https://shopify-analytics-nu.vercel.app`
 - **Supabase**: [Your Supabase dashboard URL]
 - **Vercel**: [Your Vercel dashboard URL]
 
@@ -2554,7 +2554,7 @@ All revenue calculations use **EX moms (excluding VAT)** basis:
     9. Reserved for future expansion
 
 - **🚀 DEPLOYMENT**: Successfully deployed to production
-  - **URL**: `https://shopify-analytics-nhq316m6m-nicolais-projects-291e9559.vercel.app`
+  - **URL**: `https://shopify-analytics-nu.vercel.app`
   - **Status**: ✅ All API endpoints functional
   - **Updated**: sync-skus.sh, google-sheets-enhanced.js with new URL
 
@@ -2868,7 +2868,7 @@ All revenue calculations use **EX moms (excluding VAT)** basis:
     - German orders (19% VAT): price_dkk = 169.00 / 1.19 = 142.02 ✅
     - Swiss orders (8.1% VAT): price_dkk = 169.00 / 1.081 = 156.34 ✅
 - **Files Updated**: `api/sync-shop.js` (lines 294, 454-456), `google-sheets-enhanced.js` (line 6), `CLAUDE.md`
-- **Production URL**: Updated to `shopify-analytics-2j1vexrfe-nicolais-projects-291e9559.vercel.app`
+- **Production URL**: Updated to `shopify-analytics-nu.vercel.app`
 
 ### 2025-10-02: 🚨 CRITICAL FIX - Corrected Discount Allocation Logic ✅
 - **🐛 CRITICAL BUG FIX**: Fixed discount allocation to use actual price paid instead of intermediate discounted values
@@ -2916,7 +2916,7 @@ All revenue calculations use **EX moms (excluding VAT)** basis:
   - `api/sync-shop.js` (GraphQL query + refund logic)
   - `api/sku-raw.js` (added cancelled_qty aggregation)
 
-- **Production URL**: `shopify-analytics-g6e27cudf-nicolais-projects-291e9559.vercel.app`
+- **Production URL**: `shopify-analytics-nu.vercel.app`
 
 ### 2025-10-01: FIXED Revenue Calculations - Now Include ALL Discounts ✅
 - **🐛 CRITICAL BUG FIX**: Fixed revenue calculations to include ALL order-level discount allocations
@@ -2981,7 +2981,7 @@ All revenue calculations use **EX moms (excluding VAT)** basis:
   - `CLAUDE.md` (maintenance tasks documentation)
   - `google-sheets-enhanced.js` (new deployment URL)
 
-- **Production URL**: `https://shopify-analytics-hr7rfsq6h-nicolais-projects-291e9559.vercel.app`
+- **Production URL**: `https://shopify-analytics-nu.vercel.app`
 
 ### 2025-10-01: Fixed Gender Formatting + Vejl. Pris + Inventory Batching ✅
 - **🐛 CRITICAL BUG FIX**: Fixed three display issues in Style Analytics
@@ -3006,7 +3006,7 @@ All revenue calculations use **EX moms (excluding VAT)** basis:
     - **Top Products**: Sweat Denim Pull-on Jeans (461 units), Langærmet Rib T-shirt (453 units), Tapered Fit Jeans (452 units)
 
 - **Files Updated**: `api/metadata.js` (lines 805-820, 870-890, 906-920, 924-988), `google-sheets-enhanced.js` (line 6), `CLAUDE.md`
-- **Production URL**: Updated to `shopify-analytics-7jgy0e8e5-nicolais-projects-291e9559.vercel.app`
+- **Production URL**: Updated to `shopify-analytics-nu.vercel.app`
 - **Testing**: September 2025 data verified - all three issues completely resolved
 
 ### 2025-09-30: CRITICAL FIX - Restored ALL Brutto Calculations in Dashboard ✅
@@ -3019,7 +3019,7 @@ All revenue calculations use **EX moms (excluding VAT)** basis:
     - **Gns. ordreværdi** = brutto / antal ordrer (was: netto / antal ordrer)
     - **Basket size** = stkBrutto / antal ordrer (was: stkNetto / antal ordrer)
 - **Files Updated**: `google-sheets-enhanced.js` (lines 6, 180-182, 220-222), `CLAUDE.md`
-- **Production URL**: Updated to `shopify-analytics-qlxndv2am-nicolais-projects-291e9559.vercel.app`
+- **Production URL**: Updated to `shopify-analytics-nu.vercel.app`
 
 ### 2025-10-02: Fixed Non-Deterministic Dashboard Results ✅
 - **🐛 CRITICAL BUG FIX**: Fixed Dashboard showing alternating results for same query
@@ -3033,7 +3033,7 @@ All revenue calculations use **EX moms (excluding VAT)** basis:
     - `google-sheets-enhanced.js` line 6 (API_BASE URL)
     - `CLAUDE.md` (documentation)
   - **Impact**: Dashboard now produces consistent, reproducible results every time
-- **Production URL**: Updated to `shopify-analytics-1w2lagntu-nicolais-projects-291e9559.vercel.app`
+- **Production URL**: Updated to `shopify-analytics-nu.vercel.app`
 
 ### 2025-10-01: Fixed Refund Date Inconsistency Between Orders & SKUs Tables ✅
 - **🐛 CRITICAL BUG FIX**: Fixed refund_date inconsistency between orders and skus tables
@@ -3049,7 +3049,7 @@ All revenue calculations use **EX moms (excluding VAT)** basis:
   - **Note**: Existing orders in database need re-sync to update their refund_date values with the new logic
   - **Testing**: Deployed to production but unable to verify immediately as sync operations returned 0 results (requires investigation)
 - **Files Updated**: `api/sync-shop.js` (lines 108-121, 165-171, 289-304, 391-397), `CLAUDE.md`
-- **Production URL**: Updated to `shopify-analytics-8av16oegn-nicolais-projects-291e9559.vercel.app`
+- **Production URL**: Updated to `shopify-analytics-nu.vercel.app`
 
 ### 2025-09-29: Fixed Historical Order Data Inconsistencies ✅
 - **🐛 CRITICAL DATA FIX**: Corrected order-level aggregation inconsistencies between orders and skus tables
@@ -3077,7 +3077,7 @@ All revenue calculations use **EX moms (excluding VAT)** basis:
   - **Impact**: Nu viser Style Analytics returer præcist baseret på `refund_date`
   - **Testing**: September 2025 data nu viser korrekte retur-procenter (f.eks. 100537 Chocolate: 2.9% retur)
 - **Files Updated**: `/api/metadata.js` (getStyleAnalytics og getSkuAnalytics methods)
-- **Google Apps Script**: Opdateret til ny API URL (`shopify-analytics-ai9n8oa3e-nicolais-projects-291e9559.vercel.app`)
+- **Google Apps Script**: Opdateret til ny API URL (`shopify-analytics-nu.vercel.app`)
 - **Verification**: Både Color Analytics og SKU Analytics nu bruger korrekt retur-datering
 
 ### 2025-09-26: Enhanced Delivery Analytics + Fixed Fulfillment Sync ✅

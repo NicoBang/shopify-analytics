@@ -82,7 +82,7 @@ Hvis du vil lave custom integrationer:
 
 ### 4.1 Analytics API
 ```bash
-GET https://shopify-analytics-j5d3oni66-nicolais-projects-291e9559.vercel.app/api/analytics
+GET https://shopify-analytics-nu.vercel.app/api/analytics
 ```
 
 **Parameters:**
@@ -98,7 +98,7 @@ Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc
 
 ### 4.2 Sync API
 ```bash
-GET https://shopify-analytics-j5d3oni66-nicolais-projects-291e9559.vercel.app/api/sync-shop
+GET https://shopify-analytics-nu.vercel.app/api/sync-shop
 ```
 
 **Parameters:**

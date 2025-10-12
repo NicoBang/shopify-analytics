@@ -1,7 +1,7 @@
 #!/bin/bash
 # Fix VAT-inclusive prices in all historical orders
 
-API_URL="https://shopify-analytics-rdpipb5d7-nicolais-projects-291e9559.vercel.app"
+API_URL="https://shopify-analytics-nu.vercel.app"
 API_KEY="bda5da3d49fe0e7391fded3895b5c6bc"
 BATCH_SIZE=50
 

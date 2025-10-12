@@ -4,7 +4,7 @@
 # Syncs product metadata for all shops (no date range - fetches current data)
 
 VERCEL_TOKEN="bda5da3d49fe0e7391fded3895b5c6bc"
-VERCEL_API="https://shopify-analytics-9ckj1fm3r-nicolais-projects-291e9559.vercel.app"
+VERCEL_API="https://shopify-analytics-nu.vercel.app"
 
 SHOPS=(
   "pompdelux-da.myshopify.com"

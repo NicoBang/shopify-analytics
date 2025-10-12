@@ -250,7 +250,7 @@ SHOPS=("pompdelux-da.myshopify.com"
 
 for shop in "${SHOPS[@]}"; do
   curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-9ckj1fm3r-nicolais-projects-291e9559.vercel.app/api/sync-shop?shop=$shop&type=fulfillments&startDate=2025-10-01&endDate=2025-10-07" &
+  "https://shopify-analytics-nu.vercel.app/api/sync-shop?shop=$shop&type=fulfillments&startDate=2025-10-01&endDate=2025-10-07" &
 done
 
 wait
@@ -285,7 +285,7 @@ SHOPS="pompdelux-da.myshopify.com"
 
 for shop in "${SHOPS[@]}"; do
   curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-9ckj1fm3r-nicolais-projects-291e9559.vercel.app/api/sync-shop?shop=$shop&type=metadata" &
+  "https://shopify-analytics-nu.vercel.app/api/sync-shop?shop=$shop&type=metadata" &
 done
 
 wait
@@ -572,7 +572,7 @@ Konfigurer via Dashboard → Functions → Manage Secrets:
 ```bash
 SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM
 VERCEL_API_TOKEN=bda5da3d49fe0e7391fded3895b5c6bc
-VERCEL_API_URL=https://shopify-analytics-9ckj1fm3r-nicolais-projects-291e9559.vercel.app
+VERCEL_API_URL=https://shopify-analytics-nu.vercel.app
 ```
 
 ---
@@ -630,7 +630,7 @@ Gå til **Supabase Dashboard → Database → Extensions** og enable:
 Gå til **Supabase Dashboard → Functions → Manage Secrets** og tilføj:
 ```bash
 VERCEL_API_TOKEN=bda5da3d49fe0e7391fded3895b5c6bc
-VERCEL_API_URL=https://shopify-analytics-9ckj1fm3r-nicolais-projects-291e9559.vercel.app
+VERCEL_API_URL=https://shopify-analytics-nu.vercel.app
 ```
 
 *Note: SERVICE_ROLE_KEY er allerede sat som standard secret.*

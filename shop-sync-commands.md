@@ -11,7 +11,7 @@ SHOPS=("pompdelux-da.myshopify.com"
 
 for shop in "${SHOPS[@]}"; do
   curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-g5az0lkf2-nicolais-projects-291e9559.vercel.app/api/sync-shop?shop=$shop&type=orders&startDate=2025-09-01&endDate=2025-09-30&updatedMode=true" &
+  "https://shopify-analytics-nu.vercel.app/api/sync-shop?shop=$shop&type=orders&startDate=2025-09-01&endDate=2025-09-30&updatedMode=true" &
 done
 
 wait
@@ -27,7 +27,7 @@ SHOPS=("pompdelux-da.myshopify.com"
 
 for shop in "${SHOPS[@]}"; do
   curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-g5az0lkf2-nicolais-projects-291e9559.vercel.app/api/sync-shop?shop=$shop&type=orders&startDate=2025-09-01&endDate=2025-09-30" &
+  "https://shopify-analytics-nu.vercel.app/api/sync-shop?shop=$shop&type=orders&startDate=2025-09-01&endDate=2025-09-30" &
 done
 
 wait
@@ -45,7 +45,7 @@ SHOPS=("pompdelux-da.myshopify.com"
 
 for shop in "${SHOPS[@]}"; do
   curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-kfnrp3zgx-nicolais-projects-291e9559.vercel.app/api/sync-shop?shop=$shop&type=skus&startDate=2025-09-15&endDate=2025-09-30&updatedMode=true" &
+  "https://shopify-analytics-nu.vercel.app/api/sync-shop?shop=$shop&type=skus&startDate=2025-09-15&endDate=2025-09-30&updatedMode=true" &
 done
 
 wait
@@ -61,7 +61,7 @@ SHOPS=("pompdelux-da.myshopify.com"
 
 for shop in "${SHOPS[@]}"; do
   curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-8rfnhbsgp-nicolais-projects-291e9559.vercel.app/api/sync-shop?shop=$shop&type=skus&startDate=2025-09-15&endDate=2025-09-30" &
+  "https://shopify-analytics-nu.vercel.app/api/sync-shop?shop=$shop&type=skus&startDate=2025-09-15&endDate=2025-09-30" &
 done
 
 wait
@@ -79,7 +79,7 @@ SHOPS=("pompdelux-da.myshopify.com"
 
 for shop in "${SHOPS[@]}"; do
   curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-bxj4ckr7y-nicolais-projects-291e9559.vercel.app/api/sync-shop?shop=$shop&type=fulfillments&startDate=2025-08-01&endDate=2025-08-31" &
+  "https://shopify-analytics-nu.vercel.app/api/sync-shop?shop=$shop&type=fulfillments&startDate=2025-08-01&endDate=2025-08-31" &
 done
 
 wait
