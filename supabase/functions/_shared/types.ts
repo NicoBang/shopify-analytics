@@ -98,6 +98,8 @@ export interface OrderRecord {
   total_dkk: number;
   tax: number;
   shipping_dkk: number;
+  shipping_price_dkk: number; // Shipping price EX VAT
+  shipping_discount_dkk: number; // Shipping discount EX VAT
   country: string | null;
   city: string | null;
   province: string | null;

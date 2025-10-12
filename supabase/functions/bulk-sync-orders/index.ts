@@ -348,6 +348,33 @@ async function startBulkOperation(
                     amount
                   }
                 }
+                shippingLines(first: 5) {
+                  edges {
+                    node {
+                      title
+                      originalPriceSet {
+                        shopMoney {
+                          amount
+                        }
+                      }
+                      discountedPriceSet {
+                        shopMoney {
+                          amount
+                        }
+                      }
+                      discountAllocations {
+                        allocatedAmountSet {
+                          shopMoney {
+                            amount
+                          }
+                        }
+                      }
+                      taxLines {
+                        rate
+                      }
+                    }
+                  }
+                }
                 taxLines {
                   title
                   rate
@@ -607,22 +634,50 @@ async function downloadBulkResults(url: string): Promise<ShopifyOrder[]> {
   const response = await fetch(url);
   const text = await response.text();
 
-  const orders: ShopifyOrder[] = [];
+  const orders: Map<string, ShopifyOrder> = new Map();
+  const shippingLines: Map<string, any[]> = new Map();
   const lines = text.trim().split('\n');
 
+  // First pass: collect all orders and shipping lines
   for (const line of lines) {
     if (!line) continue;
     try {
       const data = JSON.parse(line);
-      if (data.id && data.id.includes("Order")) {
-        orders.push(data);
+
+      // Check by __typename field (more reliable than checking ID string)
+      if (data.__typename === "Order" || (data.id && data.id.includes("Order"))) {
+        // Initialize shippingLines as empty array
+        data.shippingLines = { edges: [] };
+        orders.set(data.id, data);
+      } else if (data.__typename === "ShippingLine" || (data.id && data.id.includes("ShippingLine"))) {
+        // Store shipping line for later attachment to parent order
+        const parentId = data.__parentId;
+        if (parentId) {
+          if (!shippingLines.has(parentId)) {
+            shippingLines.set(parentId, []);
+          }
+          shippingLines.get(parentId)!.push(data);
+          console.log(`📦 Found ShippingLine for order ${parentId}: originalPrice=${data.originalPriceSet?.shopMoney?.amount}, discountedPrice=${data.discountedPriceSet?.shopMoney?.amount}`);
+        }
       }
     } catch (e) {
       console.error("Error parsing line:", e);
     }
   }
 
-  return orders;
+  // Second pass: attach shipping lines to orders
+  for (const [orderId, order] of orders.entries()) {
+    const lines = shippingLines.get(orderId) || [];
+    order.shippingLines = {
+      edges: lines.map(line => ({ node: line }))
+    };
+    if (lines.length > 0) {
+      console.log(`📦 Attached ${lines.length} shipping line(s) to order ${orderId}`);
+    }
+  }
+
+  console.log(`✅ Downloaded ${orders.size} orders with shipping data`);
+  return Array.from(orders.values());
 }
 
 function transformOrder(order: ShopifyOrder, shop: string): OrderRecord {
@@ -648,6 +703,22 @@ function transformOrder(order: ShopifyOrder, shop: string): OrderRecord {
     console.log(`⚠️ Order ${orderId}: No taxLines found, will store null`);
   }
 
+  // Calculate shipping fields
+  // NOTE: Shopify Bulk Operations API does NOT export shippingLines nested data
+  // Solution: Calculate shipping EX VAT from totalShippingPriceSet (INCL VAT) using tax_rate
+  let shippingPriceDkk = 0;
+  let shippingDiscountDkk = 0;
+
+  if (shipping > 0) {
+    // shipping is INCL VAT, so divide by (1 + taxRate) to get EX VAT
+    const shippingTaxRate = actualTaxRate || taxRate;
+    shippingPriceDkk = shipping / (1 + shippingTaxRate);
+
+    // NOTE: Shipping discount cannot be calculated from Bulk API
+    // It requires fetching shippingLines data via separate GraphQL query per order
+    // For now, keep shipping_discount_dkk as 0
+  }
+
   // Calculate values for the actual database schema
   const discountedTotal = total - shipping; // Total minus shipping
   const totalDiscountsExTax = totalDiscount; // Discount amount
@@ -665,6 +736,8 @@ function transformOrder(order: ShopifyOrder, shop: string): OrderRecord {
     tax: totalTax > 0 ? totalTax : calculateTax(subtotal, totalDiscount, taxRate),
     tax_rate: actualTaxRate, // Actual tax rate from Shopify taxLines
     shipping: shipping,
+    shipping_price_dkk: shippingPriceDkk, // Shipping price EX VAT
+    shipping_discount_dkk: shippingDiscountDkk, // Shipping discount EX VAT
     item_count: order.lineItems?.edges?.length || 0,
     refunded_amount: 0, // Will be updated by bulk-sync-refunds
     refunded_qty: 0, // Will be updated by bulk-sync-refunds
