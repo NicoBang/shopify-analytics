@@ -202,6 +202,7 @@ async function syncRefundsForChunk(shop, token, supabase, startISO, endISO) {
   }
 
   const refundUpdates = [];
+  const orderUpdates = new Map(); // Track shipping refunds per order
   let processed = 0;
 
   for (const orderId of uniqueOrderIds) {
@@ -238,6 +239,37 @@ async function syncRefundsForChunk(shop, token, supabase, startISO, endISO) {
           parseFloat(li.total_tax_set?.shop_money?.amount || "0"),
         0,
       );
+
+      // === 🚢 Parse shipping refunds from order_adjustments ===
+      const orderAdjustments = refund.order_adjustments || [];
+      for (const adj of orderAdjustments) {
+        if (adj.kind === "shipping_refund") {
+          // amount is negative for refunds (e.g. -31.20 DKK EX VAT)
+          const shippingRefundDkk = Math.abs(parseFloat(adj.amount || "0"));
+          const currency = adj.amount_set?.shop_money?.currency_code || "DKK";
+          const rate = CURRENCY_RATES[currency] || 1;
+          const shippingRefundDkkConverted = shippingRefundDkk * rate;
+
+          // Accumulate shipping refunds per order with refund date
+          if (!orderUpdates.has(cleanOrderId)) {
+            orderUpdates.set(cleanOrderId, {
+              shop,
+              order_id: cleanOrderId,
+              shipping_refund_dkk: 0,
+              refund_date: refundDate
+            });
+          }
+          const orderUpdate = orderUpdates.get(cleanOrderId);
+          orderUpdate.shipping_refund_dkk += shippingRefundDkkConverted;
+
+          // Keep the latest refund date
+          if (new Date(refundDate) > new Date(orderUpdate.refund_date)) {
+            orderUpdate.refund_date = refundDate;
+          }
+
+          console.log(`🚢 Order ${cleanOrderId}: Shipping refund ${shippingRefundDkkConverted.toFixed(2)} DKK on ${refundDate}`);
+        }
+      }
 
       for (const item of lineItems) {
         const sku = item.line_item?.sku;
@@ -326,6 +358,14 @@ async function syncRefundsForChunk(shop, token, supabase, startISO, endISO) {
 
   const updated = await updateRefundsInDatabase(supabase, refundUpdates);
   console.log(`✅ Chunk done: ${refundUpdates.length} refund lines, ${updated} SKUs updated`);
+
+  // === 🚢 Update shipping refunds in orders table ===
+  if (orderUpdates.size > 0) {
+    const orderRefundArray = Array.from(orderUpdates.values());
+    const ordersUpdated = await updateOrderShippingRefunds(supabase, orderRefundArray);
+    console.log(`🚢 Updated ${ordersUpdated} orders with shipping refunds`);
+  }
+
   return { refundsProcessed: refundUpdates.length, skusUpdated: updated };
 }
 
@@ -370,5 +410,30 @@ async function updateRefundsInDatabase(supabase, refunds) {
   }
 
   console.log(`🎉 Refund update complete: ${totalUpdated} SKUs updated`);
+  return totalUpdated;
+}
+
+// === UPDATE SHIPPING REFUNDS IN ORDERS TABLE ================================
+async function updateOrderShippingRefunds(supabase, orderRefunds) {
+  if (!orderRefunds || orderRefunds.length === 0) return 0;
+  let totalUpdated = 0;
+
+  for (const orderRefund of orderRefunds) {
+    const { error } = await supabase
+      .from("orders")
+      .update({
+        shipping_refund_dkk: orderRefund.shipping_refund_dkk,
+        refund_date: orderRefund.refund_date
+      })
+      .eq("shop", orderRefund.shop)
+      .eq("order_id", orderRefund.order_id);
+
+    if (error) {
+      console.error(`❌ Failed to update shipping refund for order ${orderRefund.order_id}: ${error.message}`);
+    } else {
+      totalUpdated++;
+    }
+  }
+
   return totalUpdated;
 }
