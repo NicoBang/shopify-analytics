@@ -200,7 +200,7 @@ class SupabaseService {
     while (hasMoreOrders) {
       let ordersQuery = this.supabase
         .from('orders')
-        .select('shop, order_id, shipping, refunded_amount')
+        .select('shop, order_id, shipping_price_dkk, shipping_discount_dkk, shipping_refund_dkk, refund_date, refunded_amount')
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString())
         .order('created_at', { ascending: false })
@@ -224,6 +224,43 @@ class SupabaseService {
         hasMoreOrders = false;
       }
     }
+
+    // STEP 2.6: Get shipping refunds from orders with refund_date in period - WITH PAGINATION
+    const shippingRefundsData = [];
+    let shippingRefundsOffset = 0;
+    let hasMoreShippingRefunds = true;
+
+    while (hasMoreShippingRefunds) {
+      let shippingRefundsQuery = this.supabase
+        .from('orders')
+        .select('shop, order_id, shipping_refund_dkk, refund_date')
+        .not('refund_date', 'is', null)
+        .gt('shipping_refund_dkk', 0)  // Only orders with actual shipping refunds
+        .gte('refund_date', startDate.toISOString())
+        .lte('refund_date', endDate.toISOString())
+        .order('refund_date', { ascending: false })
+        .range(shippingRefundsOffset, shippingRefundsOffset + batchSize - 1);
+
+      if (shop) {
+        shippingRefundsQuery = shippingRefundsQuery.eq('shop', shop);
+      }
+
+      const { data: shippingRefundsBatch, error: shippingRefundsError } = await shippingRefundsQuery;
+      if (shippingRefundsError) {
+        console.error('❌ Error fetching shipping refunds:', shippingRefundsError);
+        throw shippingRefundsError;
+      }
+
+      if (shippingRefundsBatch && shippingRefundsBatch.length > 0) {
+        shippingRefundsData.push(...shippingRefundsBatch);
+        hasMoreShippingRefunds = shippingRefundsBatch.length === batchSize;
+        shippingRefundsOffset += batchSize;
+      } else {
+        hasMoreShippingRefunds = false;
+      }
+    }
+
+    console.log('📊 DEBUG [getDashboardFromSkus] Shipping refunds fetched:', shippingRefundsData.length);
 
     // STEP 3: Aggregate by shop
     const shopMap = {};
@@ -255,33 +292,50 @@ class SupabaseService {
         shopMap[shop].orderIds.add(order.order_id);
       }
 
-      // Calculate shipping ex. tax using dynamic tax rate
-      // discounted_total = items_inkl_tax + shipping_inkl_tax
-      // tax = total tax (items + shipping)
-      const shipping = Number(order.shipping) || 0;
-      const discountedTotal = Number(order.discounted_total) || 0;
-      const tax = Number(order.tax) || 0;
+      // Calculate shipping revenue: shipping_price_dkk - shipping_discount_dkk (both already EX VAT)
+      const shippingPrice = Number(order.shipping_price_dkk) || 0;
+      const shippingDiscount = Number(order.shipping_discount_dkk) || 0;
+      const shippingRevenue = shippingPrice - shippingDiscount;
 
-      let shippingExTax = 0;
-      if (shipping > 0 && discountedTotal > 0 && tax > 0) {
-        // Calculate tax rate: tax_rate = tax / (discounted_total - tax)
-        const itemsAndShippingExTax = discountedTotal - tax;
-        const taxRate = itemsAndShippingExTax > 0 ? tax / itemsAndShippingExTax : 0.25;
+      shopMap[shop].shipping += shippingRevenue;
 
-        // shipping_ex_tax = shipping / (1 + tax_rate)
-        shippingExTax = shipping / (1 + taxRate);
-      } else if (shipping > 0) {
-        // Fallback: assume 25% tax if we can't calculate
-        shippingExTax = shipping / 1.25;
+      // Subtract shipping refund if refund_date is in period (regardless of order creation date)
+      const refundDate = order.refund_date;
+      const shippingRefund = Number(order.shipping_refund_dkk) || 0;
+      if (refundDate && shippingRefund > 0) {
+        const refundDateObj = new Date(refundDate);
+        if (refundDateObj >= startDate && refundDateObj <= endDate) {
+          shopMap[shop].shipping -= shippingRefund;
+        }
       }
-
-      shopMap[shop].shipping += shippingExTax;
 
       // Track orders with returns
       const refundedAmount = Number(order.refunded_amount) || 0;
       if (refundedAmount > 0 && order.order_id) {
         shopMap[shop].returnOrderIds.add(order.order_id);
       }
+    });
+
+    // Process shipping refunds (refund_date in period, from orders NOT created in period)
+    console.log('📊 DEBUG [getDashboardFromSkus] Processing shipping refunds data:', shippingRefundsData.length);
+    (shippingRefundsData || []).forEach(order => {
+      const shop = order.shop;
+      if (!shopMap[shop]) return;
+
+      // Check if order was already processed in ordersData (avoid double-counting)
+      const orderCreatedInPeriod = ordersData.some(o => o.order_id === order.order_id);
+
+      console.log(`📊 DEBUG [shipping refund] Order ${order.order_id}: createdInPeriod=${orderCreatedInPeriod}, refund=${order.shipping_refund_dkk}`);
+
+      if (!orderCreatedInPeriod) {
+        // This is a shipping refund from an older order - subtract it
+        const shippingRefund = Number(order.shipping_refund_dkk) || 0;
+        shopMap[shop].shipping -= shippingRefund;
+        console.log(`✅ Subtracted ${shippingRefund} DKK shipping refund from ${shop} (order ${order.order_id})`);
+      } else {
+        console.log(`⚠️ Skipped shipping refund (order already in ordersData): ${order.order_id}`);
+      }
+      // If order was created in period, shipping_refund_dkk was already subtracted above
     });
 
     // DEBUG: Track refund metrics before processing
