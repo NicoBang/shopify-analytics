@@ -44,6 +44,22 @@ This project syncs Shopify order and SKU data to Supabase for analytics and repo
 - ✅ **Progress tracking**: Job ID is passed between iterations, allowing resume from last position
 - ✅ **Large day support**: Can now sync 800+ order days without timeout (817 orders tested successfully)
 
+### Session 6: Critical Discount & Currency Fixes (2025-10-15)
+- ✅ **Duplikat aggregering fix**: Fixed `total_discount_dkk` calculation when same SKU appears multiple times in Shopify JSONL
+  - **Bug**: Summed `total_discount_dkk` incorrectly (359.28 instead of 79.84)
+  - **Fix**: Recalculate as `discount_per_unit_dkk × quantity` instead of summing
+- ✅ **Currency conversion restoration**: Fixed missing EUR/CHF → DKK conversion in `updateOriginalPricesFromMetadata`
+  - **Bug**: `original_price_dkk` showed 40.72 EUR instead of 303.77 DKK for INT shop
+  - **Fix**: Added `currencyRate` multiplication: `(compareAtPrice × 7.46) / 1.25 = 303.77 DKK`
+- ✅ **NULL validation**: Added `created_at` validation to prevent NULL constraint violations
+- ✅ **Upsert → Update**: Changed `updateOriginalPricesFromMetadata` from upsert to UPDATE-only to avoid INSERT without required fields
+- ✅ **Missing metadata**: Added 14 deleted SKUs to `product_metadata` with historical max prices
+- ✅ **Shopify vs Database analysis**: Confirmed database is MORE CORRECT than Shopify Analytics (preserves deleted products)
+
+**Critical Files Modified**:
+- [supabase/functions/bulk-sync-skus/index.ts](supabase/functions/bulk-sync-skus/index.ts): All 5 bug fixes
+- [legacy-sync-one-day.sh](legacy-sync-one-day.sh): Removed hardcoded Shopify token
+
 ## 🗄️ Database Tables
 
 ### `orders` table
@@ -117,20 +133,35 @@ This project syncs Shopify order and SKU data to Supabase for analytics and repo
   - ✅ Updated to match actual database schema
   - ✅ Now successfully syncs orders for all shops
 
-### **bulk-sync-skus** ✅ VERIFIED (2025-10-11)
+### **bulk-sync-skus** ✅ CRITICAL FIXES (2025-10-15)
 - **Purpose:** Syncs SKU/line item data to `skus` table
 - **Method:** Shopify Bulk Operations API (GraphQL)
-- **Status:** Working correctly in production
+- **Status:** Production-ready with 5 critical fixes applied
 - **Features:**
-  - ✅ Duplikat-aggregering (prevents ON CONFLICT errors)
+  - ✅ **Duplikat-aggregering** (prevents ON CONFLICT errors)
+    - **FIXED (2025-10-15)**: Recalculates `total_discount_dkk = discount_per_unit_dkk × quantity` instead of summing
+    - **Bug**: Previously summed duplicates causing 359.28 instead of 79.84
   - ✅ Sets `created_at_original` from Shopify order timestamp
+    - **FIXED (2025-10-15)**: Added validation to catch invalid dates before processing
   - ✅ Calculates discount breakdown:
-    - `discount_per_unit_dkk` (order-level discounts)
-    - `sale_discount_per_unit_dkk` (compareAtPrice - sellingPrice)
-    - `original_price_dkk` (compareAtPrice from Shopify)
+    - `discount_per_unit_dkk` (order-level discounts EX VAT)
+    - `sale_discount_per_unit_dkk` (compareAtPrice - sellingPrice EX VAT)
+    - `original_price_dkk` (compareAtPrice from Shopify EX VAT)
+  - ✅ **Multi-currency support**:
+    - **FIXED (2025-10-15)**: Restored EUR/CHF → DKK conversion in `updateOriginalPricesFromMetadata`
+    - **Bug**: Missing `× currencyRate` multiplication (40.72 EUR instead of 303.77 DKK)
+    - **Fix**: `(compareAtPrice × 7.46) / 1.25 = correct DKK EX VAT`
+  - ✅ **Metadata updates**:
+    - **FIXED (2025-10-15)**: Changed from `upsert` to `UPDATE`-only to prevent NULL constraint violations
   - ✅ Handles cancelled_qty/cancelled_amount_dkk (set to 0, updated by bulk-sync-refunds)
   - ✅ No ACCESS_DENIED issues (doesn't query customer/billingAddress)
-  - ✅ Successfully syncs SKUs to database
+
+**Critical Sections**:
+- Lines 887-913: Duplikat aggregering with fixed recalculation
+- Lines 815-829: created_at validation
+- Lines 959-977: Multi-currency metadata table selection
+- Lines 1058-1064: Currency conversion with `× currencyRate`
+- Lines 1076-1094: UPDATE-only metadata sync
 
 ### **bulk-sync-refunds** ✅ ENHANCED (October 2025)
 - **Purpose:** Updates SKU refund/cancellation data + shipping refunds
@@ -368,6 +399,10 @@ WHERE pm_eur.compare_at_price > pm_eur.price
 ### Order-Level Discounts
 - Applied to entire order (discount codes, automatic discounts)
 - Stored in: `discount_per_unit_dkk`, `total_discount_dkk`
+- **CRITICAL FIX (2025-10-15)**: `total_discount_dkk` now **recalculates** instead of summing duplicates
+  - **Bug**: When same SKU appeared multiple times in Shopify JSONL, summed incorrectly (359.28 instead of 79.84)
+  - **Fix**: `total_discount_dkk = discount_per_unit_dkk × quantity`
+  - **Location**: [bulk-sync-skus/index.ts:903](supabase/functions/bulk-sync-skus/index.ts#L903)
 
 ### Sale/Campaign Discounts
 - Difference between original price and discounted selling price
@@ -380,10 +415,14 @@ WHERE pm_eur.compare_at_price > pm_eur.price
 - Therefore: `original_price_dkk` = MAX(originalUnitPrice, compareAtPrice)
 - Sale discount = original_price - discounted_price
 
-**CRITICAL FIX (October 2025):**
+**CRITICAL FIXES (October 2025):**
 - Previously used `compareAtPrice - originalPrice` (wrong - both are same when on sale)
 - Now correctly uses `MAX(originalPrice, compareAtPrice) - discountedPrice`
 - Dashboard API must SELECT both `discount_per_unit_dkk` AND `sale_discount_per_unit_dkk`
+- **Multi-currency fix (2025-10-15)**: Restored `× currencyRate` for EUR/CHF shops in metadata updates
+  - **Bug**: EUR prices not converted to DKK (40.72 EUR instead of 303.77 DKK)
+  - **Fix**: `(compareAtPrice × 7.46) / 1.25 = correct DKK EX VAT`
+  - **Location**: [bulk-sync-skus/index.ts:1058-1064](supabase/functions/bulk-sync-skus/index.ts#L1058-L1064)
 
 ## 🚢 Shipping and Freight Tracking ✨ NEW (October 2025)
 
@@ -795,6 +834,37 @@ SELECT cron.schedule(
 2. ✅ ALWAYS filter SKUs by `created_at_original`
 3. ✅ bulk-sync-skus must use `compareAtPrice` for sale discount calculation
 
+### Incorrect Discount Values (359.28 instead of 79.84) ✨ FIXED (2025-10-15)
+**Symptom:** `discount_per_unit_dkk` and `total_discount_dkk` showing same incorrect value (e.g., 359.28)
+
+**Root Cause:** Duplikat aggregering summed `total_discount_dkk` when same SKU appeared multiple times in Shopify JSONL
+
+**Solution:**
+- ✅ FIXED in [bulk-sync-skus/index.ts:903](supabase/functions/bulk-sync-skus/index.ts#L903)
+- Now recalculates: `total_discount_dkk = discount_per_unit_dkk × quantity`
+- Resync affected dates to fix historical data
+
+### EUR/CHF Prices Not Converting to DKK ✨ FIXED (2025-10-15)
+**Symptom:** `original_price_dkk` showing EUR/CHF value instead of DKK (e.g., 40.72 instead of 303.77)
+
+**Root Cause:** `updateOriginalPricesFromMetadata` missing `× currencyRate` multiplication
+
+**Solution:**
+- ✅ FIXED in [bulk-sync-skus/index.ts:1058-1064](supabase/functions/bulk-sync-skus/index.ts#L1058-L1064)
+- Now calculates: `(compareAtPrice × 7.46) / 1.25 = correct DKK EX VAT`
+- Resync EUR/CHF shop orders to fix historical data
+
+### NULL created_at Constraint Violation ✨ FIXED (2025-10-15)
+**Symptom:** `ERROR: null value in column "created_at" of relation "skus" violates not-null constraint`
+
+**Root Causes:**
+1. ❌ Invalid Shopify dates not validated before processing
+2. ❌ `updateOriginalPricesFromMetadata` tried to INSERT new rows without `created_at`
+
+**Solution:**
+1. ✅ FIXED: Added date validation in [bulk-sync-skus/index.ts:815-829](supabase/functions/bulk-sync-skus/index.ts#L815-L829)
+2. ✅ FIXED: Changed from `upsert` to `UPDATE`-only in [bulk-sync-skus/index.ts:1076-1094](supabase/functions/bulk-sync-skus/index.ts#L1076-L1094)
+
 ### Dollar-Quoted String Syntax Error
 **Symptom:** `ERROR: 42601: syntax error at or near "$"`
 
@@ -861,10 +931,15 @@ SELECT cron.schedule(
    - `shipping_price_dkk` = calculated from totalShippingPriceSet / (1 + tax_rate)
    - `shipping_discount_dkk` = requires GraphQL query per order (separate function)
    - `shipping_refund_dkk` = parsed from order_adjustments in refunds API
-5. **Duplikater:** bulk-sync-skus aggregates duplicates before upsert
-6. **Table Separation:** bulk-sync-orders → orders table, bulk-sync-skus → skus table
-7. **Extensions:** pg_cron + pg_net must both be enabled for automation
-8. **Deployment:** Always use `--no-verify-jwt` flag
+5. **Duplikater (2025-10-15 FIXED):** bulk-sync-skus aggregates duplicates AND recalculates `total_discount_dkk`
+   - **NEVER sum** `total_discount_dkk` from duplicates
+   - **ALWAYS recalculate**: `total_discount_dkk = discount_per_unit_dkk × quantity`
+6. **Multi-Currency (2025-10-15 FIXED):** ALWAYS multiply by `currencyRate` in `updateOriginalPricesFromMetadata`
+   - **Formula**: `(compareAtPrice × currencyRate) / (1 + tax_rate) = DKK EX VAT`
+   - **EUR**: × 7.46, **CHF**: × 6.84, **DKK**: × 1.0
+7. **Table Separation:** bulk-sync-orders → orders table, bulk-sync-skus → skus table
+8. **Extensions:** pg_cron + pg_net must both be enabled for automation
+9. **Deployment:** Always use `--no-verify-jwt` flag
 
 ## 🔍 Quick Troubleshooting Guide
 
