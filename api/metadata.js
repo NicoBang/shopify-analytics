@@ -451,6 +451,7 @@ class SupabaseService {
           ...item,
           quantity: 0, // Don't count as new sales
           refunded_qty: item.refunded_qty || 0,
+          cancelled_qty: 0, // FIXED: Don't count cancelled items from orders created outside period
           source: 'refund_only'
         });
       } else {
@@ -691,6 +692,7 @@ class SupabaseService {
           ...item,
           quantity: 0,
           refunded_qty: item.refunded_qty || 0,
+          cancelled_qty: 0, // FIXED: Don't count cancelled items from orders created outside period
           source: 'refund_only'
         });
       }
@@ -907,6 +909,7 @@ class SupabaseService {
           ...item,
           quantity: 0, // Don't count as new sales
           refunded_qty: item.refunded_qty || 0,
+          cancelled_qty: 0, // FIXED: Don't count cancelled items from orders created outside period
           source: 'refund_only'
         });
       }
