@@ -1035,11 +1035,10 @@ class SupabaseService {
         const refunded = item.refunded_qty || 0;
         const cancelled = item.cancelled_qty || 0;
 
-        // Calculate actual price paid per unit (v2)
-        // price_dkk is the discounted unit price (from discountedUnitPriceSet) - includes line-level discounts
-        // discount_per_unit_dkk is the order-level discount allocation per unit
-        // Final price = price_dkk - discount_per_unit_dkk
-        const unitPriceAfterDiscount = (item.price_dkk || 0) - (item.discount_per_unit_dkk || 0);
+        // FIXED (October 2025): price_dkk already includes ALL discounts (sale + order-level)
+        // From bulk-sync-skus: "Final price after ALL discounts (priceDkk - order discount)"
+        // Do NOT subtract discount_per_unit_dkk again - it's already been subtracted
+        const unitPriceAfterDiscount = item.price_dkk || 0;
         const bruttoQty = quantity - cancelled; // Brutto = quantity minus cancelled (actual sold items)
         const revenue = unitPriceAfterDiscount * bruttoQty;
 
@@ -1302,11 +1301,10 @@ class SupabaseService {
         const refunded = item.refunded_qty || 0;
         const cancelled = item.cancelled_qty || 0;
 
-        // Calculate actual price paid per unit (v2)
-        // price_dkk is the discounted unit price (from discountedUnitPriceSet) - includes line-level discounts
-        // discount_per_unit_dkk is the order-level discount allocation per unit
-        // Final price = price_dkk - discount_per_unit_dkk
-        const unitPriceAfterDiscount = (item.price_dkk || 0) - (item.discount_per_unit_dkk || 0);
+        // FIXED (October 2025): price_dkk already includes ALL discounts (sale + order-level)
+        // From bulk-sync-skus: "Final price after ALL discounts (priceDkk - order discount)"
+        // Do NOT subtract discount_per_unit_dkk again - it's already been subtracted
+        const unitPriceAfterDiscount = item.price_dkk || 0;
         const bruttoQty = quantity - cancelled; // Brutto = quantity minus cancelled (actual sold items)
         const revenue = unitPriceAfterDiscount * bruttoQty;
 
