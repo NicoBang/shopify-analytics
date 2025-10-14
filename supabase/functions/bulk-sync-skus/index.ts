@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // Edge Function with orchestration support
 const SHOPIFY_API_VERSION = "2024-10";
-const POLL_INTERVAL_MS = 10000;
+const POLL_INTERVAL_MS = 5000;
 const MAX_POLL_ATTEMPTS = 720; // 2 hours max (720 * 10s)
 const BATCH_SIZE = 500;
 const EDGE_FUNCTION_TIMEOUT_MS = 300000; // 5 minutes (Edge Functions have ~6-7 min hard limit)
@@ -138,21 +138,28 @@ serve(async (req: Request): Promise<Response> => {
       .lt("started_at", tenMinutesAgo);
 
     // === 🔍 Step 2: Check for other concurrent running SKU jobs ===
-    const { data: runningJobs, error: checkError } = await supabase
-      .from("bulk_sync_jobs")
-      .select("id, shop, start_date, status")
-      .eq("shop", shop)
-      .eq("object_type", "skus")
-      .eq("status", "running");
+    // NOTE: Skip this check when called from continue-orchestrator
+    // continue-orchestrator already coordinates parallel execution
+    const skipCheck = req.headers.get("X-Skip-Concurrent-Check") === "true";
+    if (!testMode && !skipCheck) {
+      const { data: runningJobs, error: checkError } = await supabase
+        .from("bulk_sync_jobs")
+        .select("id, shop, start_date, status")
+        .eq("shop", shop)
+        .eq("object_type", "skus")
+        .eq("status", "running");
 
-    if (checkError) console.warn("⚠️ Failed to check running jobs:", checkError.message);
+      if (checkError) console.warn("⚠️ Failed to check running jobs:", checkError.message);
 
-    if (runningJobs && runningJobs.length > 0) {
-      console.log(`⏸️ Skipping SKU sync for ${shop} — another SKU job already running`);
-      return new Response(
-        JSON.stringify({ error: "Another SKU job already running", jobId: runningJobs[0].id }),
-        { status: 409 }
-      );
+      if (runningJobs && runningJobs.length > 0) {
+        console.log(`⏸️ Skipping SKU sync for ${shop} — another SKU job already running`);
+        return new Response(
+          JSON.stringify({ error: "Another SKU job already running", jobId: runningJobs[0].id }),
+          { status: 409 }
+        );
+      }
+    } else {
+      console.log("ℹ️ Concurrent check skipped (orchestrator mode)");
     }
 
     // === ✅ Step 3: Create job log ===
@@ -613,6 +620,37 @@ async function syncSkusForDay(
   }
   console.log(`🌍 Order metadata mapping built: ${orderMetadataMap.size} orders`);
 
+  // 🔧 FIX: Backfill missing tax_rate from orders table in Supabase
+  // If Shopify JSONL doesn't have taxLines, we query orders table for tax_rate
+  const ordersWithMissingTaxRate = Array.from(orderMetadataMap.entries())
+    .filter(([_, metadata]) => metadata.taxRate === null)
+    .map(([orderId, _]) => orderId);
+
+  if (ordersWithMissingTaxRate.length > 0) {
+    console.log(`🔧 Backfilling tax_rate for ${ordersWithMissingTaxRate.length} orders from Supabase orders table...`);
+
+    // Query orders table for tax_rate
+    const { data: ordersData, error: ordersError } = await supabase
+      .from("orders")
+      .select("order_id, tax_rate")
+      .eq("shop", shop)
+      .in("order_id", ordersWithMissingTaxRate);
+
+    if (ordersError) {
+      console.error("❌ Error fetching tax_rate from orders table:", ordersError);
+    } else if (ordersData) {
+      // Update orderMetadataMap with tax_rate from orders table
+      for (const order of ordersData) {
+        const existingMetadata = orderMetadataMap.get(order.order_id);
+        if (existingMetadata && order.tax_rate !== null) {
+          existingMetadata.taxRate = order.tax_rate;
+          console.log(`  ✅ Order ${order.order_id}: tax_rate = ${order.tax_rate}`);
+        }
+      }
+      console.log(`✅ Backfilled tax_rate for ${ordersData.length} orders`);
+    }
+  }
+
   let lineItemsFound = 0;
   for (const line of lines) {
     const obj = JSON.parse(line);
@@ -626,30 +664,29 @@ async function syncSkusForDay(
     const orderId = obj.__parentId?.split("/").pop();
     const orderMetadata = orderMetadataMap.get(orderId);
 
-    const price = parseFloat(obj.discountedUnitPriceSet?.shopMoney?.amount || "0");
+    // ✅ KORREKT: price_dkk skal være list price (FØR rabatter)
+    // originalUnitPriceSet = price before ANY discounts (coupon codes, automatic discounts, sale prices)
     const originalPrice = parseFloat(obj.originalUnitPriceSet?.shopMoney?.amount || "0");
     const compareAtPrice = parseFloat(obj.variant?.compareAtPrice || "0");
-    const currency = obj.discountedUnitPriceSet?.shopMoney?.currencyCode || "DKK";
+    const currency = obj.originalUnitPriceSet?.shopMoney?.currencyCode || "DKK";
     const rate = CURRENCY_RATES[currency] || 1;
 
-    // 🔍 Debug: Log price differences for order 7589210325259
-    if (orderId === "7589210325259") {
+    // 🔍 Debug: Log price differences for order 7589210325259 or 6203877163342
+    if (orderId === "7589210325259" || orderId === "6203877163342") {
       console.log(`🔍 DEBUG Order ${orderId} SKU ${obj.sku}:`);
-      console.log(`   discountedUnitPrice: ${price} ${currency}`);
       console.log(`   originalUnitPrice: ${originalPrice} ${currency}`);
-      console.log(`   totalDiscountSet: ${obj.totalDiscountSet?.shopMoney?.amount || "N/A"} ${obj.totalDiscountSet?.shopMoney?.currencyCode || ""}`);
       console.log(`   compareAtPrice: ${compareAtPrice}`);
     }
 
     // ✅ Calculate price_dkk using tax_rate (not Shopify's rounded taxLines)
-    // This ensures accurate ex-VAT pricing without rounding errors
+    // price_dkk = list price BEFORE discounts (EX VAT)
     const taxRate = orderMetadata?.taxRate;
     let priceDkk: number;
 
     if (taxRate !== null && taxRate !== undefined) {
       // Convert INCL VAT to EX VAT using actual tax rate
-      const priceInclVat = price * rate; // Price in DKK including VAT
-      const priceExVat = priceInclVat / (1 + taxRate); // Price in DKK excluding VAT
+      const priceInclVat = originalPrice * rate; // List price in DKK including VAT
+      const priceExVat = priceInclVat / (1 + taxRate); // List price in DKK excluding VAT
       priceDkk = priceExVat;
     } else {
       // Fallback: use old method with taxLines if no tax_rate available
@@ -663,10 +700,10 @@ async function syncSkusForDay(
         }, 0) * rate;
         totalTaxPerUnit = totalTaxForAllUnits / (obj.quantity || 1);
       } else if (orderMetadata?.totalTax && orderMetadata?.subtotal) {
-        const itemProportion = price / parseFloat(orderMetadata.subtotal);
+        const itemProportion = originalPrice / parseFloat(orderMetadata.subtotal);
         totalTaxPerUnit = parseFloat(orderMetadata.totalTax) * itemProportion * rate;
       }
-      priceDkk = (price * rate) - totalTaxPerUnit;
+      priceDkk = (originalPrice * rate) - totalTaxPerUnit;
     }
     // ✅ SOLUTION: Calculate order-level discounts from Shopify LineItem data
     //
@@ -683,17 +720,9 @@ async function syncSkusForDay(
     // NOTE: Shopify's variant.compareAtPrice returns CURRENT price, not historical
     // Therefore we cannot use it for historical orders - must use product_metadata
 
-    let originalPriceDkk = 0;
-    if (originalPrice > 0) {
-      if (taxRate !== null && taxRate !== undefined) {
-        // Convert INCL VAT to EX VAT using tax_rate
-        originalPriceDkk = (originalPrice * rate) / (1 + taxRate);
-      } else {
-        // Fallback: calculate tax amount
-        const totalTaxPerUnit = (price * rate) - priceDkk;
-        originalPriceDkk = (originalPrice * rate) - totalTaxPerUnit;
-      }
-    }
+    // originalPriceDkk is same as priceDkk since both use originalUnitPriceSet
+    // (This field will be updated later by updateOriginalPricesFromMetadata with compareAtPrice from product_metadata)
+    const originalPriceDkk = priceDkk;
 
     // ✅ NEW DISCOUNT CALCULATION STRATEGY:
     // Use Shopify's discountAllocations for accurate discount tracking
@@ -716,7 +745,7 @@ async function syncSkusForDay(
       }
     }
 
-    // Calculate sale discount separately (compareAtPrice - price)
+    // Calculate sale discount separately (compareAtPrice - originalPrice)
     // Sale discounts are NOT included in discountAllocations
     let saleDiscountRaw = 0;
     const variantCompareAtPrice = obj.variant?.compareAtPrice
@@ -724,33 +753,36 @@ async function syncSkusForDay(
       : 0;
     const variantCurrentPrice = obj.variant?.price
       ? parseFloat(obj.variant.price)
-      : price;
+      : originalPrice;
 
     if (variantCompareAtPrice > variantCurrentPrice) {
       saleDiscountRaw = (variantCompareAtPrice - variantCurrentPrice) * (obj.quantity || 1) * rate;
     }
 
-    // Total discount = order/line discounts + sale discounts
-    const totalDiscountRaw = orderLineDiscountRaw + saleDiscountRaw;
-
-    // Calculate tax on discount (proportional to discount amount)
-    let totalDiscountDkk = 0;
-    if (totalDiscountRaw > 0) {
+    // ✅ Calculate order/line discount (rabatkoder) EX VAT
+    let orderDiscountDkk = 0;
+    if (orderLineDiscountRaw > 0) {
       if (taxRate !== null && taxRate !== undefined) {
-        // Remove VAT from discount amount
-        totalDiscountDkk = totalDiscountRaw / (1 + taxRate);
+        orderDiscountDkk = orderLineDiscountRaw / (1 + taxRate);
       } else {
-        // Fallback: calculate tax on discount proportionally
-        // Calculate totalTaxPerUnit inline since it may not be defined in this scope
-        const itemTotalTax = (price * rate) - priceDkk;
-        const discountTax = price > 0 ? (itemTotalTax * totalDiscountRaw / (price * rate)) : 0;
-        totalDiscountDkk = totalDiscountRaw - discountTax;
+        const itemTotalTax = (originalPrice * rate) - priceDkk;
+        const discountTax = originalPrice > 0 ? (itemTotalTax * orderLineDiscountRaw / (originalPrice * rate)) : 0;
+        orderDiscountDkk = orderLineDiscountRaw - discountTax;
       }
     }
 
-    // ✅ CORRECT: priceDkk from discountedUnitPriceSet is already after discounts
-    // No need to subtract again - Shopify handles this correctly
-    const finalPriceDkk = priceDkk;
+    // ✅ Total discount = order/line discounts + sale discounts (for backwards compatibility)
+    const totalDiscountRaw = orderLineDiscountRaw + saleDiscountRaw;
+    let totalDiscountDkk = 0;
+    if (totalDiscountRaw > 0) {
+      if (taxRate !== null && taxRate !== undefined) {
+        totalDiscountDkk = totalDiscountRaw / (1 + taxRate);
+      } else {
+        const itemTotalTax = (originalPrice * rate) - priceDkk;
+        const discountTax = originalPrice > 0 ? (itemTotalTax * totalDiscountRaw / (originalPrice * rate)) : 0;
+        totalDiscountDkk = totalDiscountRaw - discountTax;
+      }
+    }
 
     // Calculate sale discount per unit and total
     // Sale discount is already calculated in saleDiscountRaw (INCL VAT)
@@ -763,8 +795,8 @@ async function syncSkusForDay(
         saleDiscountPerUnit = saleDiscountTotal / (obj.quantity || 1);
       } else {
         // Fallback: calculate tax proportionally
-        const itemTotalTax = (price * rate) - priceDkk;
-        const saleDiscountTax = price > 0 ? (itemTotalTax * saleDiscountRaw / (price * rate)) : 0;
+        const itemTotalTax = (originalPrice * rate) - priceDkk;
+        const saleDiscountTax = originalPrice > 0 ? (itemTotalTax * saleDiscountRaw / (originalPrice * rate)) : 0;
         saleDiscountTotal = saleDiscountRaw - saleDiscountTax;
         saleDiscountPerUnit = saleDiscountTotal / (obj.quantity || 1);
       }
@@ -780,10 +812,22 @@ async function syncSkusForDay(
 
     // CRITICAL: skus.created_at is DATE (not TIMESTAMPTZ)
     // Must use "YYYY-MM-DD" format as per CLAUDE.md rules
-    const created_at = new Date(shopifyCreatedAt).toISOString().split("T")[0];
+    const createdAtDate = new Date(shopifyCreatedAt);
+    if (isNaN(createdAtDate.getTime())) {
+      console.error(`[ERROR] Invalid Shopify createdAt "${shopifyCreatedAt}" for order ${orderId} - SKU will be skipped`);
+      continue;
+    }
+    const created_at = createdAtDate.toISOString().split("T")[0];
 
     // NOTE: Refund fields (refunded_qty, refund_date, cancelled_qty, etc.) are NOT set here
     // They are exclusively managed by bulk-sync-refunds function
+
+    // ✅ CRITICAL: Validate created_at before adding to batch
+    if (!created_at || created_at === 'NaN-NaN-NaN') {
+      console.error(`[ERROR] Invalid created_at "${created_at}" for order ${orderId} SKU ${obj.sku} - will be skipped`);
+      continue;
+    }
+
     batch.push({
       shop,
       order_id: orderId,
@@ -791,10 +835,10 @@ async function syncSkusForDay(
       product_title: obj.name,
       variant_title: obj.variantTitle,
       quantity: obj.quantity,
-      price_dkk: finalPriceDkk, // ✅ Final price after ALL discounts (priceDkk - order discount)
-      total_discount_dkk: totalDiscountDkk, // ✅ Proportional order-level discount
-      discount_per_unit_dkk: totalDiscountDkk / (obj.quantity || 1), // ✅ Order discount per unit
-      original_price_dkk: originalPriceDkk, // ✅ Price before order discounts (same as priceDkk when discount is order-level)
+      price_dkk: priceDkk, // ✅ Actual paid price (EX VAT)
+      total_discount_dkk: totalDiscountDkk, // ✅ Total order-level + sale discounts
+      discount_per_unit_dkk: orderDiscountDkk / (obj.quantity || 1), // ✅ ONLY order/line discounts (rabatkoder)
+      original_price_dkk: originalPriceDkk, // ✅ Original list price (for sale discount calculation)
       sale_discount_per_unit_dkk: saleDiscountPerUnit,
       sale_discount_total_dkk: saleDiscountTotal,
       country: orderMetadata?.country || null,
@@ -856,13 +900,13 @@ async function upsertSkus(supabase: any, skus: any[], targetTable: string = "sku
       } else {
         // Sum numeric fields for duplicate SKUs
         acc[key].quantity += item.quantity || 0;
-        acc[key].total_discount_dkk += item.total_discount_dkk || 0;
 
         // NOTE: Refund fields (refunded_qty, cancelled_qty, etc.) are NOT aggregated here
         // They are exclusively managed by bulk-sync-refunds function
 
-        // Recalculate per-unit discount after aggregation
-        acc[key].discount_per_unit_dkk = acc[key].total_discount_dkk / (acc[key].quantity || 1);
+        // ✅ CRITICAL FIX: total_discount_dkk must be recalculated from discount_per_unit_dkk
+        // Do NOT sum total_discount_dkk - it causes incorrect values
+        acc[key].total_discount_dkk = acc[key].discount_per_unit_dkk * acc[key].quantity;
       }
       return acc;
     }, {})
@@ -912,30 +956,36 @@ async function updateOriginalPricesFromMetadata(
 ): Promise<void> {
   console.log(`\n🔄 Updating sale discounts from product_metadata for ${shop} on ${startDate}...`);
 
-  // Determine metadata table and VAT rate based on shop
+  // Determine metadata table, VAT rate, and currency conversion based on shop
   let metadataTable: string;
   let vatRate: number;
+  let currencyRate: number;
 
   if (shop === 'pompdelux-da.myshopify.com') {
     metadataTable = 'product_metadata';
     vatRate = 1.25; // DK: 25% VAT
+    currencyRate = 1.0; // DKK
   } else if (shop === 'pompdelux-chf.myshopify.com') {
     metadataTable = 'product_metadata_chf';
     vatRate = 1.077; // CHF: 7.7% VAT
+    currencyRate = CURRENCY_RATES.CHF; // CHF → DKK
   } else {
     // pompdelux-de, pompdelux-nl, pompdelux-int
     metadataTable = 'product_metadata_eur';
     vatRate = 1.25; // EUR: 25% VAT (Denmark standard for these shops)
+    currencyRate = CURRENCY_RATES.EUR; // EUR → DKK
   }
 
-  console.log(`📋 Using metadata table: ${metadataTable} with VAT rate: ${vatRate}`);
+  console.log(`📋 Using metadata table: ${metadataTable} with VAT rate: ${vatRate}, currency rate: ${currencyRate}`);
 
   // Step 1: Get SKUs for this day
+  // ✅ Use date range instead of equality to match TIMESTAMPTZ properly
   const { data: skus, error: fetchError } = await supabase
     .from('skus')
     .select('shop, order_id, sku, price_dkk, quantity')
     .eq('shop', shop)
-    .eq('created_at_original', startDate);
+    .gte('created_at_original', `${startDate}T00:00:00Z`)
+    .lte('created_at_original', `${startDate}T23:59:59Z`);
 
   if (fetchError) {
     console.error(`❌ Error fetching SKUs:`, fetchError);
@@ -985,12 +1035,19 @@ async function updateOriginalPricesFromMetadata(
   console.log(`📊 Found ${metadata.length} products in ${metadataTable}`);
 
   // Step 3: Join SKUs with metadata and calculate discounts
+  // ✅ CRITICAL: Handle SKU name mismatch (order SKUs use "/" but product SKUs use "\")
   const metadataMap = new Map(metadata.map(m => [m.sku, m]));
 
+  // Also create a map with forward slashes replaced with backslashes for lookup
+  const normalizedMetadataMap = new Map(
+    metadata.map(m => [m.sku.replace(/\\/g, '/'), m])
+  );
+
   const updates = skus
-    .filter(sku => metadataMap.has(sku.sku))
+    .filter(sku => metadataMap.has(sku.sku) || normalizedMetadataMap.has(sku.sku))
     .map((sku: any) => {
-      const pm = metadataMap.get(sku.sku)!;
+      // Try exact match first, then try normalized match
+      const pm = metadataMap.get(sku.sku) || normalizedMetadataMap.get(sku.sku)!;
 
       // Get actual tax_rate from order (fallback to default vatRate if null)
       const actualTaxRate = taxRateMap.get(sku.order_id);
@@ -998,11 +1055,12 @@ async function updateOriginalPricesFromMetadata(
         ? (1 + actualTaxRate)  // Use actual tax rate from order
         : vatRate;              // Fallback to default VAT rate
 
-      // Convert from INCL VAT to EX VAT using actual tax rate
-      const compareAtPriceExVat = (pm.compare_at_price || 0) / effectiveVatMultiplier;
-      const priceExVat = (pm.price || 0) / effectiveVatMultiplier;
+      // ✅ CRITICAL: Convert from foreign currency to DKK, then remove VAT
+      // Metadata prices are in EUR/CHF (INCL VAT) → convert to DKK (EX VAT)
+      const compareAtPriceExVat = (pm.compare_at_price || 0) * currencyRate / effectiveVatMultiplier;
+      const priceExVat = (pm.price || 0) * currencyRate / effectiveVatMultiplier;
 
-      // Original price = MAX(compareAt, price) converted to ex VAT
+      // Original price = MAX(compareAt, price) converted to ex VAT in DKK
       const originalPriceDkk = compareAtPriceExVat > priceExVat ? compareAtPriceExVat : priceExVat;
 
       // Sale discount = original - actual selling price (both ex VAT)
@@ -1020,14 +1078,24 @@ async function updateOriginalPricesFromMetadata(
       };
     });
 
-  // Step 3: Batch update SKUs
-  const { error: updateError } = await supabase
-    .from('skus')
-    .upsert(updates, { onConflict: 'shop,order_id,sku' });
+  // Step 3: Batch update SKUs (UPDATE only, don't insert new rows)
+  for (const update of updates) {
+    const { error: updateError } = await supabase
+      .from('skus')
+      .update({
+        original_price_dkk: update.original_price_dkk,
+        sale_discount_per_unit_dkk: update.sale_discount_per_unit_dkk,
+        sale_discount_total_dkk: update.sale_discount_total_dkk,
+        tax_rate: update.tax_rate
+      })
+      .eq('shop', update.shop)
+      .eq('order_id', update.order_id)
+      .eq('sku', update.sku);
 
-  if (updateError) {
-    console.error(`❌ Error updating SKUs:`, updateError);
-    throw updateError;
+    if (updateError) {
+      console.error(`❌ Error updating SKU ${update.sku} for order ${update.order_id}:`, updateError);
+      // Continue with other updates instead of throwing
+    }
   }
 
   console.log(`✅ Updated ${updates.length} SKUs with sale discounts from product_metadata`);

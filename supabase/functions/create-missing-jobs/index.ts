@@ -47,22 +47,41 @@ serve(async (req: Request): Promise<Response> => {
     const expectedJobs = generateExpectedJobs(startDate, endDate, objectType);
     console.log(`   Expected: ${expectedJobs.length} total jobs`);
 
-    // Get existing jobs (filter by object_type if specified)
-    let query = supabase
-      .from("bulk_sync_jobs")
-      .select("shop, start_date, object_type")
-      .gte("start_date", startDate)
-      .lte("start_date", endDate);
+    // Get existing jobs with pagination (Supabase default limit is 1000)
+    // Fetch ALL existing jobs to avoid duplicates
+    let allExistingJobs: any[] = [];
+    let offset = 0;
+    const pageSize = 1000;
 
-    if (objectType) {
-      query = query.eq("object_type", objectType);
+    while (true) {
+      let query = supabase
+        .from("bulk_sync_jobs")
+        .select("shop, start_date, object_type")
+        .gte("start_date", startDate)
+        .lte("start_date", endDate)
+        .range(offset, offset + pageSize - 1);
+
+      if (objectType) {
+        query = query.eq("object_type", objectType);
+      }
+
+      const { data: page, error: fetchError } = await query;
+
+      if (fetchError) {
+        throw new Error(`Failed to fetch existing jobs: ${fetchError.message}`);
+      }
+
+      if (!page || page.length === 0) break;
+
+      allExistingJobs = allExistingJobs.concat(page);
+
+      if (page.length < pageSize) break; // Last page
+
+      offset += pageSize;
+      console.log(`   Loaded ${allExistingJobs.length} existing jobs...`);
     }
 
-    const { data: existingJobs, error: fetchError } = await query;
-
-    if (fetchError) {
-      throw new Error(`Failed to fetch existing jobs: ${fetchError.message}`);
-    }
+    const existingJobs = allExistingJobs;
 
     // Find missing jobs
     const existingSet = new Set(

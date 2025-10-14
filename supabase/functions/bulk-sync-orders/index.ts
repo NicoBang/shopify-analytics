@@ -9,9 +9,34 @@ import { createAuthenticatedClient, batchUpsert } from "../_shared/supabase.ts";
 import type { ShopifyOrder, OrderRecord, BulkSyncJob, BulkOperationResult, ShopifyBulkOperation } from "../_shared/types.ts";
 
 // Bulk Operations Configuration
-const POLL_INTERVAL_MS = 10000; // 10 seconds
+const POLL_INTERVAL_MS = 5000; // 10 seconds
 const MAX_POLL_ATTEMPTS = 360; // 1 hour max
 const EDGE_FUNCTION_TIMEOUT_MS = 300000; // 5 minutes safety margin
+
+// Default tax rates by country (fallback when taxLines is empty)
+// These are standard VAT rates for EU countries where Pompdelux operates
+function getDefaultTaxRateByCountry(countryCode: string | null): number {
+  if (!countryCode) return 0.25; // Default to Danish VAT if no country
+
+  const taxRates: { [key: string]: number } = {
+    'DK': 0.25, // Denmark - 25%
+    'DE': 0.19, // Germany - 19%
+    'NL': 0.21, // Netherlands - 21%
+    'CH': 0.077, // Switzerland - 7.7%
+    // Other EU countries where Pompdelux might ship
+    'SE': 0.25, // Sweden - 25%
+    'NO': 0.25, // Norway - 25%
+    'AT': 0.20, // Austria - 20%
+    'BE': 0.21, // Belgium - 21%
+    'FI': 0.24, // Finland - 24%
+    'FR': 0.20, // France - 20%
+    'IT': 0.22, // Italy - 22%
+    'ES': 0.21, // Spain - 21%
+    'PL': 0.23, // Poland - 23%
+  };
+
+  return taxRates[countryCode] || 0.25; // Default to 25% if country not in list
+}
 
 interface BulkSyncRequest {
   shop: string;
@@ -700,7 +725,11 @@ function transformOrder(order: ShopifyOrder, shop: string): OrderRecord {
     actualTaxRate = order.taxLines[0].rate;
     console.log(`📊 Order ${orderId}: tax rate ${actualTaxRate} (${actualTaxRate * 100}%)`);
   } else {
-    console.log(`⚠️ Order ${orderId}: No taxLines found, will store null`);
+    // Fallback: Use country-based tax rate if taxLines is empty
+    // This happens for ~1% of orders where Shopify Bulk API doesn't return taxLines
+    const countryCode = order.shippingAddress?.countryCode || null;
+    actualTaxRate = getDefaultTaxRateByCountry(countryCode);
+    console.log(`⚠️ Order ${orderId}: No taxLines found, using fallback tax rate ${actualTaxRate} for country ${countryCode}`);
   }
 
   // Calculate shipping fields

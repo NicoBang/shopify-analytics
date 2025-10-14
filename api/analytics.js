@@ -1,5 +1,6 @@
 // api/analytics.js
 const { createClient } = require('@supabase/supabase-js');
+const { adjustLocalDateToUTC } = require('./timezone-utils');
 
 // Inline SupabaseService for Vercel
 class SupabaseService {
@@ -373,17 +374,27 @@ class SupabaseService {
       // Revenue calculation (Updated October 2025: using price_dkk * quantity instead of total_price_dkk)
       const pricePerUnit = Number(item.price_dkk) || 0;
       const totalPrice = pricePerUnit * quantity;
-      const cancelledAmount = Number(item.cancelled_amount_dkk) || 0;
-      const bruttoRevenue = totalPrice - cancelledAmount;
 
-      shopMap[shop].bruttoomsætning += bruttoRevenue;
-      shopMap[shop].nettoomsætning += bruttoRevenue; // Start with brutto, then subtract refunds
+      // ✅ FIXED: Calculate cancelled_amount if missing (matches Color_Analytics logic)
+      let cancelledAmount = Number(item.cancelled_amount_dkk) || 0;
+      if (cancelledAmount === 0 && cancelled > 0) {
+        // If cancelled_amount_dkk is 0 but cancelled_qty > 0, calculate it
+        cancelledAmount = pricePerUnit * cancelled;
+      }
 
       // Track total discounts (order-level + sale discounts, both ex. moms)
       const discountPerUnit = Number(item.discount_per_unit_dkk) || 0;
       const saleDiscountPerUnit = Number(item.sale_discount_per_unit_dkk) || 0;
       const totalDiscountPerUnit = discountPerUnit + saleDiscountPerUnit;
       shopMap[shop].totalDiscounts += totalDiscountPerUnit * quantity;
+
+      // ✅ CRITICAL: price_dkk is ALREADY the discounted price (after sale discount)
+      // Only subtract order-level discounts (discount_per_unit_dkk), NOT sale discounts!
+      const orderDiscountAmount = discountPerUnit * quantity;
+      const bruttoRevenue = totalPrice - orderDiscountAmount - cancelledAmount;
+
+      shopMap[shop].bruttoomsætning += bruttoRevenue;
+      shopMap[shop].nettoomsætning += bruttoRevenue; // Start with brutto, then subtract refunds
 
       // Only count refunds if they happened in the same period
       const hasRefundInPeriod = item.refund_date &&
@@ -394,8 +405,9 @@ class SupabaseService {
         const refunded = Number(item.refunded_qty) || 0;
         const refundedAmount = Number(item.refunded_amount_dkk) || 0;
 
+        // returQty tæller KUN refunded items (ikke cancelled, da de allerede er trukket fra på order_created dagen)
         shopMap[shop].stkNetto -= refunded;
-        shopMap[shop].returQty += refunded;
+        shopMap[shop].returQty += refunded;  // FIXED: Kun refunded, ikke cancelled
         shopMap[shop].nettoomsætning -= refundedAmount;
         shopMap[shop].refundedAmount += refundedAmount;
         refundsInPeriodFromSales += refunded;
@@ -432,8 +444,9 @@ class SupabaseService {
         const refunded = Number(item.refunded_qty) || 0;
         const refundedAmount = Number(item.refunded_amount_dkk) || 0;
 
+        // returQty tæller KUN refunded items (cancelled blev allerede trukket fra på order_created dagen)
         shopMap[shop].stkNetto -= refunded;
-        shopMap[shop].returQty += refunded;
+        shopMap[shop].returQty += refunded;  // FIXED: Kun refunded, ikke cancelled
         shopMap[shop].nettoomsætning -= refundedAmount;
         shopMap[shop].refundedAmount += refundedAmount;
         refundsAddedFromRefundData += refunded;
@@ -482,6 +495,7 @@ class SupabaseService {
         totalDiscounts: Math.round(data.totalDiscounts * 100) / 100,
         cancelledQty: data.cancelledQty,
         shipping: shipping,
+        returOrderCount: returOrderCount, // ✅ NEW: Antal ordrer med refunds
         // Afledte værdier
         gnstOrdreværdi: antalOrdrer > 0 ? Math.round((brutto / antalOrdrer) * 100) / 100 : 0,
         basketSize: antalOrdrer > 0 ? Math.round((stkBrutto / antalOrdrer) * 10) / 10 : 0,
@@ -548,12 +562,11 @@ module.exports = async function handler(req, res) {
   try {
     const supabaseService = new SupabaseService();
 
-    // Ensure full day coverage (same logic as sku-raw.js)
-    const start = new Date(startDate);
-    start.setHours(0, 0, 0, 0);
-
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999);
+    // Convert Danish local dates to UTC accounting for timezone offset
+    // Example: 2024-10-01 (Danish) → 2024-09-30T22:00:00Z (UTC, CEST +2)
+    // This ensures orders created 00:00-02:00 Danish time are included
+    const start = adjustLocalDateToUTC(startDate, false); // Start of day in UTC
+    const end = adjustLocalDateToUTC(endDate, true);     // End of day in UTC (next day 22:00:00Z)
 
     // Normalize includeReturns once for use across handler
     const wantsReturns = String(includeReturns) === 'true';

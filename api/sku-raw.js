@@ -2,6 +2,7 @@
 // CONSOLIDATED SKU endpoint combining sku-cache.js and sku-raw.js functionality
 // Supports: raw data, analytics, search, and shop breakdown
 const { createClient } = require('@supabase/supabase-js');
+const { adjustLocalDateToUTC } = require('./timezone-utils');
 
 // Inline SupabaseService for Vercel
 class SupabaseService {
@@ -353,11 +354,9 @@ module.exports = async function handler(req, res) {
           });
         }
 
-        const start = new Date(startDate);
-        start.setHours(0, 0, 0, 0);
-
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
+        // Convert Danish local dates to UTC accounting for timezone offset
+        const start = adjustLocalDateToUTC(startDate, false);
+        const end = adjustLocalDateToUTC(endDate, true);
 
         const result = await supabaseService.getSkusForPeriod(start, end, {
           shop,
@@ -469,8 +468,9 @@ module.exports = async function handler(req, res) {
           });
         }
 
-        const analyticsStart = new Date(startDate);
-        const analyticsEnd = new Date(endDate);
+        // Convert Danish local dates to UTC accounting for timezone offset
+        const analyticsStart = adjustLocalDateToUTC(startDate, false);
+        const analyticsEnd = adjustLocalDateToUTC(endDate, true);
 
         data = await supabaseService.getSkuAnalytics(analyticsStart, analyticsEnd, {
           shop,

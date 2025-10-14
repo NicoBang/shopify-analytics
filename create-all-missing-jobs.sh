@@ -20,24 +20,24 @@ echo "✓ Failed jobs reset"
 echo ""
 
 echo "📋 Creating missing jobs in batches..."
-echo "   Period: 2024-09-30 to 2025-10-09 (375 days)"
+echo "   Period: 2025-10-01 to 2025-10-14 (375 days)"
 echo "   Shops: 5 (DA, DE, NL, INT, CHF)"
 echo ""
 
 # Process in weekly chunks to avoid timeout
-start_date="2024-09-30"
+start_date="2025-10-01"
 batch_num=1
 
 while [ "$start_date" \< "2025-10-10" ]; do
-  # Calculate end date (7 days later, max 2025-10-09)
+  # Calculate end date (7 days later, max 2025-10-14)
   if [[ "$OSTYPE" == "darwin"* ]]; then
     end_date=$(date -j -v+6d -f "%Y-%m-%d" "$start_date" "+%Y-%m-%d" 2>/dev/null)
   else
     end_date=$(date -d "$start_date + 6 days" "+%Y-%m-%d")
   fi
 
-  if [ "$end_date" \> "2025-10-09" ]; then
-    end_date="2025-10-09"
+  if [ "$end_date" \> "2025-10-14" ]; then
+    end_date="2025-10-14"
   fi
 
   echo "   Batch $batch_num: $start_date to $end_date"
@@ -81,7 +81,7 @@ echo ""
 echo "📊 Checking final job count..."
 
 # Get final counts
-response=$(curl -s "$SUPABASE_URL/rest/v1/bulk_sync_jobs?object_type=eq.skus&start_date=gte.2024-09-30&start_date=lte.2025-10-09&select=status" \
+response=$(curl -s "$SUPABASE_URL/rest/v1/bulk_sync_jobs?object_type=eq.skus&start_date=gte.2025-10-01&start_date=lte.2025-10-14&select=status" \
   -H "apikey: $SERVICE_KEY" \
   -H "Authorization: Bearer $SERVICE_KEY")
 

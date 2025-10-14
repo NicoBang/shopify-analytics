@@ -17,6 +17,9 @@ const CONFIG = {
 /**
  * MENU FUNKTIONER - Kun de funktioner du bruger
  */
+/**
+ * MENU FUNKTIONER - Kun de funktioner du bruger
+ */
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
   ui.createMenu('📊 PdL Analytics')
@@ -27,7 +30,43 @@ function onOpen() {
     .addItem('🚚 Delivery Report', 'generateDeliveryAnalytics')
     .addSeparator()
     .addItem('Test Connection', 'testConnection')
+    .addSeparator()
+    .addItem('⚙️ Opret On open-trigger', 'ensureOnOpenTrigger') // ← valgfri genvej
     .addToUi();
+}
+
+/**
+ * Kører automatisk ved åbning – men via installérbar trigger (som EJEREN).
+ * Læg kun det herind, der skal ske automatisk.
+ */
+function onOpenHandler(e) {
+  try {
+    updateDashboard(); // eksempel: opdatér dashboard ved åbning
+    // andre letvægtsopgaver...
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+/**
+ * Engangskørsel: opretter den installérbare On open-trigger programmatisk.
+ * Kør denne som ejeren (enten fra menuen eller fra editoren).
+ */
+function ensureOnOpenTrigger() {
+  const ssId = SpreadsheetApp.getActive().getId();
+  const exists = ScriptApp.getProjectTriggers().some(t =>
+    t.getHandlerFunction() === 'onOpenHandler' &&
+    t.getEventType() === ScriptApp.EventType.ON_OPEN
+  );
+  if (!exists) {
+    ScriptApp.newTrigger('onOpenHandler')
+      .forSpreadsheet(ssId)
+      .onOpen()
+      .create();
+    SpreadsheetApp.getActive().toast('On open-trigger oprettet ✅');
+  } else {
+    SpreadsheetApp.getActive().toast('On open-trigger findes allerede ✅');
+  }
 }
 
 /**
@@ -149,6 +188,7 @@ function renderDashboardFromSkus_(dashboardData, startDate, endDate) {
     totals.orders += orders;
     totals.returStk += returQty;
     totals.returKr += refundedAmount;
+    totals.returOrdre += (shopData.returOrderCount || 0); // ✅ FIXED: Sum antal ordrer med refunds
     totals.fragt += shipping;
     totals.rabat += rabat;
     totals.cancelled += cancelled;

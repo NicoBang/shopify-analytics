@@ -35,6 +35,15 @@ This project syncs Shopify order and SKU data to Supabase for analytics and repo
 - ✅ **API consistency**: Changed last_updated to updated_at across all metadata APIs
 - ✅ **Enhanced discount logic**: Improved sale_discount_per_unit_dkk calculation
 
+### Session 5: Automated Failed Job Validation + Batch Processing Fix (2025-10-13)
+- ✅ **Auto-validate system**: 100% automated validation of failed jobs
+- ✅ **Empty day detection**: Distinguishes empty days from real failures via Shopify API
+- ✅ **Cron automation**: Runs daily at 2 AM to clean up false failures
+- ✅ **Multi-type support**: Validates orders, SKUs, refunds, and shipping-discounts automatically
+- ✅ **Batch processing fix**: Fixed infinite loop bug - batch-sync-refunds now correctly advances through orders
+- ✅ **Progress tracking**: Job ID is passed between iterations, allowing resume from last position
+- ✅ **Large day support**: Can now sync 800+ order days without timeout (817 orders tested successfully)
+
 ## 🗄️ Database Tables
 
 ### `orders` table
@@ -155,6 +164,23 @@ This project syncs Shopify order and SKU data to Supabase for analytics and repo
 ### **watchdog**
 - **Purpose:** Cleans up stale jobs stuck in "running" status (>2 minutes)
 - **Auto-scheduled:** Runs every minute via pg_cron
+
+### **auto-validate-failed-jobs** ✨ NEW (2025-10-13)
+- **Purpose:** 100% automated validation of failed jobs
+- **Method:** Checks Shopify API to verify if data existed on failed job dates
+- **Actions:**
+  - Marks empty days as completed (not real failures)
+  - Preserves real failures for manual attention
+- **Coverage:** Validates orders, SKUs, and refunds
+- **Auto-scheduled:** Runs daily at 2 AM via pg_cron
+- **Manual:** `./test-auto-validate.sh`
+- **Deploy:** `npx supabase functions deploy auto-validate-failed-jobs --no-verify-jwt`
+
+### **validate-failed-jobs** ✨ NEW (2025-10-13)
+- **Purpose:** Core validation function called by auto-validate-failed-jobs
+- **Method:** Shopify REST API order count check per date
+- **Returns:** Summary of empty days corrected and real failures remaining
+- **Deploy:** `npx supabase functions deploy validate-failed-jobs --no-verify-jwt`
 
 ### **sync-order-sequences** ✨ NEW (2025-10-11)
 - **Purpose:** Fetch order sequence numbers from Shopify for validation

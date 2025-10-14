@@ -15,7 +15,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
  */
 
 const BATCH_SIZE = 20; // Max jobs per call
-const PARALLEL_LIMIT = 3; // Max shops running at once
+const PARALLEL_LIMIT_ORDERS = 3; // Max shops running at once for orders
+const PARALLEL_LIMIT_SKUS = 1; // SKUs MUST run sequentially (1 per shop at a time)
+const PARALLEL_LIMIT_REFUNDS = 3; // Refunds can run in parallel
 
 serve(async (req) => {
   const startTime = Date.now();
@@ -75,7 +77,18 @@ serve(async (req) => {
 
     console.log(`📦 Found ${pendingJobs.length} pending jobs to process...`);
 
-    // === Step 3: Process jobs grouped by shop (1 job per shop) ===
+    // === Step 3: Determine parallel limit based on object_type ===
+    const objectType = pendingJobs[0]?.object_type;
+    let PARALLEL_LIMIT = PARALLEL_LIMIT_ORDERS; // default
+
+    if (objectType === "skus") {
+      PARALLEL_LIMIT = PARALLEL_LIMIT_SKUS;
+      console.log("⚠️ SKU jobs detected - running sequentially (1 shop at a time)");
+    } else if (objectType === "refunds") {
+      PARALLEL_LIMIT = PARALLEL_LIMIT_REFUNDS;
+    }
+
+    // === Step 4: Process jobs grouped by shop (1 job per shop) ===
     const results = [];
     const jobsByShop = pendingJobs.reduce((acc, job) => {
       acc[job.shop] = acc[job.shop] || [];
@@ -160,7 +173,7 @@ async function processJob(supabase, job) {
 
     const fnName =
       job.object_type === "refunds"
-        ? "bulk-sync-refunds"
+        ? "batch-sync-refunds"
         : job.object_type === "orders"
         ? "bulk-sync-orders"
         : "bulk-sync-skus";
@@ -172,6 +185,7 @@ async function processJob(supabase, job) {
           Deno.env.get("SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
         }`,
         "Content-Type": "application/json",
+        "X-Skip-Concurrent-Check": "true", // Tell bulk-sync-skus to skip concurrent check
       },
       body: JSON.stringify({
         shop: job.shop,
@@ -179,6 +193,7 @@ async function processJob(supabase, job) {
         endDate: job.end_date || job.start_date,
         jobId: job.id,
         includeRefunds: job.object_type === "orders" || job.object_type === "refunds",
+        searchMode: job.object_type === "refunds" ? "updated_at" : undefined, // refunds use updated_at (refund.created_at)
       }),
     });
 
@@ -196,14 +211,18 @@ async function processJob(supabase, job) {
     }
 
     const result = await resp.json();
+
+    // Check if batch sync needs more iterations (for refunds)
+    const isComplete = result.complete !== false; // Default to true if not specified
+
     await supabase
       .from("bulk_sync_jobs")
       .update({
-        status: "completed",
-        completed_at: new Date().toISOString(),
+        status: isComplete ? "completed" : "pending", // Set to pending if more work needed
+        completed_at: isComplete ? new Date().toISOString() : null,
         orders_synced: result.orders_synced || result.orderCount || 0,
         skus_synced: result.skus_synced || result.skuCount || 0,
-        records_processed: result.records_processed || 0,
+        records_processed: result.totalProcessed || result.records_processed || 0,
       })
       .eq("id", job.id);
 

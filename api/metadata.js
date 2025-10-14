@@ -1,5 +1,7 @@
 // api/metadata.js
+// UPDATED: 2025-10-14 - Fixed netto omsætning calculation + Danish timezone support
 const { createClient } = require('@supabase/supabase-js');
+const { adjustLocalDateToUTC } = require('./timezone-utils');
 
 // Inline SupabaseService for Vercel
 class SupabaseService {
@@ -273,17 +275,20 @@ class SupabaseService {
       return this.getStamvarenummerAnalytics(startDate, endDate, options);
     }
 
-    // Ensure we have the full day range - fix same-day queries
-    const adjustedStartDate = new Date(startDate);
-    adjustedStartDate.setHours(0, 0, 0, 0);
-
-    const adjustedEndDate = new Date(endDate);
-    adjustedEndDate.setHours(23, 59, 59, 999);
+    // Convert Danish local dates to UTC accounting for timezone offset
+    const adjustedStartDate = adjustLocalDateToUTC(
+      typeof startDate === 'string' ? startDate : startDate.toISOString().split('T')[0],
+      false
+    );
+    const adjustedEndDate = adjustLocalDateToUTC(
+      typeof endDate === 'string' ? endDate : endDate.toISOString().split('T')[0],
+      true
+    );
 
     console.log(`📅 Style Analytics query: ${adjustedStartDate.toISOString()} to ${adjustedEndDate.toISOString()}`);
     console.log('🔍 DEBUG [getStyleAnalytics] Date comparison:', {
-      originalStart: new Date(startDate).toISOString(),
-      originalEnd: new Date(endDate).toISOString(),
+      originalStart: typeof startDate === 'string' ? startDate : new Date(startDate).toISOString(),
+      originalEnd: typeof endDate === 'string' ? endDate : new Date(endDate).toISOString(),
       adjustedStart: adjustedStartDate.toISOString(),
       adjustedEnd: adjustedEndDate.toISOString()
     });
@@ -297,7 +302,7 @@ class SupabaseService {
     while (hasMore) {
       let batchQuery = this.supabase
         .from('skus')
-        .select('sku, shop, order_id, quantity, refunded_qty, cancelled_qty, price_dkk, created_at_original, product_title, variant_title, refund_date, discount_per_unit_dkk')
+        .select('sku, shop, order_id, quantity, refunded_qty, refunded_amount_dkk, cancelled_qty, price_dkk, created_at_original, product_title, variant_title, refund_date, discount_per_unit_dkk')
         .gte('created_at_original', adjustedStartDate.toISOString())
         .lte('created_at_original', adjustedEndDate.toISOString())
         .order('created_at_original', { ascending: false })
@@ -339,7 +344,7 @@ class SupabaseService {
     while (hasMoreRefunds) {
       let refundQuery = this.supabase
         .from('skus')
-        .select('sku, shop, order_id, quantity, refunded_qty, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date, discount_per_unit_dkk')
+        .select('sku, shop, order_id, quantity, refunded_qty, refunded_amount_dkk, cancelled_qty, price_dkk, created_at, product_title, variant_title, refund_date, discount_per_unit_dkk')
         .not('refund_date', 'is', null)
         .gte('refund_date', adjustedStartDate.toISOString())
         .lte('refund_date', adjustedEndDate.toISOString())
@@ -423,9 +428,10 @@ class SupabaseService {
 
       combinedData.push({
         ...item,
-        // For sales: include the quantity sold, but only count refunded_qty if refund happened in period
+        // For sales: include the quantity sold, but only count refunded_qty and refunded_amount_dkk if refund happened in period
         quantity: item.quantity || 0,
         refunded_qty: hasRefundInPeriod ? (item.refunded_qty || 0) : 0,
+        refunded_amount_dkk: hasRefundInPeriod ? (item.refunded_amount_dkk || 0) : 0,
         source: 'sales'
       });
     });
@@ -577,12 +583,15 @@ class SupabaseService {
   async getStamvarenummerAnalytics(startDate, endDate, options = {}) {
     const { shop = null } = options;
 
-    // Ensure we have the full day range
-    const adjustedStartDate = new Date(startDate);
-    adjustedStartDate.setHours(0, 0, 0, 0);
-
-    const adjustedEndDate = new Date(endDate);
-    adjustedEndDate.setHours(23, 59, 59, 999);
+    // Convert Danish local dates to UTC accounting for timezone offset
+    const adjustedStartDate = adjustLocalDateToUTC(
+      typeof startDate === 'string' ? startDate : startDate.toISOString().split('T')[0],
+      false
+    );
+    const adjustedEndDate = adjustLocalDateToUTC(
+      typeof endDate === 'string' ? endDate : endDate.toISOString().split('T')[0],
+      true
+    );
 
     console.log(`📅 Stamvarenummer Analytics query: ${adjustedStartDate.toISOString()} to ${adjustedEndDate.toISOString()}`);
 
@@ -790,12 +799,15 @@ class SupabaseService {
   async getSkuAnalytics(startDate, endDate, options = {}) {
     const { shop = null } = options;
 
-    // Ensure we have the full day range - fix same-day queries
-    const adjustedStartDate = new Date(startDate);
-    adjustedStartDate.setHours(0, 0, 0, 0);
-
-    const adjustedEndDate = new Date(endDate);
-    adjustedEndDate.setHours(23, 59, 59, 999);
+    // Convert Danish local dates to UTC accounting for timezone offset
+    const adjustedStartDate = adjustLocalDateToUTC(
+      typeof startDate === 'string' ? startDate : startDate.toISOString().split('T')[0],
+      false
+    );
+    const adjustedEndDate = adjustLocalDateToUTC(
+      typeof endDate === 'string' ? endDate : endDate.toISOString().split('T')[0],
+      true
+    );
 
     console.log(`📅 SKU Analytics query: ${adjustedStartDate.toISOString()} to ${adjustedEndDate.toISOString()}`);
 
@@ -1040,12 +1052,16 @@ class SupabaseService {
         // Do NOT subtract discount_per_unit_dkk again - it's already been subtracted
         const unitPriceAfterDiscount = item.price_dkk || 0;
         const bruttoQty = quantity - cancelled; // Brutto = quantity minus cancelled (actual sold items)
-        const revenue = unitPriceAfterDiscount * bruttoQty;
+        const bruttoRevenue = unitPriceAfterDiscount * bruttoQty;
+
+        // Calculate netto revenue by subtracting refund amounts (matches Dashboard)
+        const refundedAmount = item.refunded_amount_dkk || 0;
+        const nettoRevenue = bruttoRevenue - refundedAmount;
 
         group.solgt += bruttoQty;  // Brutto quantity (excludes cancelled)
         group.retur += refunded;
         group.cancelled += cancelled;
-        group.omsætning += revenue;
+        group.omsætning += nettoRevenue;  // FIXED: Now shows netto omsætning (brutto - refunds)
         group.shops.add(item.shop);
         group.skus.add(item.sku);
 
@@ -1153,15 +1169,15 @@ class SupabaseService {
       // Net sold (actual units sold after returns)
       const nettoSolgt = group.solgt - group.retur;
 
-      // Sold % of bought = netto_solgt / købt * 100
-      const solgtPct = beregnetKøbt > 0 ? Math.round((nettoSolgt / beregnetKøbt) * 100 * 10) / 10 : 0;
+      // Sold % of bought = netto_solgt / købt (as decimal 0-1 for Google Sheets percent format)
+      const solgtPct = beregnetKøbt > 0 ? Math.round((nettoSolgt / beregnetKøbt) * 1000) / 1000 : 0;
 
-      // Return % of sold = retur / solgt * 100
-      const returPct = group.solgt > 0 ? Math.round((group.retur / group.solgt) * 100 * 10) / 10 : 0;
+      // Return % of sold = retur / solgt (as decimal 0-1 for Google Sheets percent format)
+      const returPct = group.solgt > 0 ? Math.round((group.retur / group.solgt) * 1000) / 1000 : 0;
 
-      // DB (Dækningsgrad) = (omsætning - (netto_solgt * kostpris)) / omsætning * 100
+      // DB (Dækningsgrad) = (omsætning - (netto_solgt * kostpris)) / omsætning (as decimal 0-1)
       const db = group.omsætning > 0 && nettoSolgt > 0 && group.kostpris > 0 ?
-        Math.round(((group.omsætning - (nettoSolgt * group.kostpris)) / group.omsætning) * 100 * 10) / 10 : 0;
+        Math.round(((group.omsætning - (nettoSolgt * group.kostpris)) / group.omsætning) * 1000) / 1000 : 0;
 
       // Overløber detection from tags
       const isOverløber = group.tags.toLowerCase().includes('overløber') ? 'Overløber' : '';
@@ -1306,12 +1322,16 @@ class SupabaseService {
         // Do NOT subtract discount_per_unit_dkk again - it's already been subtracted
         const unitPriceAfterDiscount = item.price_dkk || 0;
         const bruttoQty = quantity - cancelled; // Brutto = quantity minus cancelled (actual sold items)
-        const revenue = unitPriceAfterDiscount * bruttoQty;
+        const bruttoRevenue = unitPriceAfterDiscount * bruttoQty;
+
+        // Calculate netto revenue by subtracting refund amounts (matches Dashboard)
+        const refundedAmount = item.refunded_amount_dkk || 0;
+        const nettoRevenue = bruttoRevenue - refundedAmount;
 
         group.solgt += bruttoQty;  // Brutto quantity (excludes cancelled)
         group.retur += refunded;
         group.cancelled += cancelled;
-        group.omsætning += revenue;
+        group.omsætning += nettoRevenue;  // FIXED: Now shows netto omsætning (brutto - refunds)
         group.shops.add(item.shop);
         group.skus.add(item.sku);
       });
@@ -1389,8 +1409,8 @@ class SupabaseService {
       const group = grouped[stamvarenummer];
 
       const købt = group.lager + group.solgt - group.retur;
-      const solgtPct = købt > 0 ? (group.solgt / købt) * 100 : 0;
-      const returPct = group.solgt > 0 ? (group.retur / group.solgt) * 100 : 0;
+      const solgtPct = købt > 0 ? (group.solgt / købt) : 0;  // As decimal 0-1
+      const returPct = group.solgt > 0 ? (group.retur / group.solgt) : 0;  // As decimal 0-1
       const difference = købt - group.varemodtaget;
       const db = group.omsætning - (group.kostpris * (group.solgt - group.retur));
 
@@ -1409,8 +1429,8 @@ class SupabaseService {
         lager: group.lager,
         varemodtaget: group.varemodtaget,
         difference: difference,
-        solgtPct: Math.round(solgtPct * 100) / 100,
-        returPct: Math.round(returPct * 100) / 100,
+        solgtPct: Math.round(solgtPct * 1000) / 1000,  // Rounded to 3 decimals (0.xxx)
+        returPct: Math.round(returPct * 1000) / 1000,  // Rounded to 3 decimals (0.xxx)
         kostpris: Math.round(group.kostpris * 100) / 100,
         db: Math.round(db * 100) / 100,
         omsætning: Math.round(group.omsætning * 100) / 100,

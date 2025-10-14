@@ -53,25 +53,42 @@ async function safeFetch(url: string, options: RequestInit, attempt = 1): Promis
   return res;
 }
 
-async function fetchAllSkus(supabase, shop, startISO, endISO) {
-  let allOrders: any[] = [];
-  let offset = 0;
-  const pageSize = 1000;
-  while (true) {
-    const { data: page, error } = await supabase
-      .from("skus")
-      .select("order_id, created_at_original, tax_rate")
-      .eq("shop", shop)
-      .gte("created_at_original", startISO)
-      .lte("created_at_original", endISO)
-      .range(offset, offset + pageSize - 1);
-    if (error) throw error;
-    allOrders = allOrders.concat(page);
-    if (page.length < pageSize) break;
-    offset += pageSize;
-    console.log(`📄 Loaded ${allOrders.length} SKUs so far...`);
+async function fetchOrdersWithRefunds(shop: string, token: string, startISO: string, endISO: string) {
+  // Fetch orders updated in this time range (updated_at changes when refunds are created)
+  const url = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/orders.json?updated_at_min=${startISO}&updated_at_max=${endISO}&status=any&limit=250`;
+
+  const res = await safeFetch(url, {
+    headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" },
+  });
+
+  if (!res.ok) {
+    console.error(`❌ Failed to fetch orders: ${res.status} ${res.statusText}`);
+    return [];
   }
-  return allOrders;
+
+  const json = await res.json();
+  const orders = json.orders || [];
+
+  // Filter to only orders that actually have refunds
+  const ordersWithRefunds = [];
+  for (const order of orders) {
+    if (order.refunds && order.refunds.length > 0) {
+      // Check if any refund was created in our date range
+      const refundsInRange = order.refunds.filter((refund: any) => {
+        const refundCreated = new Date(refund.created_at);
+        const start = new Date(startISO);
+        const end = new Date(endISO);
+        return refundCreated >= start && refundCreated <= end;
+      });
+
+      if (refundsInRange.length > 0) {
+        ordersWithRefunds.push(order);
+      }
+    }
+  }
+
+  console.log(`  → ${ordersWithRefunds.length} orders have refunds created in date range`);
+  return ordersWithRefunds;
 }
 
 // === MAIN FUNCTION =======================================================
@@ -184,22 +201,34 @@ serve(async (req) => {
 
 // === REFUND SYNC PER CHUNK ===============================================
 async function syncRefundsForChunk(shop, token, supabase, startISO, endISO) {
-  const orders = await fetchAllSkus(supabase, shop, startISO, endISO);
-  console.log(`📦 Found ${orders.length} orders in SKUs table`);
+  // Fetch orders from Shopify API that were UPDATED in this date range
+  // (updated_at changes when refunds are created)
+  const ordersWithRefunds = await fetchOrdersWithRefunds(shop, token, startISO, endISO);
+  console.log(`📦 Found ${ordersWithRefunds.length} orders with potential refunds`);
 
-  // Build tax_rate map: order_id → tax_rate
+  if (ordersWithRefunds.length === 0) {
+    console.warn(`⚠️ No orders with refunds found for ${shop} (${startISO} → ${endISO})`);
+    return { refundsProcessed: 0, skusUpdated: 0 };
+  }
+
+  // Build tax_rate map from database
+  const orderIds = ordersWithRefunds.map(o => o.id.toString().replace(/\D/g, ""));
+  const { data: dbOrders } = await supabase
+    .from("orders")
+    .select("order_id, tax_rate")
+    .eq("shop", shop)
+    .in("order_id", orderIds);
+
   const taxRateMap = new Map();
-  for (const order of orders) {
-    if (order.tax_rate !== null && order.tax_rate !== undefined) {
-      taxRateMap.set(String(order.order_id), order.tax_rate);
+  if (dbOrders) {
+    for (const order of dbOrders) {
+      if (order.tax_rate !== null && order.tax_rate !== undefined) {
+        taxRateMap.set(String(order.order_id), order.tax_rate);
+      }
     }
   }
 
-  const uniqueOrderIds = [...new Set(orders.map((o) => String(o.order_id)))];
-  if (uniqueOrderIds.length === 0) {
-    console.warn(`⚠️ No orders found for ${shop} (${startISO} → ${endISO})`);
-    return { refundsProcessed: 0, skusUpdated: 0 };
-  }
+  const uniqueOrderIds = orderIds;
 
   const refundUpdates = [];
   const orderUpdates = new Map(); // Track shipping refunds per order
