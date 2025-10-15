@@ -23,6 +23,7 @@ interface BulkSyncRequest {
   targetTable?: "skus" | "sku_price_verification";  // ✅ Support verification table
   filterQuantity?: number;  // ✅ Optional: only sync quantity > filterQuantity
   testMode?: boolean;  // ✅ Skip job logging in test mode
+  jobId?: string;  // ✅ Job ID from orchestrator (for concurrent check)
 }
 
 interface BulkSyncJob {
@@ -32,6 +33,7 @@ interface BulkSyncJob {
   end_date: string;
   status: "pending" | "running" | "completed" | "failed";
   records_processed?: number;
+  skus_synced?: number;
   error_message?: string;
 }
 
@@ -103,7 +105,8 @@ serve(async (req: Request): Promise<Response> => {
       includeRefunds = false,
       targetTable = "skus",
       filterQuantity = 0,
-      testMode = false
+      testMode = false,
+      jobId  // ✅ Extract jobId from request body (sent by orchestrator)
     }: BulkSyncRequest = body;
     if (!shop || !startDate || !endDate) {
       return new Response(
@@ -142,19 +145,22 @@ serve(async (req: Request): Promise<Response> => {
     // continue-orchestrator already coordinates parallel execution
     const skipCheck = req.headers.get("X-Skip-Concurrent-Check") === "true";
     if (!testMode && !skipCheck) {
+      // ✅ Check for running jobs with SAME shop AND SAME date (allow different dates in parallel)
       const { data: runningJobs, error: checkError } = await supabase
         .from("bulk_sync_jobs")
         .select("id, shop, start_date, status")
         .eq("shop", shop)
+        .eq("start_date", startDate)  // ✅ Also match date!
         .eq("object_type", "skus")
-        .eq("status", "running");
+        .eq("status", "running")
+        .neq("id", jobId || "00000000-0000-0000-0000-000000000000"); // Exclude self
 
       if (checkError) console.warn("⚠️ Failed to check running jobs:", checkError.message);
 
       if (runningJobs && runningJobs.length > 0) {
-        console.log(`⏸️ Skipping SKU sync for ${shop} — another SKU job already running`);
+        console.log(`⏸️ Skipping SKU sync for ${shop} on ${startDate} — duplicate job already running`);
         return new Response(
-          JSON.stringify({ error: "Another SKU job already running", jobId: runningJobs[0].id }),
+          JSON.stringify({ error: "Duplicate SKU job already running", jobId: runningJobs[0].id }),
           { status: 409 }
         );
       }
@@ -162,24 +168,32 @@ serve(async (req: Request): Promise<Response> => {
       console.log("ℹ️ Concurrent check skipped (orchestrator mode)");
     }
 
-    // === ✅ Step 3: Create job log ===
-    const jobLogResult = await createJobLog(
-      supabase,
-      {
-        shop,
-        object_type: "skus",
-        start_date: startDate,
-        end_date: endDate,
-        status: "running",
-      },
-      testMode
-    );
+    // === ✅ Step 3: Use existing job or create new job log ===
+    // If jobId is provided (from orchestrator), use it. Otherwise create new job.
+    let finalJobId: string | undefined = jobId;
 
-    if (!jobLogResult.success) {
-      throw new Error(`Failed to create job log: ${jobLogResult.error}`);
+    if (!finalJobId) {
+      // No jobId provided - create new job log
+      const jobLogResult = await createJobLog(
+        supabase,
+        {
+          shop,
+          object_type: "skus",
+          start_date: startDate,
+          end_date: endDate,
+          status: "running",
+        },
+        testMode
+      );
+
+      if (!jobLogResult.success) {
+        throw new Error(`Failed to create job log: ${jobLogResult.error}`);
+      }
+
+      finalJobId = jobLogResult.jobId;
+    } else {
+      console.log(`ℹ️ Using existing job ID from orchestrator: ${finalJobId}`);
     }
-
-    const jobId = jobLogResult.jobId;
 
     const days = generateDailyIntervals(startDate, endDate);
     const results: any[] = [];
@@ -196,10 +210,10 @@ serve(async (req: Request): Promise<Response> => {
         const skusProcessed = results.reduce((sum, r) => sum + (r.skusProcessed || 0), 0);
 
         // Update job status to failed
-        if (jobId) {
+        if (finalJobId) {
           await updateJobStatus(
             supabase,
-            jobId,
+            finalJobId,
             {
               status: "failed",
               records_processed: skusProcessed,
@@ -231,13 +245,14 @@ serve(async (req: Request): Promise<Response> => {
     const skuSyncResult = { success: true, results, skusProcessed: totalSkusProcessed };
 
     // Update job status to completed
-    if (jobId) {
+    if (finalJobId) {
       await updateJobStatus(
         supabase,
-        jobId,
+        finalJobId,
         {
           status: "completed",
           records_processed: totalSkusProcessed,
+          skus_synced: totalSkusProcessed,
         },
         testMode
       );
