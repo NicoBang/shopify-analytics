@@ -3,21 +3,23 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 /**
  * Continue Orchestrator
- * 
+ *
  * Purpose: Process next batch of pending jobs from bulk_sync_jobs table
  * Design: Stateless - can be called repeatedly (by cron or manually)
- * 
+ *
  * Strategy:
  * 1. Cleanup stale jobs
  * 2. Pick a small batch of pending jobs (default 20)
  * 3. Run a limited number of shops in parallel
  * 4. Return early, ready for next invocation
+ *
+ * Updated: 2025-10-15 - Optimized SKU processing (1 job per shop in parallel)
  */
 
 const BATCH_SIZE = 20; // Max jobs per call
 const PARALLEL_LIMIT_ORDERS = 3; // Max shops running at once for orders
-const PARALLEL_LIMIT_SKUS = 1; // SKUs MUST run sequentially (1 per shop at a time)
 const PARALLEL_LIMIT_REFUNDS = 3; // Refunds can run in parallel
+// SKUs: 1 job per shop (all shops in parallel for max throughput)
 
 serve(async (req) => {
   const startTime = Date.now();
@@ -64,26 +66,40 @@ serve(async (req) => {
     const { data: pendingJobs, error } = await query;
     if (error) throw new Error(`Failed to fetch pending jobs: ${error.message}`);
 
+    console.log(`📦 Query returned ${pendingJobs?.length || 0} pending jobs`);
+    if (pendingJobs && pendingJobs.length > 0) {
+      console.log(`   First job: ${pendingJobs[0].shop} - ${pendingJobs[0].start_date} (${pendingJobs[0].object_type})`);
+    }
+
     if (!pendingJobs || pendingJobs.length === 0) {
       console.log("✅ No pending jobs found — sync complete!");
-      const { data: allJobs } = await supabase.from("bulk_sync_jobs").select("status");
+      // Use aggregation to count all jobs (not limited to 1000)
+      const { count: completedCount } = await supabase
+        .from("bulk_sync_jobs")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "completed");
+      const { count: failedCount } = await supabase
+        .from("bulk_sync_jobs")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "failed");
+
       const stats = {
-        completed: allJobs?.filter((j) => j.status === "completed").length || 0,
-        failed: allJobs?.filter((j) => j.status === "failed").length || 0,
+        completed: completedCount || 0,
+        failed: failedCount || 0,
         pending: 0,
+        running: 0,
       };
       return jsonResponse({ complete: true, message: "All jobs processed!", stats });
     }
 
-    console.log(`📦 Found ${pendingJobs.length} pending jobs to process...`);
+    console.log(`📦 Processing ${pendingJobs.length} pending jobs...`);
 
     // === Step 3: Determine parallel limit based on object_type ===
     const objectType = pendingJobs[0]?.object_type;
     let PARALLEL_LIMIT = PARALLEL_LIMIT_ORDERS; // default
 
     if (objectType === "skus") {
-      PARALLEL_LIMIT = PARALLEL_LIMIT_SKUS;
-      console.log("⚠️ SKU jobs detected - running sequentially (1 shop at a time)");
+      console.log("⚡ SKU jobs detected - running 1 job per shop in parallel (max 5 concurrent)");
     } else if (objectType === "refunds") {
       PARALLEL_LIMIT = PARALLEL_LIMIT_REFUNDS;
     }
@@ -101,7 +117,12 @@ serve(async (req) => {
 
     while (activeShops.length > 0) {
       batchIndex++;
-      const shopBatch = activeShops.slice(0, PARALLEL_LIMIT);
+
+      // ✅ FIX: For SKUs, always take ALL active shops (1 job per shop in parallel)
+      const shopBatch = objectType === "skus"
+        ? activeShops.slice(0, activeShops.length)  // All shops in parallel
+        : activeShops.slice(0, PARALLEL_LIMIT);     // Limited shops for orders/refunds
+
       const jobBatch = shopBatch
         .map((shop) => jobsByShop[shop]?.shift())
         .filter(Boolean);
@@ -112,7 +133,9 @@ serve(async (req) => {
       }
 
       console.log(`⚙️ Batch ${batchIndex}: ${jobBatch.length} jobs (${shopBatch.join(", ")})`);
+      console.log(`🧠 jobBatch IDs: ${jobBatch.map(j => j.id).join(", ")}`);
 
+      // ✅ All jobs run in parallel (different shops = safe, per-shop locking in bulk-sync-skus)
       const promises = jobBatch.map((job) => processJob(supabase, job));
       const batchResults = await Promise.all(promises);
       results.push(...batchResults);
@@ -131,12 +154,29 @@ serve(async (req) => {
     }
 
     // === Step 4: Remaining stats ===
-    const { data: allJobs } = await supabase.from("bulk_sync_jobs").select("status");
+    // Use aggregation to count all jobs (not limited to 1000)
+    const { count: completedCount } = await supabase
+      .from("bulk_sync_jobs")
+      .select("*", { count: "exact", head: true })
+      .eq("status", "completed");
+    const { count: failedCount } = await supabase
+      .from("bulk_sync_jobs")
+      .select("*", { count: "exact", head: true })
+      .eq("status", "failed");
+    const { count: pendingCount } = await supabase
+      .from("bulk_sync_jobs")
+      .select("*", { count: "exact", head: true })
+      .eq("status", "pending");
+    const { count: runningCount } = await supabase
+      .from("bulk_sync_jobs")
+      .select("*", { count: "exact", head: true })
+      .eq("status", "running");
+
     const remaining = {
-      completed: allJobs?.filter((j) => j.status === "completed").length || 0,
-      failed: allJobs?.filter((j) => j.status === "failed").length || 0,
-      pending: allJobs?.filter((j) => j.status === "pending").length || 0,
-      running: allJobs?.filter((j) => j.status === "running").length || 0,
+      completed: completedCount || 0,
+      failed: failedCount || 0,
+      pending: pendingCount || 0,
+      running: runningCount || 0,
     };
 
     const duration = Math.round((Date.now() - startTime) / 1000);
@@ -166,10 +206,22 @@ serve(async (req) => {
 
 async function processJob(supabase, job) {
   try {
-    await supabase
+    // ✅ Atomic claim: only update if status is still 'pending'
+    const { data: claimed, error: claimError } = await supabase
       .from("bulk_sync_jobs")
-      .update({ status: "running", started_at: new Date().toISOString() })
-      .eq("id", job.id);
+      .update({
+        status: "running",
+        started_at: new Date().toISOString(),
+      })
+      .eq("id", job.id)
+      .eq("status", "pending")
+      .select("id");
+
+    // If claim failed or no rows updated, another orchestrator already took this job
+    if (claimError || !claimed || claimed.length === 0) {
+      console.log(`⚠️ Job ${job.id} already claimed or not pending - skipping`);
+      return { shop: job.shop, date: job.start_date, type: job.object_type, success: false, skipped: true };
+    }
 
     const fnName =
       job.object_type === "refunds"
@@ -185,7 +237,9 @@ async function processJob(supabase, job) {
           Deno.env.get("SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
         }`,
         "Content-Type": "application/json",
-        "X-Skip-Concurrent-Check": "true", // Tell bulk-sync-skus to skip concurrent check
+        // ✅ REMOVED: Let bulk-sync-skus handle per-shop concurrent check
+        // Only skip for orders/refunds which can run multiple shops in parallel
+        ...(job.object_type !== "skus" && { "X-Skip-Concurrent-Check": "true" }),
       },
       body: JSON.stringify({
         shop: job.shop,
