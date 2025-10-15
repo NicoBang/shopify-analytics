@@ -11,7 +11,7 @@ while true; do
   result=$(curl -s -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/create-missing-jobs" \
     -H "Authorization: Bearer $KEY" \
     -H "Content-Type: application/json" \
-    -d '{"startDate": "2024-09-30", "endDate": "2025-10-12", "objectType": "skus"}')
+    -d '{"startDate": "2025-10-13", "endDate": "2025-10-15", "objectType": "skus"}')
 
   echo "$result"
 
@@ -32,7 +32,7 @@ curl -s "https://ihawjrtfwysyokfotewn.supabase.co/rest/v1/bulk_sync_jobs?object_
 
 echo ""
 echo "✅ Done! Cron will process jobs automatically every 5 minutes."
-echo "   Monitor: ./check-sync-status.sh 2024-09-30 2025-10-12"
+echo "   Monitor: ./check-sync-status.sh 2025-10-13 2025-10-15"
 echo ""
 echo "💡 Or speed it up manually:"
 echo "   for i in {1..50}; do curl -s -X POST \"https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/continue-orchestrator\" -H \"Authorization: Bearer $KEY\" -d '{}' | jq -r '.message'; sleep 10; done"
