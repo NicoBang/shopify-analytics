@@ -1,9 +1,9 @@
 // Google Apps Script - Clean Shopify Analytics Integration
 // Kun nødvendige funktioner: updateDashboard() og generateStyleColorAnalytics()
 
-// Configuration
+// Configuration - V2 (PRE-AGGREGATION)
 const CONFIG = {
-  API_BASE: 'https://shopify-analytics-nu.vercel.app/api',
+  API_BASE: 'https://shopify-analytics-1ylylahy6-nicolais-projects-291e9559.vercel.app/api',
   API_KEY: 'bda5da3d49fe0e7391fded3895b5c6bc',
   SPREADSHEET_ID: SpreadsheetApp.getActiveSpreadsheet().getId(),
 
@@ -84,8 +84,8 @@ function updateDashboard() {
     // Læs datoer fra Dashboard arket (B1/B2). Fallback: sidste 30 dage
     const { startDate, endDate } = getDashboardSelectedDates_();
 
-    // Brug dashboard-sku endpoint
-    const dashboardUrl = `${CONFIG.API_BASE}/analytics`;
+    // Brug dashboard-sku endpoint (V2 - PRE-AGGREGATION)
+    const dashboardUrl = `${CONFIG.API_BASE}/analytics-v2`;
     const dashboardPayload = {
       startDate: formatDateWithTime(startDate, false),
       endDate: formatDateWithTime(endDate, true),
