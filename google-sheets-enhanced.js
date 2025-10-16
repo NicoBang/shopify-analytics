@@ -22,12 +22,26 @@ const CONFIG = {
  */
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
+
+  // V2 submenu (PRE-AGGREGATION)
+  const v2Menu = ui.createMenu('⚡ V2 (Pre-aggregation)')
+    .addItem('📊 Dashboard V2', 'updateDashboard_V2')
+    .addItem('🎨 Color Analytics V2', 'generateStyleColorAnalytics_V2')
+    .addItem('🎨 SKU Analytics V2', 'generateStyleSKUAnalytics_V2')
+    .addItem('🔢 Style Analytics V2', 'generateStyleNumberAnalytics_V2')
+    .addItem('🚚 Delivery Report V2', 'generateDeliveryAnalytics_V2')
+    .addSeparator()
+    .addItem('Test Connection V2', 'testConnection_V2');
+
+  // Main menu
   ui.createMenu('📊 PdL Analytics')
     .addItem('📊 Dashboard', 'updateDashboard')
     .addItem('🎨 Color Analytics', 'generateStyleColorAnalytics')
     .addItem('🎨 SKU Analytics', 'generateStyleSKUAnalytics')
     .addItem('🔢 Style Analytics', 'generateStyleNumberAnalytics')
     .addItem('🚚 Delivery Report', 'generateDeliveryAnalytics')
+    .addSeparator()
+    .addSubMenu(v2Menu)
     .addSeparator()
     .addItem('Test Connection', 'testConnection')
     .addSeparator()
@@ -1349,5 +1363,236 @@ function formatDateWithTime(date, isEndDate = false) {
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);
     return Utilities.formatDate(startOfDay, Session.getScriptTimeZone(), 'yyyy-MM-dd\'T\'HH:mm:ss\'Z\'');
+  }
+}
+/**
+ * ========================================
+ * V2 FUNCTIONS (PRE-AGGREGATION)
+ * Uses analytics-v2.js endpoint with daily_shop_metrics
+ * ========================================
+ */
+
+/**
+ * Opdater dashboard V2 med pre-aggregation
+ */
+function updateDashboard_V2() {
+  try {
+    console.log('🚀 Starter dashboard V2 opdatering (pre-aggregation)...');
+
+    // Læs datoer fra Dashboard_2_0 arket (B1/B2). Fallback: sidste 30 dage
+    const { startDate, endDate } = getDashboardSelectedDates_V2();
+
+    // Brug analytics-v2 endpoint (PRE-AGGREGATION)
+    const dashboardUrl = `${CONFIG.API_BASE}/analytics-v2`;
+    const dashboardPayload = {
+      startDate: formatDateWithTime(startDate, false),
+      endDate: formatDateWithTime(endDate, true),
+      type: 'dashboard-sku'
+    };
+    const dashboardRes = makeApiRequest(dashboardUrl, dashboardPayload);
+
+    if (!dashboardRes.success || !dashboardRes.data) {
+      throw new Error('Dashboard data kunne ikke hentes');
+    }
+
+    // Brug renderDashboardFromSkus_V2() funktion
+    renderDashboardFromSkus_V2(dashboardRes.data, startDate, endDate);
+    console.log(`✅ Dashboard V2 opdateret fra pre-aggregation (${dashboardRes.data.length} shops)`);
+
+  } catch (error) {
+    console.error('💥 Fejl i updateDashboard_V2:', error);
+    throw error;
+  }
+}
+
+function renderDashboardFromSkus_V2(dashboardData, startDate, endDate) {
+  const sheet = getOrCreateSheet('Dashboard_2_0');
+
+  // Sæt dato inputs i toppen (A1/A2)
+  sheet.getRange('A1').setValue('Startdato:');
+  sheet.getRange('A2').setValue('Slutdato:');
+  sheet.getRange('A1:A2').setFontWeight('bold');
+  sheet.getRange('B1:B2').setNumberFormat('dd/MM/yyyy');
+
+  // Ryd alt under række 4
+  if (sheet.getLastRow() >= 4) {
+    const lastRow = sheet.getLastRow();
+    const lastCol = Math.max(1, sheet.getLastColumn());
+    sheet.getRange(4, 1, lastRow - 3, lastCol).clear();
+  }
+
+  // Headers
+  const headers = [
+    'Shop','Bruttoomsætning','Nettoomsætning',
+    'Antal stk Brutto','Antal stk Netto','Antal Ordrer',
+    'Gnst ordreværdi','Basket size','Gns. stykpris',
+    'Retur % i stk','Retur % i kr','Retur % i antal o',
+    'Fragt indtægt ex','% af oms','Rabat ex moms','Cancelled stk'
+  ];
+  sheet.getRange('A4:P4').setValues([headers]).setFontWeight('bold').setBackground('#E3F2FD');
+
+  // Byg rækker
+  const rows = [];
+  const totals = {
+    brutto:0, netto:0, stkBrutto:0, stkNetto:0, orders:0,
+    returStk:0, returKr:0, returOrdre:0, fragt:0, rabat:0, cancelled:0
+  };
+
+  dashboardData.forEach(shopData => {
+    const brutto = shopData.bruttoomsætning || 0;
+    const netto = shopData.nettoomsætning || 0;
+    const stkBrutto = shopData.stkBrutto || 0;
+    const stkNetto = shopData.stkNetto || 0;
+    const returQty = shopData.returQty || 0;
+    const refundedAmount = shopData.refundedAmount || 0;
+    const orders = shopData.antalOrdrer || 0;
+    const shipping = shopData.shipping || 0;
+    const rabat = shopData.totalDiscounts || 0;
+    const cancelled = shopData.cancelledQty || 0;
+
+    // Brug afledte værdier fra API
+    const ordreværdi = shopData.gnstOrdreværdi || 0;
+    const basketSize = shopData.basketSize || 0;
+    const stkPris = shopData.gnsStkpris || 0;
+    const returStkPct = shopData.returPctStk || 0;
+    const returKrPct = shopData.returPctKr || 0;
+    const returOrdrePct = shopData.returPctOrdre || 0;
+    const fragtPct = shopData.fragtPctAfOms || 0;
+
+    rows.push([
+      shopLabel_(shopData.shop),
+      round2_(brutto),
+      round2_(netto),
+      stkBrutto,
+      stkNetto,
+      orders,
+      round2_(ordreværdi),
+      toFixed1_(basketSize),
+      round2_(stkPris),
+      pctStr_(returStkPct / 100),
+      pctStr_(returKrPct / 100),
+      pctStr_(returOrdrePct / 100),
+      round2_(shipping),
+      pctStr_(fragtPct / 100),
+      round2_(rabat),
+      cancelled
+    ]);
+
+    totals.brutto += brutto;
+    totals.netto += netto;
+    totals.stkBrutto += stkBrutto;
+    totals.stkNetto += stkNetto;
+    totals.orders += orders;
+    totals.returStk += returQty;
+    totals.returKr += refundedAmount;
+    totals.returOrdre += (shopData.returOrderCount || 0);
+    totals.fragt += shipping;
+    totals.rabat += rabat;
+    totals.cancelled += cancelled;
+  });
+
+  // Total række
+  const totalReturOrdrePct = totals.orders > 0 ? (totals.returOrdre / totals.orders) : 0;
+  const totalFragtPct = totals.brutto > 0 ? (totals.fragt / totals.brutto) : 0;
+
+  rows.push([
+    'I alt',
+    round2_(totals.brutto),
+    round2_(totals.netto),
+    totals.stkBrutto,
+    totals.stkNetto,
+    totals.orders,
+    round2_(totals.orders > 0 ? totals.brutto / totals.orders : 0),
+    totals.orders > 0 ? toFixed1_(totals.stkBrutto / totals.orders) : '0',
+    round2_(totals.stkBrutto > 0 ? totals.brutto / totals.stkBrutto : 0),
+    pctStr_(totals.stkBrutto > 0 ? (totals.returStk / totals.stkBrutto) : 0),
+    pctStr_(totals.brutto > 0 ? (totals.returKr / totals.brutto) : 0),
+    pctStr_(totalReturOrdrePct),
+    round2_(totals.fragt),
+    pctStr_(totalFragtPct),
+    round2_(totals.rabat),
+    totals.cancelled
+  ]);
+
+  if (rows.length > 0) {
+    sheet.getRange(5, 1, rows.length, rows[0].length).setValues(rows);
+    sheet.getRange(5 + rows.length - 1, 1, 1, rows[0].length).setFontWeight('bold').setBackground('#F0F8FF');
+    sheet.autoResizeColumns(1, rows[0].length);
+  }
+}
+
+function getDashboardSelectedDates_V2() {
+  const sheet = getOrCreateSheet('Dashboard_2_0');
+
+  // Sørg for labels findes
+  sheet.getRange('A1').setValue('Startdato:');
+  sheet.getRange('A2').setValue('Slutdato:');
+  sheet.getRange('A1:A2').setFontWeight('bold');
+
+  let startVal, endVal;
+  try {
+    startVal = sheet.getRange('B1').getValue();
+    endVal = sheet.getRange('B2').getValue();
+  } catch (e) {
+    // ignore
+  }
+
+  if (startVal instanceof Date && endVal instanceof Date && !isNaN(startVal) && !isNaN(endVal)) {
+    const s = new Date(startVal.getTime());
+    const e = new Date(endVal.getTime());
+    s.setHours(0, 0, 0, 0);
+    e.setHours(23, 59, 59, 999);
+    return { startDate: s, endDate: e };
+  }
+
+  // Fallback til sidste 30 dage
+  const endDate = new Date();
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - 30);
+  sheet.getRange('B1').setValue(startDate);
+  sheet.getRange('B2').setValue(endDate);
+  sheet.getRange('B1:B2').setNumberFormat('dd/MM/yyyy');
+  return { startDate, endDate };
+}
+
+// V2 versions of analytics functions (stubs for now - use production versions)
+function generateStyleColorAnalytics_V2() {
+  SpreadsheetApp.getUi().alert('V2 Analytics', 'Style Color Analytics V2 bruger samme endpoint som V1. Brug V1 versionen.', SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+function generateStyleSKUAnalytics_V2() {
+  SpreadsheetApp.getUi().alert('V2 Analytics', 'Style SKU Analytics V2 bruger samme endpoint som V1. Brug V1 versionen.', SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+function generateStyleNumberAnalytics_V2() {
+  SpreadsheetApp.getUi().alert('V2 Analytics', 'Style Number Analytics V2 bruger samme endpoint som V1. Brug V1 versionen.', SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+function generateDeliveryAnalytics_V2() {
+  SpreadsheetApp.getUi().alert('V2 Analytics', 'Delivery Analytics V2 bruger samme endpoint som V1. Brug V1 versionen.', SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+function testConnection_V2() {
+  try {
+    console.log('🔍 Tester V2 API forbindelse...');
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 1);
+
+    const data = makeApiRequest(`${CONFIG.API_BASE}/analytics-v2`, {
+      startDate: formatDate(startDate),
+      endDate: formatDate(endDate),
+      type: 'dashboard-sku'
+    });
+
+    if (data.success) {
+      console.log(`✅ V2 API Forbindelse OK: ${data.data ? data.data.length : 0} shops`);
+      SpreadsheetApp.getUi().alert('V2 API Forbindelse OK', `Pre-aggregation API fungerer korrekt.`, SpreadsheetApp.getUi().ButtonSet.OK);
+    } else {
+      throw new Error('V2 API returnerede fejl');
+    }
+  } catch (error) {
+    console.error(`💥 V2 API fejl: ${error.message}`);
+    SpreadsheetApp.getUi().alert('V2 API Fejl', `Kunne ikke forbinde til pre-aggregation API: ${error.message}`, SpreadsheetApp.getUi().ButtonSet.OK);
   }
 }
