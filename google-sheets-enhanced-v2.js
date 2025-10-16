@@ -9,7 +9,7 @@ const CONFIG = {
 
   // Ark navne (kun de nødvendige)
   SHEETS: {
-    DASHBOARD: 'Dashboard',
+    DASHBOARD: 'Dashboard_2_0',
     STYLE_ANALYTICS: 'Style_Analytics'
   }
 };
@@ -20,18 +20,18 @@ const CONFIG = {
 /**
  * MENU FUNKTIONER - Kun de funktioner du bruger
  */
-function onOpen() {
+function onOpen_V2() {
   const ui = SpreadsheetApp.getUi();
-  ui.createMenu('📊 PdL Analytics')
-    .addItem('📊 Dashboard', 'updateDashboard')
-    .addItem('🎨 Color Analytics', 'generateStyleColorAnalytics')
-    .addItem('🎨 SKU Analytics', 'generateStyleSKUAnalytics')
-    .addItem('🔢 Style Analytics', 'generateStyleNumberAnalytics')
-    .addItem('🚚 Delivery Report', 'generateDeliveryAnalytics')
+  ui.createMenu('📊 PdL Analytics V2')
+    .addItem('📊 Dashboard V2', 'updateDashboard_V2')
+    .addItem('🎨 Color Analytics V2', 'generateStyleColorAnalytics_V2')
+    .addItem('🎨 SKU Analytics V2', 'generateStyleSKUAnalytics_V2')
+    .addItem('🔢 Style Analytics V2', 'generateStyleNumberAnalytics_V2')
+    .addItem('🚚 Delivery Report V2', 'generateDeliveryAnalytics_V2')
     .addSeparator()
-    .addItem('Test Connection', 'testConnection')
+    .addItem('Test Connection V2', 'testConnection_V2')
     .addSeparator()
-    .addItem('⚙️ Opret On open-trigger', 'ensureOnOpenTrigger') // ← valgfri genvej
+    .addItem('⚙️ Opret On open-trigger V2', 'ensureOnOpenTrigger_V2') // ← valgfri genvej
     .addToUi();
 }
 
@@ -39,9 +39,9 @@ function onOpen() {
  * Kører automatisk ved åbning – men via installérbar trigger (som EJEREN).
  * Læg kun det herind, der skal ske automatisk.
  */
-function onOpenHandler(e) {
+function onOpenHandler_V2(e) {
   try {
-    updateDashboard(); // eksempel: opdatér dashboard ved åbning
+    updateDashboard_V2(); // eksempel: opdatér dashboard ved åbning
     // andre letvægtsopgaver...
   } catch (err) {
     console.error(err);
@@ -52,20 +52,20 @@ function onOpenHandler(e) {
  * Engangskørsel: opretter den installérbare On open-trigger programmatisk.
  * Kør denne som ejeren (enten fra menuen eller fra editoren).
  */
-function ensureOnOpenTrigger() {
+function ensureOnOpenTrigger_V2() {
   const ssId = SpreadsheetApp.getActive().getId();
   const exists = ScriptApp.getProjectTriggers().some(t =>
-    t.getHandlerFunction() === 'onOpenHandler' &&
+    t.getHandlerFunction() === 'onOpenHandler_V2' &&
     t.getEventType() === ScriptApp.EventType.ON_OPEN
   );
   if (!exists) {
-    ScriptApp.newTrigger('onOpenHandler')
+    ScriptApp.newTrigger('onOpenHandler_V2')
       .forSpreadsheet(ssId)
       .onOpen()
       .create();
-    SpreadsheetApp.getActive().toast('On open-trigger oprettet ✅');
+    SpreadsheetApp.getActive().toast('On open-trigger V2 oprettet ✅');
   } else {
-    SpreadsheetApp.getActive().toast('On open-trigger findes allerede ✅');
+    SpreadsheetApp.getActive().toast('On open-trigger V2 findes allerede ✅');
   }
 }
 
@@ -77,12 +77,12 @@ function ensureOnOpenTrigger() {
  * Opdater dashboard med de sidste 30 dages data
  * UPDATED: Nu bruger dashboard-sku endpoint (kombinerer SKU + orders data)
  */
-function updateDashboard() {
+function updateDashboard_V2() {
   try {
-    console.log('🚀 Starter dashboard opdatering...');
+    console.log('🚀 Starter dashboard V2 opdatering...');
 
-    // Læs datoer fra Dashboard arket (B1/B2). Fallback: sidste 30 dage
-    const { startDate, endDate } = getDashboardSelectedDates_();
+    // Læs datoer fra Dashboard_2_0 arket (B1/B2). Fallback: sidste 30 dage
+    const { startDate, endDate } = getDashboardSelectedDates_V2();
 
     // Brug dashboard-sku endpoint (V2 - PRE-AGGREGATION)
     const dashboardUrl = `${CONFIG.API_BASE}/analytics-v2`;
@@ -97,18 +97,18 @@ function updateDashboard() {
       throw new Error('Dashboard data kunne ikke hentes');
     }
 
-    // Brug renderDashboardFromSkus_() funktion
-    renderDashboardFromSkus_(dashboardRes.data, startDate, endDate);
-    console.log(`✅ Dashboard opdateret fra dashboard-sku endpoint (${dashboardRes.data.length} shops)`);
+    // Brug renderDashboardFromSkus_V2() funktion
+    renderDashboardFromSkus_V2(dashboardRes.data, startDate, endDate);
+    console.log(`✅ Dashboard V2 opdateret fra dashboard-sku endpoint (${dashboardRes.data.length} shops)`);
 
   } catch (error) {
-    console.error('💥 Fejl i updateDashboard:', error);
+    console.error('💥 Fejl i updateDashboard_V2:', error);
     throw error;
   }
 }
 
 // Render Dashboard fra SKU-baserede beregninger (Updated October 2025)
-function renderDashboardFromSkus_(dashboardData, startDate, endDate) {
+function renderDashboardFromSkus_V2(dashboardData, startDate, endDate) {
   const sheet = getOrCreateSheet(CONFIG.SHEETS.DASHBOARD);
 
   // Sæt dato inputs i toppen (A1/A2)
@@ -463,7 +463,7 @@ function renderDashboard_(orderRows, returnRows, startDate, endDate, shopBreakdo
 /**
  * Style Color Analytics
  */
-function generateStyleColorAnalytics() {
+function generateStyleColorAnalytics_V2() {
   try {
     console.log('🎨 Starter color analytics...');
 
@@ -596,7 +596,7 @@ function generateStyleColorAnalytics() {
 /**
  * Style SKU Analytics - individuelle SKU'er med størrelser
  */
-function generateStyleSKUAnalytics() {
+function generateStyleSKUAnalytics_V2() {
   try {
     console.log('🏷️ Starter SKU analytics...');
 
@@ -732,7 +732,7 @@ function generateStyleSKUAnalytics() {
 /**
  * Style Number Analytics - individuelle stamvarenumre (samler farver)
  */
-function generateStyleNumberAnalytics() {
+function generateStyleNumberAnalytics_V2() {
   try {
     console.log('🔢 Starter stamvarenummer analytics...');
 
@@ -865,7 +865,7 @@ function generateStyleNumberAnalytics() {
 /**
  * Delivery Analytics - leveringsrapport med returner
  */
-function generateDeliveryAnalytics() {
+function generateDeliveryAnalytics_V2() {
   try {
     console.log('🚚 Starter delivery analytics...');
 
@@ -1107,7 +1107,7 @@ function renderDeliveryAnalytics(data, startDate, endDate) {
 /**
  * Test forbindelse til API
  */
-function testConnection() {
+function testConnection_V2() {
   try {
     console.log('🔍 Tester forbindelse til API...');
 
@@ -1162,8 +1162,8 @@ function toFixed1_(v) { return (v || 0).toFixed(1); }
 function toFixed2_(v) { return (v || 0).toFixed(2); }
 function pctStr_(v) { return (Math.round((v || 0) * 10000) / 100).toFixed(2) + '%'; }
 
-// Læs brugerens valgte datoer fra Dashboard arket (B1/B2). Fallback: sidste 30 dage
-function getDashboardSelectedDates_() {
+// Læs brugerens valgte datoer fra Dashboard_2_0 arket (B1/B2). Fallback: sidste 30 dage
+function getDashboardSelectedDates_V2() {
   const sheet = getOrCreateSheet(CONFIG.SHEETS.DASHBOARD);
 
   // Sørg for labels findes
@@ -1337,35 +1337,18 @@ function formatDate(date) {
 
 /**
  * Formater start/slut dato med korrekt tid for API
- * CRITICAL: Konverterer dansk lokal tid til UTC korrekt
+ * V2: Bruger Session.getScriptTimeZone() - backend håndterer timezone konvertering
  */
 function formatDateWithTime(date, isEndDate = false) {
-  // CRITICAL FIX: Google Apps Script Date objects er i lokal timezone
-  // Vi skal konvertere dansk midnat til UTC tid
-
-  // Bestem dansk timezone offset (CEST = UTC+2, CET = UTC+1)
-  const month = date.getMonth() + 1; // 1-12
-  const day = date.getDate();
-
-  // Simpel DST check for dansk tid (sidste søndag i marts til sidste søndag i oktober)
-  const isDST = month > 3 && month < 10; // Aproximation: april-september er sommertid
-  const offsetHours = isDST ? 2 : 1;
-
   if (isEndDate) {
-    // Dansk 23:59:59 → UTC (minus offset timer)
+    // For slutdato: sæt til slutningen af dagen
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
-
-    // Konverter til UTC: træk offset fra
-    const utcTime = new Date(endOfDay.getTime() - (offsetHours * 60 * 60 * 1000));
-    return Utilities.formatDate(utcTime, 'UTC', 'yyyy-MM-dd\'T\'HH:mm:ss\'Z\'');
+    return Utilities.formatDate(endOfDay, Session.getScriptTimeZone(), 'yyyy-MM-dd\'T\'HH:mm:ss\'Z\'');
   } else {
-    // Dansk 00:00:00 → UTC (minus offset timer)
+    // For startdato: sæt til starten af dagen
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);
-
-    // Konverter til UTC: træk offset fra
-    const utcTime = new Date(startOfDay.getTime() - (offsetHours * 60 * 60 * 1000));
-    return Utilities.formatDate(utcTime, 'UTC', 'yyyy-MM-dd\'T\'HH:mm:ss\'Z\'');
+    return Utilities.formatDate(startOfDay, Session.getScriptTimeZone(), 'yyyy-MM-dd\'T\'HH:mm:ss\'Z\'');
   }
 }
