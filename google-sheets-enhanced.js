@@ -23,16 +23,6 @@ const CONFIG = {
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
 
-  // V2 submenu (PRE-AGGREGATION)
-  const v2Menu = ui.createMenu('⚡ V2 (Pre-aggregation)')
-    .addItem('📊 Dashboard V2', 'updateDashboard_V2')
-    .addItem('🎨 Color Analytics V2', 'generateStyleColorAnalytics_V2')
-    .addItem('🎨 SKU Analytics V2', 'generateStyleSKUAnalytics_V2')
-    .addItem('🔢 Style Analytics V2', 'generateStyleNumberAnalytics_V2')
-    .addItem('🚚 Delivery Report V2', 'generateDeliveryAnalytics_V2')
-    .addSeparator()
-    .addItem('Test Connection V2', 'testConnection_V2');
-
   // Main menu
   ui.createMenu('📊 PdL Analytics')
     .addItem('📊 Dashboard', 'updateDashboard')
@@ -40,8 +30,6 @@ function onOpen() {
     .addItem('🎨 SKU Analytics', 'generateStyleSKUAnalytics')
     .addItem('🔢 Style Analytics', 'generateStyleNumberAnalytics')
     .addItem('🚚 Delivery Report', 'generateDeliveryAnalytics')
-    .addSeparator()
-    .addSubMenu(v2Menu)
     .addSeparator()
     .addItem('Test Connection', 'testConnection')
     .addSeparator()
