@@ -20,12 +20,15 @@ class SupabaseService {
    * ⚡ ULTRA-FAST: <2 seconds for any date range
    */
   async getDashboardFromAggregatedMetrics(startDate, endDate, shop = null) {
-    // CRITICAL FIX: Convert UTC timestamps to Danish calendar dates (UTC+2)
-    // Input: 2024-10-16T00:00:00Z (midnight Danish time) = 2024-10-15T22:00:00Z UTC
-    // We need: 2024-10-16 (the Danish calendar date)
-    const danishOffset = 2 * 60 * 60 * 1000; // UTC+2 in milliseconds
+    // CRITICAL: daily_shop_metrics.metric_date is ALREADY in Danish calendar date format
+    // Google Sheets sends UTC timestamps representing Danish time:
+    //   16/10/2024 00:00 Danish = 2024-10-15T22:00:00Z UTC (start)
+    //   16/10/2024 23:59 Danish = 2024-10-16T21:59:59Z UTC (end)
+    // We need: metric_date='2024-10-16' (the Danish calendar date already stored in DB)
+    // Solution: Add offset to start (to get from 15th to 16th), but NOT to end (already 16th)
+    const danishOffset = 2 * 60 * 60 * 1000;
     const dateStart = new Date(startDate.getTime() + danishOffset).toISOString().split('T')[0];
-    const dateEnd = new Date(endDate.getTime() + danishOffset).toISOString().split('T')[0];
+    const dateEnd = endDate.toISOString().split('T')[0]; // NO offset for end date!
 
     console.log(`⚡ Fetching pre-aggregated metrics: ${dateStart} to ${dateEnd}`);
 
