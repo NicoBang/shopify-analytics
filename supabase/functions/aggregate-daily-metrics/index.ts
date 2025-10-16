@@ -61,21 +61,74 @@ serve(async (req) => {
       console.log(`  Processing ${shop}...`);
 
       // Aggregate from skus table (orders created on this Danish calendar date)
-      const { data: skuData, error: skuError } = await supabase
-        .from('skus')
-        .select('quantity, cancelled_qty, price_dkk, cancelled_amount_dkk, discount_per_unit_dkk, sale_discount_per_unit_dkk, order_id')
-        .eq('shop', shop)
-        .gte('created_at_original', danishDateStart.toISOString())
-        .lte('created_at_original', danishDateEnd.toISOString());
+      // CRITICAL FIX: Add pagination to handle >1000 rows per day
+      const skuData = [];
+      let skuOffset = 0;
+      const batchSize = 1000;
+      let hasMoreSkus = true;
+
+      while (hasMoreSkus) {
+        const { data: skuBatch, error: skuBatchError } = await supabase
+          .from('skus')
+          .select('quantity, cancelled_qty, price_dkk, cancelled_amount_dkk, discount_per_unit_dkk, sale_discount_per_unit_dkk, order_id')
+          .eq('shop', shop)
+          .gte('created_at_original', danishDateStart.toISOString())
+          .lte('created_at_original', danishDateEnd.toISOString())
+          .order('created_at_original', { ascending: false })
+          .range(skuOffset, skuOffset + batchSize - 1);
+
+        if (skuBatchError) {
+          console.error(`  ❌ Error fetching SKU batch at offset ${skuOffset}:`, skuBatchError);
+          break;
+        }
+
+        if (skuBatch && skuBatch.length > 0) {
+          skuData.push(...skuBatch);
+          hasMoreSkus = skuBatch.length === batchSize;
+          skuOffset += batchSize;
+          if (hasMoreSkus) {
+            console.log(`    Fetched ${skuOffset} SKUs, continuing...`);
+          }
+        } else {
+          hasMoreSkus = false;
+        }
+      }
+
+      console.log(`    Total SKUs fetched: ${skuData.length}`);
 
       // CRITICAL: Fetch refunds separately based on refund_date (not created_at_original)
-      const { data: refundData, error: refundError } = await supabase
-        .from('skus')
-        .select('refunded_qty, refunded_amount_dkk, order_id')
-        .eq('shop', shop)
-        .gt('refunded_qty', 0)
-        .gte('refund_date', danishDateStart.toISOString())
-        .lte('refund_date', danishDateEnd.toISOString());
+      // Also with pagination
+      const refundData = [];
+      let refundOffset = 0;
+      let hasMoreRefunds = true;
+
+      while (hasMoreRefunds) {
+        const { data: refundBatch, error: refundBatchError } = await supabase
+          .from('skus')
+          .select('refunded_qty, refunded_amount_dkk, order_id')
+          .eq('shop', shop)
+          .gt('refunded_qty', 0)
+          .gte('refund_date', danishDateStart.toISOString())
+          .lte('refund_date', danishDateEnd.toISOString())
+          .order('refund_date', { ascending: false })
+          .range(refundOffset, refundOffset + batchSize - 1);
+
+        if (refundBatchError) {
+          console.error(`  ❌ Error fetching refund batch at offset ${refundOffset}:`, refundBatchError);
+          break;
+        }
+
+        if (refundBatch && refundBatch.length > 0) {
+          refundData.push(...refundBatch);
+          hasMoreRefunds = refundBatch.length === batchSize;
+          refundOffset += batchSize;
+        } else {
+          hasMoreRefunds = false;
+        }
+      }
+
+      const skuError = null; // No longer used
+      const refundError = null; // No longer used
 
       if (skuError) {
         console.error(`  ❌ Error fetching SKUs for ${shop}:`, skuError);
