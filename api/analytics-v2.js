@@ -30,11 +30,12 @@ class SupabaseService {
     };
     // CRITICAL: daily_shop_metrics.metric_date is ALREADY in Danish calendar date format
     // Google Sheets sends UTC timestamps representing Danish time:
-    //   16/10/2024 00:00 Danish = 2024-10-15T22:00:00Z UTC (start)
-    //   16/10/2024 23:59 Danish = 2024-10-16T21:59:59Z UTC (end)
+    //   SOMMERTID (Mar-Oct): 16/10/2024 00:00 Danish = 2024-10-15T22:00:00Z UTC
+    //   VINTERTID (Nov-Feb): 16/01/2025 00:00 Danish = 2024-01-15T23:00:00Z UTC
     // We need: metric_date='2024-10-16' (the Danish calendar date already stored in DB)
-    // Solution: Add offset to start (to get from 15th to 16th), but NOT to end (already 16th)
-    const danishOffset = 2 * 60 * 60 * 1000;
+    // Solution: Check UTC hour to determine if we need +1 or +2 hour offset
+    const startHour = startDate.getUTCHours();
+    const danishOffset = (startHour === 22) ? (2 * 60 * 60 * 1000) : (1 * 60 * 60 * 1000);
     const dateStart = new Date(startDate.getTime() + danishOffset).toISOString().split('T')[0];
     const dateEnd = endDate.toISOString().split('T')[0]; // NO offset for end date!
 
