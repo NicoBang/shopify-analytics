@@ -20,6 +20,14 @@ class SupabaseService {
    * ⚡ ULTRA-FAST: <2 seconds for any date range
    */
   async getDashboardFromAggregatedMetrics(startDate, endDate, shop = null) {
+    // Shop sort order: DA, DE, NL, INT, CHF
+    const SHOP_ORDER = {
+      'pompdelux-da.myshopify.com': 1,
+      'pompdelux-de.myshopify.com': 2,
+      'pompdelux-nl.myshopify.com': 3,
+      'pompdelux-int.myshopify.com': 4,
+      'pompdelux-chf.myshopify.com': 5
+    };
     // CRITICAL: daily_shop_metrics.metric_date is ALREADY in Danish calendar date format
     // Google Sheets sends UTC timestamps representing Danish time:
     //   16/10/2024 00:00 Danish = 2024-10-15T22:00:00Z UTC (start)
@@ -110,6 +118,13 @@ class SupabaseService {
         returPctOrdre: returOrdrePct,
         fragtPctAfOms: fragtPct
       };
+    });
+
+    // Sort by shop order: DA, DE, NL, INT, CHF
+    result.sort((a, b) => {
+      const orderA = SHOP_ORDER[a.shop] || 999;
+      const orderB = SHOP_ORDER[b.shop] || 999;
+      return orderA - orderB;
     });
 
     console.log(`✅ Aggregated metrics: ${result.length} shops, ${data.length} daily records`);
@@ -216,6 +231,15 @@ class SupabaseService {
   async getDashboardFromSkus(startDate, endDate, shop = null) {
     // Aggregate dashboard data from SKUs table using same logic as Style Analytics
     // This fixes the qty calculation issue by using consistent date filtering
+
+    // Shop sort order: DA, DE, NL, INT, CHF
+    const SHOP_ORDER = {
+      'pompdelux-da.myshopify.com': 1,
+      'pompdelux-de.myshopify.com': 2,
+      'pompdelux-nl.myshopify.com': 3,
+      'pompdelux-int.myshopify.com': 4,
+      'pompdelux-chf.myshopify.com': 5
+    };
 
     console.log('🔍 DEBUG [getDashboardFromSkus] Start:', { startDate: startDate.toISOString(), endDate: endDate.toISOString(), shop });
 
@@ -606,6 +630,13 @@ class SupabaseService {
         returPctOrdre: antalOrdrer > 0 ? Math.round((returOrderCount / antalOrdrer) * 10000) / 100 : 0,
         fragtPctAfOms: brutto > 0 ? Math.round((shipping / brutto) * 10000) / 100 : 0
       });
+    });
+
+    // Sort by shop order: DA, DE, NL, INT, CHF
+    result.sort((a, b) => {
+      const orderA = SHOP_ORDER[a.shop] || 999;
+      const orderB = SHOP_ORDER[b.shop] || 999;
+      return orderA - orderB;
     });
 
     return result;
