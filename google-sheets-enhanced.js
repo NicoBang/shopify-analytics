@@ -1337,35 +1337,17 @@ function formatDate(date) {
 
 /**
  * Formater start/slut dato med korrekt tid for API
- * CRITICAL: Konverterer dansk lokal tid til UTC korrekt
  */
 function formatDateWithTime(date, isEndDate = false) {
-  // CRITICAL FIX: Google Apps Script Date objects er i lokal timezone
-  // Vi skal konvertere dansk midnat til UTC tid
-
-  // Bestem dansk timezone offset (CEST = UTC+2, CET = UTC+1)
-  const month = date.getMonth() + 1; // 1-12
-  const day = date.getDate();
-
-  // Simpel DST check for dansk tid (sidste søndag i marts til sidste søndag i oktober)
-  const isDST = month > 3 && month < 10; // Aproximation: april-september er sommertid
-  const offsetHours = isDST ? 2 : 1;
-
   if (isEndDate) {
-    // Dansk 23:59:59 → UTC (minus offset timer)
+    // For slutdato: sæt til slutningen af dagen
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
-
-    // Konverter til UTC: træk offset fra
-    const utcTime = new Date(endOfDay.getTime() - (offsetHours * 60 * 60 * 1000));
-    return Utilities.formatDate(utcTime, 'UTC', 'yyyy-MM-dd\'T\'HH:mm:ss\'Z\'');
+    return Utilities.formatDate(endOfDay, Session.getScriptTimeZone(), 'yyyy-MM-dd\'T\'HH:mm:ss\'Z\'');
   } else {
-    // Dansk 00:00:00 → UTC (minus offset timer)
+    // For startdato: sæt til starten af dagen
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);
-
-    // Konverter til UTC: træk offset fra
-    const utcTime = new Date(startOfDay.getTime() - (offsetHours * 60 * 60 * 1000));
-    return Utilities.formatDate(utcTime, 'UTC', 'yyyy-MM-dd\'T\'HH:mm:ss\'Z\'');
+    return Utilities.formatDate(startOfDay, Session.getScriptTimeZone(), 'yyyy-MM-dd\'T\'HH:mm:ss\'Z\'');
   }
 }
