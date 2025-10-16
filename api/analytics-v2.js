@@ -20,8 +20,12 @@ class SupabaseService {
    * ⚡ ULTRA-FAST: <2 seconds for any date range
    */
   async getDashboardFromAggregatedMetrics(startDate, endDate, shop = null) {
-    const dateStart = startDate.toISOString().split('T')[0];
-    const dateEnd = endDate.toISOString().split('T')[0];
+    // CRITICAL FIX: Convert UTC timestamps to Danish calendar dates (UTC+2)
+    // Input: 2024-10-16T00:00:00Z (midnight Danish time) = 2024-10-15T22:00:00Z UTC
+    // We need: 2024-10-16 (the Danish calendar date)
+    const danishOffset = 2 * 60 * 60 * 1000; // UTC+2 in milliseconds
+    const dateStart = new Date(startDate.getTime() + danishOffset).toISOString().split('T')[0];
+    const dateEnd = new Date(endDate.getTime() + danishOffset).toISOString().split('T')[0];
 
     console.log(`⚡ Fetching pre-aggregated metrics: ${dateStart} to ${dateEnd}`);
 
