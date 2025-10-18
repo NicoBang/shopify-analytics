@@ -37,7 +37,11 @@ class SupabaseService {
     const startHour = startDate.getUTCHours();
     const danishOffset = (startHour === 22) ? (2 * 60 * 60 * 1000) : (1 * 60 * 60 * 1000);
     const dateStart = new Date(startDate.getTime() + danishOffset).toISOString().split('T')[0];
-    const dateEnd = endDate.toISOString().split('T')[0]; // NO offset for end date!
+
+    // FIX: Apply same timezone correction to end date
+    const endHour = endDate.getUTCHours();
+    const danishOffsetEnd = (endHour === 22) ? (2 * 60 * 60 * 1000) : (1 * 60 * 60 * 1000);
+    const dateEnd = new Date(endDate.getTime() + danishOffsetEnd).toISOString().split('T')[0];
 
     console.log(`⚡ Fetching pre-aggregated metrics: ${dateStart} to ${dateEnd}`);
 

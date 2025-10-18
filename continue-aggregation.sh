@@ -28,7 +28,7 @@ else
   NEXT_DATE=$(date -d "$LAST_DATE + 1 day" +%Y-%m-%d 2>/dev/null)
 fi
 
-END_DATE="2025-10-16"
+END_DATE="2025-10-17"
 
 # Check if already complete
 if [[ "$LAST_DATE" == "$END_DATE" ]]; then
