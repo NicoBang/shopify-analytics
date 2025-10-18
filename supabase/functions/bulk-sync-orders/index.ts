@@ -50,7 +50,8 @@ serve(async (req) => {
 
   try {
     // Parse and validate request
-    const { shop, startDate, endDate, testMode = false }: BulkSyncRequest = await req.json();
+    const body = await req.json();
+    const { shop, startDate, endDate, testMode = false, jobId } = body;
 
     if (!shop || !startDate || !endDate) {
       return new Response(
@@ -59,23 +60,33 @@ serve(async (req) => {
       );
     }
 
-    console.log(`📦 Starting order sync for ${shop} (${startDate} to ${endDate})${testMode ? ' [TEST MODE]' : ''}`);
+    console.log(`📦 Starting order sync for ${shop} (${startDate} to ${endDate})${testMode ? ' [TEST MODE]' : ''}${jobId ? ` [Job ID: ${jobId}]` : ''}`);
 
     // Initialize clients
     const supabase = createAuthenticatedClient();
     const shopifyToken = getToken(shop);
 
-    // Create or update job record
-    const jobResult = await createOrUpdateJob(supabase, {
-      shop,
-      object_type: "orders",
-      start_date: startDate,
-      end_date: endDate,
-      status: "running",
-    }, testMode);
+    // Use existing job if provided, otherwise create new one
+    let finalJobId = jobId;
+    if (!jobId) {
+      const jobResult = await createOrUpdateJob(supabase, {
+        shop,
+        object_type: "orders",
+        start_date: startDate,
+        end_date: endDate,
+        status: "running",
+      }, testMode);
 
-    if (!jobResult.success || !jobResult.jobId) {
-      throw new Error(jobResult.error || "Failed to create job");
+      if (!jobResult.success || !jobResult.jobId) {
+        throw new Error(jobResult.error || "Failed to create job");
+      }
+      finalJobId = jobResult.jobId;
+    } else {
+      // Job already exists from orchestrator - just update status to running
+      await supabase
+        .from("bulk_sync_jobs")
+        .update({ status: "running", started_at: new Date().toISOString() })
+        .eq("id", jobId);
     }
 
     // Process date range day by day
@@ -86,12 +97,12 @@ serve(async (req) => {
       endDate,
       supabase,
       testMode,
-      jobId: jobResult.jobId,
+      jobId: finalJobId,
       functionStartTime,
     });
 
     // Update job with final status
-    await updateJobStatus(supabase, jobResult.jobId, {
+    await updateJobStatus(supabase, finalJobId, {
       status: results.hasErrors ? "failed" : "completed",
       records_processed: results.totalRecords,
       error_message: results.errors.join("; "),

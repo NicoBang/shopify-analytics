@@ -9,8 +9,18 @@ const SHOPS = [
   "pompdelux-chf.myshopify.com",
 ];
 
-const SYNC_TYPES = ["orders", "skus", "refunds", "both"] as const;
+// ✅ CRITICAL: Order matters! Dependencies: orders → skus → refunds → shipping-discounts
+const SYNC_TYPES = ["orders", "skus", "refunds", "shipping-discounts", "both"] as const;
 type SyncType = typeof SYNC_TYPES[number];
+
+// Dependency chain - each type depends on previous types being completed
+const SYNC_DEPENDENCIES: Record<SyncType, SyncType[]> = {
+  "orders": [],
+  "skus": ["orders"],
+  "refunds": ["orders", "skus"],
+  "shipping-discounts": ["orders"],
+  "both": [],
+};
 
 const BATCH_DAYS = 1; // 1-day batches to avoid Edge Function timeout
 const RETRY_DELAY_MS = 60000; // 60 seconds
@@ -301,7 +311,25 @@ async function processJob(
     return true;
   }
 
-  // Create pending job log
+  // DELETE any existing pending/failed jobs for same shop+type+date
+  // This ensures daily cron can re-run syncs even if they failed earlier in the day
+  const { data: deletedJobs, error: deleteError } = await supabase
+    .from("bulk_sync_jobs")
+    .delete()
+    .eq("shop", shop)
+    .eq("object_type", type)
+    .eq("start_date", startDate)
+    .eq("end_date", endDate)
+    .in("status", ["pending", "failed"])
+    .select();
+
+  if (deleteError) {
+    console.warn(`⚠️ Failed to delete old jobs: ${deleteError.message}`);
+  } else if (deletedJobs && deletedJobs.length > 0) {
+    console.log(`🗑️ [${shop}] ${type} ${startDate}: Deleted ${deletedJobs.length} old pending/failed jobs`);
+  }
+
+  // ✅ Create pending job - continue-orchestrator will process it later
   const { data: jobData, error: insertError } = await supabase
     .from("bulk_sync_jobs")
     .insert({
@@ -310,103 +338,18 @@ async function processJob(
       start_date: startDate,
       end_date: endDate,
       status: "pending",
-      started_at: new Date().toISOString(),
+      created_at: new Date().toISOString(),
     })
     .select()
     .single();
 
   if (insertError) {
-    console.error(`⚠️ Failed to create job log: ${insertError.message}`);
+    console.error(`❌ [${shop}] ${type} ${startDate}: Failed to create job - ${insertError.message}`);
+    return false;
   }
 
-  const jobId = jobData?.id;
-
-  let attempt = 0;
-  while (attempt < MAX_RETRIES) {
-    try {
-      console.log(`🔄 [${shop}] ${type} ${startDate} to ${endDate} (attempt ${attempt + 1}/${MAX_RETRIES})`);
-
-      // Update to running
-      if (jobId) {
-        await updateJobStatus(supabase, jobId, "running");
-      }
-
-      const result = await callSyncFunction(shop, type, startDate, endDate);
-
-      // Extract counts from result
-      const recordsProcessed = result?.results?.reduce((sum: number, r: any) =>
-        sum + (r.skusProcessed || r.ordersProcessed || r.refundsProcessed || 0), 0) || 0;
-
-      // Update to completed
-      if (jobId) {
-        await supabase
-          .from("bulk_sync_jobs")
-          .update({
-            status: "completed",
-            records_processed: recordsProcessed,
-            completed_at: new Date().toISOString(),
-          })
-          .eq("id", jobId);
-      }
-
-      console.log(`✅ [${shop}] ${type} ${startDate} to ${endDate} completed (${recordsProcessed} records)`);
-      return true;
-    } catch (err: any) {
-      const errorMessage = err.message || String(err);
-
-      // Check for rate limit (429)
-      if (errorMessage.includes("429") || errorMessage.includes("rate limit")) {
-        console.warn(`⏸️ [${shop}] Rate limited, stopping job processing`);
-        if (jobId) {
-          await supabase
-            .from("bulk_sync_jobs")
-            .update({
-              status: "failed",
-              error_message: "Rate limit exceeded - orchestrator stopped",
-              completed_at: new Date().toISOString(),
-            })
-            .eq("id", jobId);
-        }
-        throw new Error("RATE_LIMIT_EXCEEDED"); // Propagate to stop shop processing
-      }
-
-      // Check for "bulk job already in progress" error
-      if (errorMessage.includes("already in progress")) {
-        console.warn(`⏳ [${shop}] Bulk job in progress, waiting ${RETRY_DELAY_MS / 1000}s (attempt ${attempt + 1}/${MAX_RETRIES})`);
-        await sleep(RETRY_DELAY_MS);
-        attempt++;
-        continue;
-      }
-
-      // Other errors: log and fail
-      console.error(`❌ [${shop}] ${type} ${startDate} to ${endDate} failed:`, errorMessage);
-      if (jobId) {
-        await supabase
-          .from("bulk_sync_jobs")
-          .update({
-            status: "failed",
-            error_message: errorMessage.substring(0, 500),
-            completed_at: new Date().toISOString(),
-          })
-          .eq("id", jobId);
-      }
-      return false;
-    }
-  }
-
-  // Max retries exceeded
-  console.error(`❌ [${shop}] ${type} ${startDate} to ${endDate} failed after ${MAX_RETRIES} retries`);
-  if (jobId) {
-    await supabase
-      .from("bulk_sync_jobs")
-      .update({
-        status: "failed",
-        error_message: `Max retries (${MAX_RETRIES}) exceeded`,
-        completed_at: new Date().toISOString(),
-      })
-      .eq("id", jobId);
-  }
-  return false;
+  console.log(`✅ [${shop}] ${type} ${startDate}: Job created (pending) - will be processed by continue-orchestrator`);
+  return true;
 }
 
 async function callSyncFunction(
@@ -415,10 +358,11 @@ async function callSyncFunction(
   startDate: string,
   endDate: string
 ): Promise<any> {
-  const functionMap: Record<SyncType, string> = {
+  const functionMap: Record<string, string> = {
     orders: "bulk-sync-orders",
     skus: "bulk-sync-skus",
     refunds: "bulk-sync-refunds",
+    "shipping-discounts": "bulk-sync-shipping-discounts",
   };
 
   const functionName = functionMap[type];

@@ -139,9 +139,32 @@ serve(async (req) => {
     // === ✅ Step 3: Create or resume this job ===
     let job;
     if (jobId) {
-      const { data } = await supabase.from("bulk_sync_jobs").select("*").eq("id", jobId).single();
-      job = data;
-      await supabase.from("bulk_sync_jobs").update({ status: "running" }).eq("id", jobId);
+      const { data, error: fetchError } = await supabase
+        .from("bulk_sync_jobs")
+        .select("*")
+        .eq("id", jobId)
+        .maybeSingle();
+
+      if (fetchError || !data) {
+        console.warn(`⚠️ Job ${jobId} not found or deleted - creating new job`);
+        // Job was deleted (e.g., by cleanup) - create new one instead
+        const { data: newData } = await supabase
+          .from("bulk_sync_jobs")
+          .insert({
+            shop,
+            start_date: startDate,
+            end_date: endDate,
+            object_type: "refunds",
+            status: "running",
+            started_at: new Date().toISOString(),
+          })
+          .select()
+          .single();
+        job = newData;
+      } else {
+        job = data;
+        await supabase.from("bulk_sync_jobs").update({ status: "running" }).eq("id", jobId);
+      }
     } else {
       const { data } = await supabase
         .from("bulk_sync_jobs")

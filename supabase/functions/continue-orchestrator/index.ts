@@ -21,6 +21,14 @@ const PARALLEL_LIMIT_ORDERS = 3; // Max shops running at once for orders
 const PARALLEL_LIMIT_REFUNDS = 3; // Refunds can run in parallel
 // SKUs: 1 job per shop (all shops in parallel for max throughput)
 
+// === Dependency System ===
+const SYNC_DEPENDENCIES: Record<string, string[]> = {
+  "orders": [],
+  "skus": ["orders"],
+  "refunds": ["orders", "skus"],
+  "shipping-discounts": ["orders"],
+};
+
 serve(async (req) => {
   const startTime = Date.now();
   const supabase = createClient(
@@ -52,6 +60,9 @@ serve(async (req) => {
     if (staleCount > 0) console.log(`🧹 Cleaned up ${staleCount} stale jobs`);
 
     // === Step 2: Get next batch of pending jobs ===
+    // Sort by dependency order: orders first, then skus, then refunds/shipping-discounts
+    const typeOrder = { "orders": 1, "skus": 2, "refunds": 3, "shipping-discounts": 3 };
+
     let query = supabase
       .from("bulk_sync_jobs")
       .select("*")
@@ -63,10 +74,17 @@ serve(async (req) => {
     if (objectTypeFilter) query = query.eq("object_type", objectTypeFilter);
     if (shopFilter) query = query.eq("shop", shopFilter);
 
-    const { data: pendingJobs, error } = await query;
+    const { data: rawJobs, error } = await query;
     if (error) throw new Error(`Failed to fetch pending jobs: ${error.message}`);
 
-    console.log(`📦 Query returned ${pendingJobs?.length || 0} pending jobs`);
+    // Sort by dependency order (orders → skus → refunds/shipping-discounts)
+    const pendingJobs = rawJobs?.sort((a, b) => {
+      const orderA = typeOrder[a.object_type as keyof typeof typeOrder] || 999;
+      const orderB = typeOrder[b.object_type as keyof typeof typeOrder] || 999;
+      return orderA - orderB;
+    });
+
+    console.log(`📦 Query returned ${pendingJobs?.length || 0} pending jobs (sorted by dependency order)`);
     if (pendingJobs && pendingJobs.length > 0) {
       console.log(`   First job: ${pendingJobs[0].shop} - ${pendingJobs[0].start_date} (${pendingJobs[0].object_type})`);
     }
@@ -206,7 +224,37 @@ serve(async (req) => {
 
 async function processJob(supabase, job) {
   try {
-    // ✅ Atomic claim: only update if status is still 'pending'
+    // === Step 1: Check dependencies ===
+    const dependencies = SYNC_DEPENDENCIES[job.object_type] || [];
+    if (dependencies.length > 0) {
+      console.log(`🔍 Checking dependencies for ${job.object_type}: ${dependencies.join(", ")}`);
+
+      for (const depType of dependencies) {
+        const { data: depJobs } = await supabase
+          .from("bulk_sync_jobs")
+          .select("status")
+          .eq("shop", job.shop)
+          .eq("start_date", job.start_date)
+          .eq("object_type", depType)
+          .single();
+
+        if (!depJobs || depJobs.status !== "completed") {
+          console.log(`⏳ Dependency not met: ${depType} (status: ${depJobs?.status || "missing"})`);
+          return {
+            shop: job.shop,
+            date: job.start_date,
+            type: job.object_type,
+            success: false,
+            skipped: true,
+            reason: `Waiting for ${depType} to complete`
+          };
+        }
+      }
+
+      console.log(`✅ All dependencies met for ${job.object_type}`);
+    }
+
+    // === Step 2: Atomic claim: only update if status is still 'pending' ===
     const { data: claimed, error: claimError } = await supabase
       .from("bulk_sync_jobs")
       .update({
@@ -228,6 +276,8 @@ async function processJob(supabase, job) {
         ? "batch-sync-refunds"
         : job.object_type === "orders"
         ? "bulk-sync-orders"
+        : job.object_type === "shipping-discounts"
+        ? "bulk-sync-shipping-discounts"
         : "bulk-sync-skus";
 
     const resp = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/${fnName}`, {
@@ -245,6 +295,7 @@ async function processJob(supabase, job) {
         shop: job.shop,
         startDate: job.start_date,
         endDate: job.end_date || job.start_date,
+        objectType: job.object_type,
         jobId: job.id,
         includeRefunds: job.object_type === "orders" || job.object_type === "refunds",
         searchMode: job.object_type === "refunds" ? "updated_at" : undefined, // refunds use updated_at (refund.created_at)

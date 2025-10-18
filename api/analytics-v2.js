@@ -41,28 +41,53 @@ class SupabaseService {
 
     console.log(`⚡ Fetching pre-aggregated metrics: ${dateStart} to ${dateEnd}`);
 
-    // Query pre-aggregated data (super fast - just SUM a few hundred rows max)
-    let query = this.supabase
-      .from('daily_shop_metrics')
-      .select('*')
-      .gte('metric_date', dateStart)
-      .lte('metric_date', dateEnd);
+    // Query pre-aggregated data with PAGINATION (Supabase default limit is 1000 rows)
+    // For 12 months * 5 shops = ~1825 rows, we need pagination!
+    const allData = [];
+    let offset = 0;
+    const batchSize = 1000;
+    let hasMore = true;
 
-    if (shop) {
-      query = query.eq('shop', shop);
+    while (hasMore) {
+      let query = this.supabase
+        .from('daily_shop_metrics')
+        .select('*')
+        .gte('metric_date', dateStart)
+        .lte('metric_date', dateEnd)
+        .order('metric_date', { ascending: false })
+        .range(offset, offset + batchSize - 1);
+
+      if (shop) {
+        query = query.eq('shop', shop);
+      }
+
+      const { data: batch, error } = await query;
+
+      if (error) {
+        console.error('❌ Error fetching aggregated metrics:', error);
+        throw error;
+      }
+
+      if (batch && batch.length > 0) {
+        allData.push(...batch);
+        hasMore = batch.length === batchSize;
+        offset += batchSize;
+        if (hasMore) {
+          console.log(`  Fetched ${offset} daily metrics, continuing...`);
+        }
+      } else {
+        hasMore = false;
+      }
     }
 
-    const { data, error } = await query;
+    console.log(`  Total daily metrics fetched: ${allData.length}`);
 
-    if (error) {
-      console.error('❌ Error fetching aggregated metrics:', error);
-      throw error;
-    }
-
-    if (!data || data.length === 0) {
+    if (!allData || allData.length === 0) {
       console.warn('⚠️ No aggregated data found - falling back to real-time calculation');
       return null; // Will trigger fallback to getDashboardMetricsFromSkus
     }
+
+    const data = allData;
 
     // Aggregate metrics per shop across all days
     const shopMetrics = {};
