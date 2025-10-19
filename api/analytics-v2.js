@@ -1,6 +1,7 @@
-// api/analytics.js
+// api/analytics-v2.js
 const { createClient } = require('@supabase/supabase-js');
 const { adjustLocalDateToUTC } = require('./timezone-utils');
+const ColorAnalyticsV2 = require('./color-analytics-v2');
 
 // Inline SupabaseService for Vercel
 class SupabaseService {
@@ -29,19 +30,35 @@ class SupabaseService {
       'pompdelux-chf.myshopify.com': 5
     };
     // CRITICAL: daily_shop_metrics.metric_date is ALREADY in Danish calendar date format
-    // Google Sheets sends UTC timestamps representing Danish time:
-    //   SOMMERTID (Mar-Oct): 16/10/2024 00:00 Danish = 2024-10-15T22:00:00Z UTC
-    //   VINTERTID (Nov-Feb): 16/01/2025 00:00 Danish = 2024-01-15T23:00:00Z UTC
-    // We need: metric_date='2024-10-16' (the Danish calendar date already stored in DB)
-    // Solution: Check UTC hour to determine if we need +1 or +2 hour offset
-    const startHour = startDate.getUTCHours();
-    const danishOffset = (startHour === 22) ? (2 * 60 * 60 * 1000) : (1 * 60 * 60 * 1000);
-    const dateStart = new Date(startDate.getTime() + danishOffset).toISOString().split('T')[0];
+    // Google Sheets sends UTC timestamps representing Danish time
+    // We need to extract the Danish calendar date by adding the correct offset
+    // CEST (summer): UTC+2 (last Sunday March 02:00 to last Sunday October 03:00)
+    // CET (winter): UTC+1 (rest of year)
 
-    // FIX: Apply same timezone correction to end date
-    const endHour = endDate.getUTCHours();
-    const danishOffsetEnd = (endHour === 22) ? (2 * 60 * 60 * 1000) : (1 * 60 * 60 * 1000);
-    const dateEnd = new Date(endDate.getTime() + danishOffsetEnd).toISOString().split('T')[0];
+    // Helper: Check if a date is in Danish Summer Time (CEST)
+    function isDanishSummerTime(utcTimestamp) {
+      const date = new Date(utcTimestamp);
+      const year = date.getUTCFullYear();
+      
+      // Find last Sunday of March
+      const marchLastDay = new Date(Date.UTC(year, 2, 31, 1, 0, 0)); // March 31 01:00 UTC
+      const marchLastSunday = new Date(marchLastDay);
+      marchLastSunday.setUTCDate(31 - marchLastDay.getUTCDay());
+      
+      // Find last Sunday of October
+      const octoberLastDay = new Date(Date.UTC(year, 9, 31, 1, 0, 0)); // Oct 31 01:00 UTC
+      const octoberLastSunday = new Date(octoberLastDay);
+      octoberLastSunday.setUTCDate(31 - octoberLastDay.getUTCDay());
+      
+      return date >= marchLastSunday && date < octoberLastSunday;
+    }
+
+    // Extract Danish calendar date by adding correct offset
+    const startOffset = isDanishSummerTime(startDate) ? 2 : 1;
+    const endOffset = isDanishSummerTime(endDate) ? 2 : 1;
+
+    const dateStart = new Date(startDate.getTime() + startOffset * 60 * 60 * 1000).toISOString().split('T')[0];
+    const dateEnd = new Date(endDate.getTime() + endOffset * 60 * 60 * 1000).toISOString().split('T')[0];
 
     console.log(`⚡ Fetching pre-aggregated metrics: ${dateStart} to ${dateEnd}`);
 
@@ -746,6 +763,29 @@ module.exports = async function handler(req, res) {
           console.log('⏱️ Fallback to real-time SKU aggregation');
           data = await supabaseService.getDashboardFromSkus(start, end, shop);
         }
+        break;
+
+      case 'color-analytics':
+        // ⚡ V2: Ultra-fast Color Analytics from pre-aggregated daily_sku_transactions
+        console.log('⚡ V2: Color Analytics (pre-aggregated)');
+        const colorService = new ColorAnalyticsV2();
+        data = await colorService.getColorAnalytics(start, end, shop);
+
+        // Transform to Google Sheets format (array of arrays)
+        rows = data.map(color => [
+          color.farve,
+          color.solgt,
+          color.retur,
+          color.omsætning,
+          color.lager,
+          color.varemodtaget,
+          color.beregnetKøbt,
+          color.solgtPct,
+          color.returPct,
+          color.db,
+          color.dbPct
+        ]);
+        count = rows.length;
         break;
 
       case 'dashboard':

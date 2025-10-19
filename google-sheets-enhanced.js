@@ -1351,18 +1351,42 @@ function formatDate(date) {
 
 /**
  * Formater start/slut dato med korrekt tid for API
+ * Both V1 and V2 APIs expect UTC timestamps with Danish timezone compensation
+ * V1: Filters created_at_original (TIMESTAMPTZ) via adjustLocalDateToUTC()
+ * V2: Parses UTC timestamp and adds Danish offset internally (analytics-v2.js lines 33-45)
  */
 function formatDateWithTime(date, isEndDate = false) {
+  // Extract calendar date components
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  // Determine if date is in Danish summer time (CEST = UTC+2) or winter time (CET = UTC+1)
+  // CEST: Last Sunday of March 02:00 to Last Sunday of October 03:00
+  // CET: Rest of year
+  const testDate = new Date(Date.UTC(year, Number(month) - 1, Number(day), 12, 0, 0));
+  const isDST = testDate.getTimezoneOffset() === -120; // -120 = CEST (UTC+2)
+  const utcOffset = isDST ? 2 : 1;
+
   if (isEndDate) {
-    // For slutdato: sæt til slutningen af dagen
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
-    return Utilities.formatDate(endOfDay, Session.getScriptTimeZone(), 'yyyy-MM-dd\'T\'HH:mm:ss\'Z\'');
+    // End of Danish day = 23:59:59 Danish time
+    // Convert to UTC: subtract offset
+    // Example: 16/10 23:59:59 CEST (UTC+2) = 16/10 21:59:59 UTC
+    const hour = 23 - utcOffset;
+    return `${year}-${month}-${day}T${String(hour).padStart(2, '0')}:59:59.999Z`;
   } else {
-    // For startdato: sæt til starten af dagen
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-    return Utilities.formatDate(startOfDay, Session.getScriptTimeZone(), 'yyyy-MM-dd\'T\'HH:mm:ss\'Z\'');
+    // Start of Danish day = 00:00:00 Danish time
+    // Convert to UTC: subtract offset (which moves to previous day)
+    // Example: 16/10 00:00:00 CEST (UTC+2) = 15/10 22:00:00 UTC
+    const prevDate = new Date(Date.UTC(year, Number(month) - 1, Number(day)));
+    prevDate.setUTCHours(24 - utcOffset, 0, 0, 0);
+
+    const prevYear = prevDate.getUTCFullYear();
+    const prevMonth = String(prevDate.getUTCMonth() + 1).padStart(2, '0');
+    const prevDay = String(prevDate.getUTCDate()).padStart(2, '0');
+    const hour = 24 - utcOffset;
+
+    return `${prevYear}-${prevMonth}-${prevDay}T${String(hour).padStart(2, '0')}:00:00.000Z`;
   }
 }
 /**
@@ -1556,8 +1580,148 @@ function getDashboardSelectedDates_V2() {
 }
 
 // V2 versions of analytics functions (stubs for now - use production versions)
+/**
+ * ⚡ V2: Generate Style Color Analytics (ULTRA-FAST using pre-aggregated data)
+ * Bruger daily_sku_transactions tabel - 10-15x hurtigere end V1
+ */
 function generateStyleColorAnalytics_V2() {
-  SpreadsheetApp.getUi().alert('V2 Analytics', 'Style Color Analytics V2 bruger samme endpoint som V1. Brug V1 versionen.', SpreadsheetApp.getUi().ButtonSet.OK);
+  try {
+    console.log('⚡ V2: Starter Color Analytics opdatering (pre-aggregation)...');
+
+    // Læs datoer fra Color_Analytics_2_0 arket (B1/B2). Fallback: sidste 90 dage
+    const { startDate, endDate } = getColorAnalyticsSelectedDates_V2();
+
+    console.log(`⚡ V2: Henter Color Analytics for ${formatDate(startDate)} til ${formatDate(endDate)}`);
+
+    // Call V2 API endpoint
+    const response = makeApiRequest(`${CONFIG.API_BASE}/analytics-v2`, {
+      startDate: formatDateWithTime(startDate, false),
+      endDate: formatDateWithTime(endDate, true),
+      type: 'color-analytics'
+    });
+
+    // API returns data in 'data' field, not 'rows'
+    const rows = response.data || [];
+
+    if (!response.success || rows.length === 0) {
+      console.log(`⚠️ Ingen data fundet for perioden ${formatDate(startDate)} til ${formatDate(endDate)}`);
+      const sheet = getOrCreateSheet('Color_Analytics_2_0');
+
+      // Clear data area from row 4
+      if (sheet.getLastRow() >= 4) {
+        const lastRow = sheet.getLastRow();
+        const lastCol = sheet.getLastColumn();
+        if (lastRow >= 4 && lastCol > 0) {
+          sheet.getRange(4, 1, lastRow - 4 + 1, lastCol).clear();
+        }
+      }
+
+      sheet.getRange('A4').setValue(`Ingen data for perioden ${formatDate(startDate)} til ${formatDate(endDate)}`);
+      sheet.getRange('A4').setFontStyle('italic').setFontColor('#666666');
+      return;
+    }
+
+    // Render data starting from row 4
+    renderColorAnalytics_V2(rows, startDate, endDate);
+    console.log(`✅ V2: Color Analytics opdateret (${rows.length} farver)`);
+
+  } catch (error) {
+    console.error(`💥 V2 Color Analytics fejl: ${error.message}`);
+    throw error;
+  }
+}
+
+function renderColorAnalytics_V2(rows, startDate, endDate) {
+  const sheet = getOrCreateSheet('Color_Analytics_2_0');
+
+  // Sæt dato inputs i toppen (A1/A2)
+  sheet.getRange('A1').setValue('Startdato:');
+  sheet.getRange('A2').setValue('Slutdato:');
+  sheet.getRange('A1:A2').setFontWeight('bold');
+  sheet.getRange('B1:B2').setNumberFormat('dd/MM/yyyy');
+
+  // Ryd alt under række 4
+  if (sheet.getLastRow() >= 4) {
+    const lastRow = sheet.getLastRow();
+    const lastCol = Math.max(1, sheet.getLastColumn());
+    sheet.getRange(4, 1, lastRow - 3, lastCol).clear();
+  }
+
+  // Headers - row 4
+  const headers = [
+    'Farve',
+    'Solgt (stk)',
+    'Retur (stk)',
+    'Omsætning (DKK)',
+    'Lager (stk)',
+    'Varemodtaget',
+    'Beregnet Købt',
+    'Solgt %',
+    'Retur %',
+    'DB (DKK)',
+    'DB %'
+  ];
+
+  sheet.getRange('A4:K4').setValues([headers]);
+  sheet.getRange('A4:K4').setFontWeight('bold').setBackground('#E3F2FD');
+
+  // Data rows - starting from row 5
+  if (rows.length > 0) {
+    sheet.getRange(5, 1, rows.length, rows[0].length).setValues(rows);
+
+    // Format quantity columns (B, C, E, F, G)
+    sheet.getRange(5, 2, rows.length, 1).setNumberFormat('#,##0'); // Solgt
+    sheet.getRange(5, 3, rows.length, 1).setNumberFormat('#,##0'); // Retur
+    sheet.getRange(5, 5, rows.length, 1).setNumberFormat('#,##0'); // Lager
+    sheet.getRange(5, 6, rows.length, 1).setNumberFormat('#,##0'); // Varemodtaget
+    sheet.getRange(5, 7, rows.length, 1).setNumberFormat('#,##0'); // Beregnet Købt
+
+    // Format currency columns (D, J)
+    sheet.getRange(5, 4, rows.length, 1).setNumberFormat('#,##0.00 "kr"'); // Omsætning
+    sheet.getRange(5, 10, rows.length, 1).setNumberFormat('#,##0.00 "kr"'); // DB
+
+    // Format percentage columns (H, I, K)
+    sheet.getRange(5, 8, rows.length, 1).setNumberFormat('0.00"%"'); // Solgt %
+    sheet.getRange(5, 9, rows.length, 1).setNumberFormat('0.00"%"'); // Retur %
+    sheet.getRange(5, 11, rows.length, 1).setNumberFormat('0.00"%"'); // DB %
+  }
+
+  // Auto-resize columns
+  sheet.autoResizeColumns(1, headers.length);
+}
+
+function getColorAnalyticsSelectedDates_V2() {
+  const sheet = getOrCreateSheet('Color_Analytics_2_0');
+
+  // Sørg for labels findes
+  sheet.getRange('A1').setValue('Startdato:');
+  sheet.getRange('A2').setValue('Slutdato:');
+  sheet.getRange('A1:A2').setFontWeight('bold');
+
+  let startVal, endVal;
+  try {
+    startVal = sheet.getRange('B1').getValue();
+    endVal = sheet.getRange('B2').getValue();
+  } catch (e) {
+    // ignore
+  }
+
+  if (startVal instanceof Date && endVal instanceof Date && !isNaN(startVal) && !isNaN(endVal)) {
+    const s = new Date(startVal.getTime());
+    const e = new Date(endVal.getTime());
+    s.setHours(0, 0, 0, 0);
+    e.setHours(23, 59, 59, 999);
+    return { startDate: s, endDate: e };
+  }
+
+  // Fallback til sidste 90 dage
+  const endDate = new Date();
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - 90);
+  sheet.getRange('B1').setValue(startDate);
+  sheet.getRange('B2').setValue(endDate);
+  sheet.getRange('B1:B2').setNumberFormat('dd/MM/yyyy');
+  return { startDate, endDate };
 }
 
 function generateStyleSKUAnalytics_V2() {
