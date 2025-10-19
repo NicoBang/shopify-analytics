@@ -57,6 +57,10 @@ class SupabaseService {
     const startOffset = isDanishSummerTime(startDate) ? 2 : 1;
     const endOffset = isDanishSummerTime(endDate) ? 2 : 1;
 
+    console.log(`🔍 DEBUG: Incoming UTC timestamps:`);
+    console.log(`   Start: ${startDate.toISOString()} (DST=${isDanishSummerTime(startDate)}, offset=${startOffset}h)`);
+    console.log(`   End: ${endDate.toISOString()} (DST=${isDanishSummerTime(endDate)}, offset=${endOffset}h)`);
+
     const dateStart = new Date(startDate.getTime() + startOffset * 60 * 60 * 1000).toISOString().split('T')[0];
     const dateEnd = new Date(endDate.getTime() + endOffset * 60 * 60 * 1000).toISOString().split('T')[0];
 
@@ -741,11 +745,26 @@ module.exports = async function handler(req, res) {
   try {
     const supabaseService = new SupabaseService();
 
-    // Convert Danish local dates to UTC accounting for timezone offset
-    // Example: 2024-10-01 (Danish) → 2024-09-30T22:00:00Z (UTC, CEST +2)
-    // This ensures orders created 00:00-02:00 Danish time are included
-    const start = adjustLocalDateToUTC(startDate, false); // Start of day in UTC
-    const end = adjustLocalDateToUTC(endDate, true);     // End of day in UTC (next day 22:00:00Z)
+    // Handle date inputs: Google Sheets sends ISO timestamps (already in UTC),
+    // while direct API calls might send simple date strings
+    let start, end;
+    
+    // Check if dates are already ISO timestamps (contain 'T')
+    const startIsISO = typeof startDate === 'string' && startDate.includes('T');
+    const endIsISO = typeof endDate === 'string' && endDate.includes('T');
+    
+    if (startIsISO && endIsISO) {
+      // Google Sheets format: Already UTC timestamps, parse directly
+      start = new Date(startDate);
+      end = new Date(endDate);
+      console.log(`📅 Received ISO timestamps (UTC): ${start.toISOString()} to ${end.toISOString()}`);
+    } else {
+      // Simple date strings: Convert Danish local dates to UTC
+      // Example: 2024-10-01 (Danish) → 2024-09-30T22:00:00Z (UTC, CEST +2)
+      start = adjustLocalDateToUTC(startDate, false);
+      end = adjustLocalDateToUTC(endDate, true);
+      console.log(`📅 Converted local dates to UTC: ${start.toISOString()} to ${end.toISOString()}`);
+    }
 
     // Normalize includeReturns once for use across handler
     const wantsReturns = String(includeReturns) === 'true';

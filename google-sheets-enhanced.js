@@ -1350,44 +1350,77 @@ function formatDate(date) {
 }
 
 /**
+ * Check if a date is in Danish Summer Time (CEST)
+ * CEST: Last Sunday of March 02:00 to Last Sunday of October 03:00
+ * CET: Rest of year
+ */
+function isDanishDST_(year, month, day) {
+  // Before March or after October: definitely winter time
+  if (month < 3 || month > 10) return false;
+  
+  // April to September: definitely summer time
+  if (month > 3 && month < 10) return true;
+  
+  // March: check if we're past the last Sunday
+  if (month === 3) {
+    const lastSunday = getLastSundayOfMonth_(year, 3);
+    return day >= lastSunday;
+  }
+  
+  // October: check if we're before the last Sunday
+  if (month === 10) {
+    const lastSunday = getLastSundayOfMonth_(year, 10);
+    return day < lastSunday;
+  }
+  
+  return false;
+}
+
+/**
+ * Get the day of the last Sunday in a given month
+ */
+function getLastSundayOfMonth_(year, month) {
+  // Start from last day of month and work backwards
+  const lastDay = new Date(year, month, 0).getDate();
+  
+  for (let day = lastDay; day >= 1; day--) {
+    const date = new Date(year, month - 1, day);
+    if (date.getDay() === 0) { // Sunday
+      return day;
+    }
+  }
+  
+  return lastDay; // Fallback (should never happen)
+}
+
+/**
  * Formater start/slut dato med korrekt tid for API
  * Both V1 and V2 APIs expect UTC timestamps with Danish timezone compensation
  * V1: Filters created_at_original (TIMESTAMPTZ) via adjustLocalDateToUTC()
  * V2: Parses UTC timestamp and adds Danish offset internally (analytics-v2.js lines 33-45)
  */
 function formatDateWithTime(date, isEndDate = false) {
-  // Extract calendar date components
   const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
+  const month = date.getMonth();
+  const day = date.getDate();
 
-  // Determine if date is in Danish summer time (CEST = UTC+2) or winter time (CET = UTC+1)
-  // CEST: Last Sunday of March 02:00 to Last Sunday of October 03:00
-  // CET: Rest of year
-  const testDate = new Date(Date.UTC(year, Number(month) - 1, Number(day), 12, 0, 0));
-  const isDST = testDate.getTimezoneOffset() === -120; // -120 = CEST (UTC+2)
-  const utcOffset = isDST ? 2 : 1;
+  const isDST = isDanishDST_(year, month + 1, day);
+  const offset = isDST ? 2 : 1;
+
+  console.log(`🔍 DEBUG [formatDateWithTime]: ${isEndDate ? 'End' : 'Start'} date ${year}-${month+1}-${day}, DST=${isDST}, offset=${offset}h`);
+
+  let utcDate = new Date(Date.UTC(year, month, day, 0, 0, 0));
 
   if (isEndDate) {
-    // End of Danish day = 23:59:59 Danish time
-    // Convert to UTC: subtract offset
-    // Example: 16/10 23:59:59 CEST (UTC+2) = 16/10 21:59:59 UTC
-    const hour = 23 - utcOffset;
-    return `${year}-${month}-${day}T${String(hour).padStart(2, '0')}:59:59.999Z`;
+    utcDate.setUTCHours(24 - offset, 0, 0, 0);
+    utcDate.setUTCMilliseconds(-1); // 23:59:59.999
   } else {
-    // Start of Danish day = 00:00:00 Danish time
-    // Convert to UTC: subtract offset (which moves to previous day)
-    // Example: 16/10 00:00:00 CEST (UTC+2) = 15/10 22:00:00 UTC
-    const prevDate = new Date(Date.UTC(year, Number(month) - 1, Number(day)));
-    prevDate.setUTCHours(24 - utcOffset, 0, 0, 0);
-
-    const prevYear = prevDate.getUTCFullYear();
-    const prevMonth = String(prevDate.getUTCMonth() + 1).padStart(2, '0');
-    const prevDay = String(prevDate.getUTCDate()).padStart(2, '0');
-    const hour = 24 - utcOffset;
-
-    return `${prevYear}-${prevMonth}-${prevDay}T${String(hour).padStart(2, '0')}:00:00.000Z`;
+    utcDate.setUTCHours(0 - offset, 0, 0, 0);
   }
+
+  console.log(`   Result: ${utcDate.toISOString()}`);
+
+  return utcDate.toISOString();
 }
 /**
  * ========================================
@@ -1408,9 +1441,12 @@ function updateDashboard_V2() {
 
     // Brug analytics-v2 endpoint (PRE-AGGREGATION)
     const dashboardUrl = `${CONFIG.API_BASE}/analytics-v2`;
+    const formattedStart = formatDateWithTime(startDate, false);
+    const formattedEnd = formatDateWithTime(endDate, true);
+    console.log(`🔍 DEBUG [Google Sheets]: Sending timestamps to V2 API: ${formattedStart} to ${formattedEnd}`);
     const dashboardPayload = {
-      startDate: formatDateWithTime(startDate, false),
-      endDate: formatDateWithTime(endDate, true),
+      startDate: formattedStart,
+      endDate: formattedEnd,
       type: 'dashboard-sku'
     };
     const dashboardRes = makeApiRequest(dashboardUrl, dashboardPayload);
