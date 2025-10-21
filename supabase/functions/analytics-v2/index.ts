@@ -124,18 +124,22 @@ class SupabaseService {
           refundedAmount: 0,
           returOrderCount: 0,
           shipping: 0,
+          orderDiscounts: 0,
+          saleDiscounts: 0,
           totalDiscounts: 0,
           cancelledQty: 0
         };
       }
 
       const m = shopMetrics[row.shop];
-      // Calculate bruttoomsætning correctly: revenue_gross - total_discounts - cancelled_amount
+      // CRITICAL: revenue_gross = (price * qty) - cancelled_amount (NO discounts yet!)
+      // Bruttoomsætning = revenue_gross - order_discount_total - cancelled_amount
       const revenueGross = parseFloat(row.revenue_gross) || 0;
-      const totalDiscounts = parseFloat(row.total_discounts) || 0;
+      const orderDiscountTotal = parseFloat(row.order_discount_total) || 0;
+      const saleDiscountTotal = parseFloat(row.sale_discount_total) || 0;
       const cancelledAmount = parseFloat(row.cancelled_amount) || 0;
 
-      m.bruttoomsætning += revenueGross - totalDiscounts - cancelledAmount;
+      m.bruttoomsætning += revenueGross - orderDiscountTotal - cancelledAmount;
       m.nettoomsætning += parseFloat(row.revenue_net) || 0;
       m.stkBrutto += row.sku_quantity_gross || 0;
       m.stkNetto += row.sku_quantity_net || 0;
@@ -144,7 +148,9 @@ class SupabaseService {
       m.refundedAmount += parseFloat(row.return_amount) || 0;
       m.returOrderCount += row.return_order_count || 0;
       m.shipping += parseFloat(row.shipping_revenue) || 0;
-      m.totalDiscounts += totalDiscounts;
+      m.orderDiscounts += orderDiscountTotal;
+      m.saleDiscounts += saleDiscountTotal;
+      m.totalDiscounts += orderDiscountTotal + saleDiscountTotal;
       m.cancelledQty += row.cancelled_quantity || 0;
     });
 

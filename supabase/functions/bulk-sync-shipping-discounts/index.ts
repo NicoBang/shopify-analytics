@@ -50,7 +50,7 @@ async function fetchOrdersWithShipping(supabase, shop: string, startDate: string
       .from("orders")
       .select("order_id, shop, shipping, tax_rate")
       .eq("shop", shop)
-      .gt("shipping", 0) // Only orders with shipping
+      .gte("shipping", 0) // Include ALL orders (both paid shipping AND free shipping)
       .gte("created_at", startISO)
       .lte("created_at", endISO)
       .range(offset, offset + pageSize - 1);
@@ -59,7 +59,7 @@ async function fetchOrdersWithShipping(supabase, shop: string, startDate: string
     allOrders = allOrders.concat(page);
     if (page.length < pageSize) break;
     offset += pageSize;
-    console.log(`📄 Loaded ${allOrders.length} orders with shipping...`);
+    console.log(`📄 Loaded ${allOrders.length} orders...`);
   }
 
   return allOrders;
@@ -174,7 +174,7 @@ serve(async (req) => {
       const orderId = String(order.order_id).replace(/\D/g, "");
       const shippingData = await fetchShippingDiscount(shop, token, orderId);
 
-      if (shippingData && shippingData.discountInclVat > 0) {
+      if (shippingData) {
         const rate = CURRENCY_RATES[shippingData.currency] || 1;
         const discountInclVatDkk = shippingData.discountInclVat * rate;
 
@@ -188,11 +188,13 @@ serve(async (req) => {
           shipping_discount_dkk: discountExVatDkk,
         });
 
-        console.log(
-          `🎁 Order ${orderId}: Shipping discount ${discountExVatDkk.toFixed(2)} DKK (${discountInclVatDkk.toFixed(
-            2
-          )} INCL VAT)`
-        );
+        if (discountExVatDkk > 0) {
+          console.log(
+            `🎁 Order ${orderId}: Shipping discount ${discountExVatDkk.toFixed(2)} DKK (${discountInclVatDkk.toFixed(
+              2
+            )} INCL VAT)`
+          );
+        }
       }
 
       processed++;

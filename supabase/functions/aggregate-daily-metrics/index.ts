@@ -60,249 +60,61 @@ serve(async (req) => {
     for (const shop of shops) {
       console.log(`  Processing ${shop}...`);
 
-      // Aggregate from skus table (orders created on this Danish calendar date)
-      // CRITICAL FIX: Add pagination to handle >1000 rows per day
-      const skuData = [];
-      let skuOffset = 0;
+      // STEP 1: Aggregate metrics for today's date
+      await aggregateShopDate(supabase, shop, dateStr);
+      console.log(`  ✅ ${shop} metrics aggregated for ${dateStr}`);
+
+      // STEP 2: Find SKUs that were UPDATED today (but created on different dates)
+      // These indicate changes to historical orders that need re-aggregation
+      const datesToReaggregate = new Set<string>();
       const batchSize = 1000;
-      let hasMoreSkus = true;
+      let updateOffset = 0;
+      let hasMoreUpdates = true;
 
-      while (hasMoreSkus) {
-        const { data: skuBatch, error: skuBatchError } = await supabase
+      while (hasMoreUpdates) {
+        const { data: updateBatch, error: updateBatchError } = await supabase
           .from('skus')
-          .select('quantity, cancelled_qty, price_dkk, cancelled_amount_dkk, discount_per_unit_dkk, sale_discount_per_unit_dkk, order_id')
+          .select('created_at_original')
           .eq('shop', shop)
-          .gte('created_at_original', danishDateStart.toISOString())
-          .lte('created_at_original', danishDateEnd.toISOString())
-          .order('created_at_original', { ascending: false })
-          .range(skuOffset, skuOffset + batchSize - 1);
+          .gte('updated_at', danishDateStart.toISOString())
+          .lte('updated_at', danishDateEnd.toISOString())
+          .order('updated_at', { ascending: false })
+          .range(updateOffset, updateOffset + batchSize - 1);
 
-        if (skuBatchError) {
-          console.error(`  ❌ Error fetching SKU batch at offset ${skuOffset}:`, skuBatchError);
+        if (updateBatchError) {
+          console.error(`  ❌ Error fetching updated SKU batch at offset ${updateOffset}:`, updateBatchError);
           break;
         }
 
-        if (skuBatch && skuBatch.length > 0) {
-          skuData.push(...skuBatch);
-          hasMoreSkus = skuBatch.length === batchSize;
-          skuOffset += batchSize;
-          if (hasMoreSkus) {
-            console.log(`    Fetched ${skuOffset} SKUs, continuing...`);
-          }
-        } else {
-          hasMoreSkus = false;
-        }
-      }
-
-      console.log(`    Total SKUs fetched: ${skuData.length}`);
-
-      // CRITICAL: Fetch refunds separately based on refund_date (not created_at_original)
-      // Also with pagination
-      const refundData = [];
-      let refundOffset = 0;
-      let hasMoreRefunds = true;
-
-      while (hasMoreRefunds) {
-        const { data: refundBatch, error: refundBatchError } = await supabase
-          .from('skus')
-          .select('refunded_qty, refunded_amount_dkk, order_id')
-          .eq('shop', shop)
-          .gt('refunded_qty', 0)
-          .gte('refund_date', danishDateStart.toISOString())
-          .lte('refund_date', danishDateEnd.toISOString())
-          .order('refund_date', { ascending: false })
-          .range(refundOffset, refundOffset + batchSize - 1);
-
-        if (refundBatchError) {
-          console.error(`  ❌ Error fetching refund batch at offset ${refundOffset}:`, refundBatchError);
-          break;
-        }
-
-        if (refundBatch && refundBatch.length > 0) {
-          refundData.push(...refundBatch);
-          hasMoreRefunds = refundBatch.length === batchSize;
-          refundOffset += batchSize;
-        } else {
-          hasMoreRefunds = false;
-        }
-      }
-
-      const skuError = null; // No longer used
-      const refundError = null; // No longer used
-
-      if (skuError) {
-        console.error(`  ❌ Error fetching SKUs for ${shop}:`, skuError);
-        continue;
-      }
-
-      if (refundError) {
-        console.error(`  ❌ Error fetching refunds for ${shop}:`, refundError);
-        continue;
-      }
-
-      if (!skuData || skuData.length === 0) {
-        console.log(`  ⚠️ No order data for ${shop} on ${dateStr}`);
-        // Still check for refunds on this date (refund of older orders)
-        let returnQty = 0;
-        let returnAmount = 0;
-        let returnOrders = new Set();
-
-        if (refundData && refundData.length > 0) {
-          refundData.forEach(refund => {
-            returnQty += refund.refunded_qty || 0;
-            returnAmount += refund.refunded_amount_dkk || 0;
-            returnOrders.add(refund.order_id);
+        if (updateBatch && updateBatch.length > 0) {
+          // Track dates that need re-aggregation
+          updateBatch.forEach(sku => {
+            const createdDate = new Date(sku.created_at_original).toISOString().split('T')[0];
+            if (createdDate !== dateStr) {
+              // SKU was created on a different date but updated today - need to re-aggregate that date
+              datesToReaggregate.add(createdDate);
+            }
           });
-          console.log(`  📦 Found ${returnQty} refunds for ${shop} on ${dateStr} (${returnOrders.size} orders)`);
+
+          hasMoreUpdates = updateBatch.length === batchSize;
+          updateOffset += batchSize;
+        } else {
+          hasMoreUpdates = false;
         }
+      }
 
-        // Also check for shipping refunds on this date
-        const { data: shippingRefundData, error: shippingRefundError } = await supabase
-          .from('orders')
-          .select('shipping_refund_dkk')
-          .eq('shop', shop)
-          .gt('shipping_refund_dkk', 0)
-          .gte('refund_date', danishDateStart.toISOString())
-          .lte('refund_date', danishDateEnd.toISOString());
+      // STEP 3: Re-aggregate affected historical dates
+      if (datesToReaggregate.size > 0) {
+        console.log(`    📅 Found ${datesToReaggregate.size} dates that need re-aggregation due to SKU updates: ${Array.from(datesToReaggregate).join(', ')}`);
 
-        let shippingRefunds = 0;
-        if (!shippingRefundError && shippingRefundData) {
-          shippingRefunds = shippingRefundData.reduce((sum, o) => sum + (o.shipping_refund_dkk || 0), 0);
-          if (shippingRefunds > 0) {
-            console.log(`  📦 Found ${shippingRefunds.toFixed(2)} DKK shipping refunds for ${shop} on ${dateStr}`);
-          }
+        for (const affectedDate of datesToReaggregate) {
+          console.log(`    🔄 Re-aggregating ${shop} for ${affectedDate} (SKU updates detected)...`);
+          await aggregateShopDate(supabase, shop, affectedDate);
+          console.log(`    ✅ ${shop} re-aggregated for ${affectedDate}`);
         }
-
-        // Insert zero metrics except refunds
-        await upsertMetrics(supabase, shop, dateStr, {
-          order_count: 0,
-          revenue_gross: 0,
-          revenue_net: -returnAmount, // Refunds reduce net revenue
-          sku_quantity_gross: 0,
-          sku_quantity_net: -returnQty, // Refunds reduce net quantity
-          return_quantity: returnQty,
-          return_amount: returnAmount,
-          return_order_count: returnOrders.size,
-          cancelled_quantity: 0,
-          cancelled_amount: 0,
-          shipping_revenue: 0,
-          shipping_discount: 0,
-          shipping_refund: Math.round(shippingRefunds * 100) / 100,
-          total_discounts: 0
-        });
-        continue;
       }
 
-      // Calculate metrics
-      const uniqueOrders = new Set(skuData.map(s => s.order_id));
-      let revenueGross = 0;
-      let revenueNet = 0;
-      let skuQtyGross = 0;
-      let skuQtyNet = 0;
-      let returnQty = 0;
-      let returnAmount = 0;
-      let returnOrders = new Set();
-      let cancelledQty = 0;
-      let cancelledAmount = 0;
-      let totalDiscounts = 0;
-
-      skuData.forEach(sku => {
-        const qty = sku.quantity || 0;
-        const cancelledQtyItem = sku.cancelled_qty || 0;
-        const price = sku.price_dkk || 0;
-        const cancelledAmountItem = sku.cancelled_amount_dkk || 0;
-        const discountPerUnit = sku.discount_per_unit_dkk || 0;
-        const saleDiscountPerUnit = sku.sale_discount_per_unit_dkk || 0;
-
-        // CRITICAL FIX: Revenue_gross skal matche Dashboard definition
-        // Dashboard: bruttoRevenue = totalPrice - orderDiscountAmount - cancelledAmount
-        // totalPrice = price * quantity, orderDiscountAmount = discountPerUnit * quantity
-        const totalPrice = price * qty;
-        const orderDiscountAmount = discountPerUnit * qty;
-        const bruttoRevenue = totalPrice - orderDiscountAmount - cancelledAmountItem;
-
-        revenueGross += bruttoRevenue;
-
-        // SKU quantities (brutto excludes cancelled)
-        const bruttoQty = qty - cancelledQtyItem;
-        skuQtyGross += bruttoQty;
-
-        // Cancellations
-        cancelledQty += cancelledQtyItem;
-        cancelledAmount += cancelledAmountItem;
-
-        // Discounts (both order-level and sale discounts)
-        const totalItemDiscount = (discountPerUnit + saleDiscountPerUnit) * qty;
-        totalDiscounts += totalItemDiscount;
-      });
-
-      // CRITICAL: Process refunds separately based on refund_date
-      if (refundData && refundData.length > 0) {
-        refundData.forEach(refund => {
-          const refundedQty = refund.refunded_qty || 0;
-          const refundedAmount = refund.refunded_amount_dkk || 0;
-
-          returnQty += refundedQty;
-          returnAmount += refundedAmount;
-          returnOrders.add(refund.order_id);
-        });
-      }
-
-      // Net metrics = gross - refunds
-      revenueNet = revenueGross - returnAmount;
-      skuQtyNet = skuQtyGross - returnQty;
-
-      // Get shipping metrics for orders created on this Danish date
-      const { data: orderData, error: orderError } = await supabase
-        .from('orders')
-        .select('shipping_price_dkk, shipping_discount_dkk')
-        .eq('shop', shop)
-        .gte('created_at', danishDateStart.toISOString())
-        .lte('created_at', danishDateEnd.toISOString());
-
-      let shippingRevenue = 0;
-      let shippingDiscounts = 0;
-      if (!orderError && orderData) {
-        shippingRevenue = orderData.reduce((sum, o) => sum + (o.shipping_price_dkk || 0), 0);
-        shippingDiscounts = orderData.reduce((sum, o) => sum + (o.shipping_discount_dkk || 0), 0);
-      }
-
-      // CRITICAL: Get shipping refunds that occurred on this date (based on refund_date)
-      const { data: shippingRefundData, error: shippingRefundError } = await supabase
-        .from('orders')
-        .select('shipping_refund_dkk')
-        .eq('shop', shop)
-        .gt('shipping_refund_dkk', 0)
-        .gte('refund_date', danishDateStart.toISOString())
-        .lte('refund_date', danishDateEnd.toISOString());
-
-      let shippingRefunds = 0;
-      if (!shippingRefundError && shippingRefundData) {
-        shippingRefunds = shippingRefundData.reduce((sum, o) => sum + (o.shipping_refund_dkk || 0), 0);
-      }
-
-      // Upsert metrics
-      const metrics = {
-        order_count: uniqueOrders.size,
-        revenue_gross: Math.round(revenueGross * 100) / 100,
-        revenue_net: Math.round(revenueNet * 100) / 100,
-        sku_quantity_gross: skuQtyGross,
-        sku_quantity_net: skuQtyNet,
-        return_quantity: returnQty,
-        return_amount: Math.round(returnAmount * 100) / 100,
-        return_order_count: returnOrders.size,
-        cancelled_quantity: cancelledQty,
-        cancelled_amount: Math.round(cancelledAmount * 100) / 100,
-        shipping_revenue: Math.round(shippingRevenue * 100) / 100,
-        shipping_discount: Math.round(shippingDiscounts * 100) / 100,
-        shipping_refund: Math.round(shippingRefunds * 100) / 100,
-        total_discounts: Math.round(totalDiscounts * 100) / 100
-      };
-
-      await upsertMetrics(supabase, shop, dateStr, metrics);
-
-      console.log(`  ✅ ${shop}: ${uniqueOrders.size} orders, ${skuQtyGross} items, ${revenueGross.toFixed(2)} DKK`);
-      results.push({ shop, date: dateStr, ...metrics });
+      results.push({ shop, date: dateStr });
     }
 
     console.log(`✅ Aggregation complete for ${dateStr}`);
@@ -345,4 +157,241 @@ async function upsertMetrics(supabase: any, shop: string, metricDate: string, me
     console.error(`  ❌ Error upserting metrics for ${shop}:`, error);
     throw error;
   }
+}
+
+/**
+ * Aggregate metrics for a specific shop and date
+ * This function is extracted to support both:
+ * 1. Regular daily aggregation
+ * 2. Re-aggregation when SKUs are updated
+ */
+async function aggregateShopDate(supabase: any, shop: string, dateStr: string) {
+  const batchSize = 1000;
+
+  // Calculate UTC range for Danish date
+  const danishDateStart = new Date(dateStr);
+  danishDateStart.setUTCDate(danishDateStart.getUTCDate() - 1);
+  danishDateStart.setUTCHours(22, 0, 0, 0);
+
+  const danishDateEnd = new Date(dateStr);
+  danishDateEnd.setUTCHours(21, 59, 59, 999);
+
+  // Fetch SKUs created on this date
+  const skuData = [];
+  let skuOffset = 0;
+  let hasMoreSkus = true;
+
+  while (hasMoreSkus) {
+    const { data: skuBatch, error: skuBatchError } = await supabase
+      .from('skus')
+      .select('quantity, cancelled_qty, price_dkk, cancelled_amount_dkk, discount_per_unit_dkk, sale_discount_per_unit_dkk, order_id')
+      .eq('shop', shop)
+      .gte('created_at_original', danishDateStart.toISOString())
+      .lte('created_at_original', danishDateEnd.toISOString())
+      .order('created_at_original', { ascending: false })
+      .range(skuOffset, skuOffset + batchSize - 1);
+
+    if (skuBatchError) {
+      console.error(`    ❌ Error fetching SKU batch: ${skuBatchError.message}`);
+      break;
+    }
+
+    if (skuBatch && skuBatch.length > 0) {
+      skuData.push(...skuBatch);
+      hasMoreSkus = skuBatch.length === batchSize;
+      skuOffset += batchSize;
+    } else {
+      hasMoreSkus = false;
+    }
+  }
+
+  // Fetch refunds for this date
+  const refundData = [];
+  let refundOffset = 0;
+  let hasMoreRefunds = true;
+
+  while (hasMoreRefunds) {
+    const { data: refundBatch, error: refundBatchError } = await supabase
+      .from('skus')
+      .select('refunded_qty, refunded_amount_dkk, order_id, cancelled_qty')
+      .eq('shop', shop)
+      .gt('refunded_qty', 0)
+      .gte('refund_date', danishDateStart.toISOString())
+      .lte('refund_date', danishDateEnd.toISOString())
+      .order('refund_date', { ascending: false })
+      .range(refundOffset, refundOffset + batchSize - 1);
+
+    if (refundBatchError) {
+      console.error(`    ❌ Error fetching refund batch: ${refundBatchError.message}`);
+      break;
+    }
+
+    if (refundBatch && refundBatch.length > 0) {
+      refundData.push(...refundBatch);
+      hasMoreRefunds = refundBatch.length === batchSize;
+      refundOffset += batchSize;
+    } else {
+      hasMoreRefunds = false;
+    }
+  }
+
+  // If no orders created on this date, check for refunds only
+  if (!skuData || skuData.length === 0) {
+    let returnQty = 0;
+    let returnAmount = 0;
+    let returnOrders = new Set();
+
+    if (refundData && refundData.length > 0) {
+      refundData.forEach(refund => {
+        returnQty += refund.refunded_qty || 0;
+        returnAmount += refund.refunded_amount_dkk || 0;
+        returnOrders.add(refund.order_id);
+      });
+    }
+
+    // Check shipping refunds
+    const { data: shippingRefundData } = await supabase
+      .from('orders')
+      .select('shipping_refund_dkk')
+      .eq('shop', shop)
+      .gt('shipping_refund_dkk', 0)
+      .gte('refund_date', danishDateStart.toISOString())
+      .lte('refund_date', danishDateEnd.toISOString());
+
+    let shippingRefunds = 0;
+    if (shippingRefundData) {
+      shippingRefunds = shippingRefundData.reduce((sum, o) => sum + (o.shipping_refund_dkk || 0), 0);
+    }
+
+    await upsertMetrics(supabase, shop, dateStr, {
+      order_count: 0,
+      revenue_gross: 0,
+      revenue_net: -returnAmount,
+      sku_quantity_gross: 0,
+      sku_quantity_net: -returnQty,
+      return_quantity: returnQty,
+      return_amount: returnAmount,
+      return_order_count: returnOrders.size,
+      cancelled_quantity: 0,
+      cancelled_amount: 0,
+      shipping_revenue: 0,
+      shipping_discount: 0,
+      shipping_refund: Math.round(shippingRefunds * 100) / 100,
+      order_discount_total: 0,
+      sale_discount_total: 0,
+      total_discounts: 0
+    });
+    return;
+  }
+
+  // Calculate metrics
+  const uniqueOrders = new Set(skuData.map(s => s.order_id));
+  let revenueGross = 0;
+  let revenueNet = 0;
+  let skuQtyGross = 0;
+  let skuQtyNet = 0;
+  let returnQty = 0;
+  let returnAmount = 0;
+  let returnOrders = new Set();
+  let cancelledQty = 0;
+  let cancelledAmount = 0;
+  let orderDiscountTotal = 0;
+  let saleDiscountTotal = 0;
+  let totalDiscounts = 0;
+
+  skuData.forEach(sku => {
+    const qty = sku.quantity || 0;
+    const cancelledQtyItem = sku.cancelled_qty || 0;
+    const price = sku.price_dkk || 0;
+    const cancelledAmountItem = sku.cancelled_amount_dkk || 0;
+    const discountPerUnit = sku.discount_per_unit_dkk || 0;
+    const saleDiscountPerUnit = sku.sale_discount_per_unit_dkk || 0;
+
+    const totalPrice = price * qty;
+    const orderDiscountAmount = discountPerUnit * qty;
+    const saleDiscountAmount = saleDiscountPerUnit * qty;
+
+    // CRITICAL: revenue_gross = (price * qty) - cancelled_amount (NO discounts subtracted here!)
+    const bruttoRevenue = totalPrice - cancelledAmountItem;
+
+    revenueGross += bruttoRevenue;
+
+    const bruttoQty = qty - cancelledQtyItem;
+    skuQtyGross += bruttoQty;
+
+    cancelledQty += cancelledQtyItem;
+    cancelledAmount += cancelledAmountItem;
+
+    // Track discounts separately
+    orderDiscountTotal += orderDiscountAmount;
+    saleDiscountTotal += saleDiscountAmount;
+    totalDiscounts += orderDiscountAmount + saleDiscountAmount;
+  });
+
+  // Process refunds
+  if (refundData && refundData.length > 0) {
+    refundData.forEach(refund => {
+      const refundedQty = refund.refunded_qty || 0;
+      const refundedAmount = refund.refunded_amount_dkk || 0;
+      const cancelledQtyItem = refund.cancelled_qty || 0;
+
+      if (cancelledQtyItem === 0 && refundedQty > 0) {
+        returnQty += refundedQty;
+        returnAmount += refundedAmount;
+        returnOrders.add(refund.order_id);
+      }
+    });
+  }
+
+  revenueNet = revenueGross - returnAmount;
+  skuQtyNet = skuQtyGross - returnQty;
+
+  // Get shipping metrics
+  const { data: orderData } = await supabase
+    .from('orders')
+    .select('shipping_price_dkk, shipping_discount_dkk')
+    .eq('shop', shop)
+    .gte('created_at', danishDateStart.toISOString())
+    .lte('created_at', danishDateEnd.toISOString());
+
+  let shippingRevenue = 0;
+  let shippingDiscounts = 0;
+  if (orderData) {
+    shippingRevenue = orderData.reduce((sum, o) => sum + (o.shipping_price_dkk || 0), 0);
+    shippingDiscounts = orderData.reduce((sum, o) => sum + (o.shipping_discount_dkk || 0), 0);
+  }
+
+  // Get shipping refunds
+  const { data: shippingRefundData } = await supabase
+    .from('orders')
+    .select('shipping_refund_dkk')
+    .eq('shop', shop)
+    .gt('shipping_refund_dkk', 0)
+    .gte('refund_date', danishDateStart.toISOString())
+    .lte('refund_date', danishDateEnd.toISOString());
+
+  let shippingRefunds = 0;
+  if (shippingRefundData) {
+    shippingRefunds = shippingRefundData.reduce((sum, o) => sum + (o.shipping_refund_dkk || 0), 0);
+  }
+
+  // Upsert metrics
+  await upsertMetrics(supabase, shop, dateStr, {
+    order_count: uniqueOrders.size,
+    revenue_gross: Math.round(revenueGross * 100) / 100,
+    revenue_net: Math.round(revenueNet * 100) / 100,
+    sku_quantity_gross: skuQtyGross,
+    sku_quantity_net: skuQtyNet,
+    return_quantity: returnQty,
+    return_amount: Math.round(returnAmount * 100) / 100,
+    return_order_count: returnOrders.size,
+    cancelled_quantity: cancelledQty,
+    cancelled_amount: Math.round(cancelledAmount * 100) / 100,
+    shipping_revenue: Math.round(shippingRevenue * 100) / 100,
+    shipping_discount: Math.round(shippingDiscounts * 100) / 100,
+    shipping_refund: Math.round(shippingRefunds * 100) / 100,
+    order_discount_total: Math.round(orderDiscountTotal * 100) / 100,
+    sale_discount_total: Math.round(saleDiscountTotal * 100) / 100,
+    total_discounts: Math.round(totalDiscounts * 100) / 100
+  });
 }

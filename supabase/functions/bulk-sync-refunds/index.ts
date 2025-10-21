@@ -148,7 +148,7 @@ serve(async (req) => {
       if (fetchError || !data) {
         console.warn(`⚠️ Job ${jobId} not found or deleted - creating new job`);
         // Job was deleted (e.g., by cleanup) - create new one instead
-        const { data: newData } = await supabase
+        const { data: newData, error: newError } = await supabase
           .from("bulk_sync_jobs")
           .insert({
             shop,
@@ -160,13 +160,18 @@ serve(async (req) => {
           })
           .select()
           .single();
+
+        if (newError || !newData) {
+          console.error("❌ Failed to create replacement job:", newError?.message);
+          return new Response(JSON.stringify({ error: "Failed to create job", details: newError?.message }), { status: 500 });
+        }
         job = newData;
       } else {
         job = data;
         await supabase.from("bulk_sync_jobs").update({ status: "running" }).eq("id", jobId);
       }
     } else {
-      const { data } = await supabase
+      const { data, error: insertError } = await supabase
         .from("bulk_sync_jobs")
         .insert({
           shop,
@@ -178,6 +183,11 @@ serve(async (req) => {
         })
         .select()
         .single();
+
+      if (insertError || !data) {
+        console.error("❌ Failed to create job:", insertError?.message);
+        return new Response(JSON.stringify({ error: "Failed to create job", details: insertError?.message }), { status: 500 });
+      }
       job = data;
     }
 
@@ -475,11 +485,26 @@ async function updateOrderShippingRefunds(supabase, orderRefunds) {
   let totalUpdated = 0;
 
   for (const orderRefund of orderRefunds) {
+    // Fetch existing order to preserve shipping_discount_dkk
+    const { data: existing, error: fetchError } = await supabase
+      .from("orders")
+      .select("shipping_discount_dkk")
+      .eq("shop", orderRefund.shop)
+      .eq("order_id", orderRefund.order_id)
+      .single();
+
+    if (fetchError) {
+      console.error(`❌ Failed to fetch order ${orderRefund.order_id}: ${fetchError.message}`);
+      continue;
+    }
+
+    // Update only shipping_refund_dkk and refund_date, preserve shipping_discount_dkk
     const { error } = await supabase
       .from("orders")
       .update({
         shipping_refund_dkk: orderRefund.shipping_refund_dkk,
-        refund_date: orderRefund.refund_date
+        refund_date: orderRefund.refund_date,
+        shipping_discount_dkk: existing?.shipping_discount_dkk // Preserve existing value
       })
       .eq("shop", orderRefund.shop)
       .eq("order_id", orderRefund.order_id);

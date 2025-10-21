@@ -786,18 +786,10 @@ async function syncSkusForDay(
       }
     }
 
-    // ✅ Total discount = order/line discounts + sale discounts (for backwards compatibility)
-    const totalDiscountRaw = orderLineDiscountRaw + saleDiscountRaw;
-    let totalDiscountDkk = 0;
-    if (totalDiscountRaw > 0) {
-      if (taxRate !== null && taxRate !== undefined) {
-        totalDiscountDkk = totalDiscountRaw / (1 + taxRate);
-      } else {
-        const itemTotalTax = (originalPrice * rate) - priceDkk;
-        const discountTax = originalPrice > 0 ? (itemTotalTax * totalDiscountRaw / (originalPrice * rate)) : 0;
-        totalDiscountDkk = totalDiscountRaw - discountTax;
-      }
-    }
+    // ✅ CRITICAL: total_discount_dkk = ONLY order/line discounts (NOT sale discounts!)
+    // total_discount_dkk should match discount_per_unit_dkk * quantity
+    // Sale discounts are tracked separately in sale_discount_total_dkk
+    const totalDiscountDkk = orderDiscountDkk;
 
     // Calculate sale discount per unit and total
     // Sale discount is already calculated in saleDiscountRaw (INCL VAT)
