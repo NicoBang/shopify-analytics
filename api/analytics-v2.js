@@ -136,21 +136,30 @@ class SupabaseService {
       }
 
       const m = shopMetrics[row.shop];
-      m.bruttoomsætning += parseFloat(row.revenue_gross) || 0;
-      m.nettoomsætning += parseFloat(row.revenue_net) || 0;
+      // Calculate bruttoomsætning: revenue_gross - total_discounts - cancelled_amount
+      const revenueGross = parseFloat(row.revenue_gross) || 0;
+      const totalDiscounts = parseFloat(row.total_discounts) || 0;
+      const cancelledAmount = parseFloat(row.cancelled_amount) || 0;
+      const returnAmount = parseFloat(row.return_amount) || 0;
+
+      m.bruttoomsætning += revenueGross - totalDiscounts - cancelledAmount;
+      // Nettoomsætning = bruttoomsætning - return_amount (calculated later after aggregation)
       m.stkBrutto += row.sku_quantity_gross || 0;
       m.stkNetto += row.sku_quantity_net || 0;
       m.antalOrdrer += row.order_count || 0;
       m.returQty += row.return_quantity || 0;
-      m.refundedAmount += parseFloat(row.return_amount) || 0;
+      m.refundedAmount += returnAmount;
       m.returOrderCount += row.return_order_count || 0;
       m.shipping += parseFloat(row.shipping_revenue) || 0;
-      m.totalDiscounts += parseFloat(row.total_discounts) || 0;
+      m.totalDiscounts += totalDiscounts;
       m.cancelledQty += row.cancelled_quantity || 0;
     });
 
     // Calculate derived metrics
     const result = Object.values(shopMetrics).map(shop => {
+      // Nettoomsætning = bruttoomsætning - return_amount
+      const nettoomsætning = shop.bruttoomsætning - shop.refundedAmount;
+
       const ordreværdi = shop.antalOrdrer > 0 ? shop.bruttoomsætning / shop.antalOrdrer : 0;
       const basketSize = shop.antalOrdrer > 0 ? shop.stkBrutto / shop.antalOrdrer : 0;
       const stkPris = shop.stkBrutto > 0 ? shop.bruttoomsætning / shop.stkBrutto : 0;
@@ -161,6 +170,7 @@ class SupabaseService {
 
       return {
         ...shop,
+        nettoomsætning: nettoomsætning,
         gnstOrdreværdi: ordreværdi,
         basketSize: basketSize,
         gnsStkpris: stkPris,

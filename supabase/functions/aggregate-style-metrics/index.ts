@@ -152,13 +152,14 @@ serve(async (req) => {
     const aggregateDate = targetDate ? new Date(targetDate) : yesterday;
     const dateStr = aggregateDate.toISOString().split('T')[0];
 
-    // CRITICAL FIX: Dansk tid er UTC+2
+    // CRITICAL FIX: Dansk tid er UTC+2 (sommertid CEST)
+    // For at få data for dansk 12. oktober: 2025-09-11T22:00:00Z til 2025-09-12T21:59:59Z
     const danishDateStart = new Date(dateStr);
+    danishDateStart.setUTCDate(danishDateStart.getUTCDate() - 1); // Start dagen før
     danishDateStart.setUTCHours(22, 0, 0, 0); // 00:00 dansk tid = 22:00 UTC dagen før
 
     const danishDateEnd = new Date(dateStr);
-    danishDateEnd.setUTCDate(danishDateEnd.getUTCDate() + 1);
-    danishDateEnd.setUTCHours(21, 59, 59, 999); // 23:59:59 dansk tid = 21:59:59 UTC næste dag
+    danishDateEnd.setUTCHours(21, 59, 59, 999); // 23:59:59 dansk tid = 21:59:59 UTC samme dag
 
     console.log(`⚡ Aggregating style metrics for Danish date: ${dateStr}`);
     console.log(`   UTC range: ${danishDateStart.toISOString()} to ${danishDateEnd.toISOString()}`);

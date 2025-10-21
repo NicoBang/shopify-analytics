@@ -48,6 +48,17 @@ This project syncs Shopify order and SKU data to Supabase for analytics and repo
 - ✅ **Duplikat aggregering fix**: Fixed `total_discount_dkk` calculation when same SKU appears multiple times in Shopify JSONL
   - **Bug**: Summed `total_discount_dkk` incorrectly (359.28 instead of 79.84)
   - **Fix**: Recalculate as `discount_per_unit_dkk × quantity` instead of summing
+
+### Session 7: Analytics-v2 Revenue Calculation Fix (2025-10-20)
+- ✅ **Bruttoomsætning fix**: Fixed `analytics-v2` Edge Function to calculate bruttoomsætning correctly
+  - **Formula**: `bruttoomsætning = revenue_gross - total_discounts - cancelled_amount`
+  - **Bug**: Previously used `revenue_gross` directly (4,153,957.41 kr instead of 3,717,977.45 kr)
+  - **Fix**: Subtracts discounts and cancelled amounts from revenue_gross
+- ✅ **Nettoomsætning fix**: Fixed nettoomsætning calculation to subtract returns from brutto
+  - **Formula**: `nettoomsætning = bruttoomsætning - refundedAmount`
+  - **Example**: 3,717,977.45 kr (brutto) - 391,666.34 kr (returns) = 3,326,311.11 kr (netto)
+  - **Bug**: Previously used `revenue_net` from daily_shop_metrics
+  - **Fix**: Calculate dynamically from bruttoomsætning minus refundedAmount
 - ✅ **Currency conversion restoration**: Fixed missing EUR/CHF → DKK conversion in `updateOriginalPricesFromMetadata`
   - **Bug**: `original_price_dkk` showed 40.72 EUR instead of 303.77 DKK for INT shop
   - **Fix**: Added `currencyRate` multiplication: `(compareAtPrice × 7.46) / 1.25 = 303.77 DKK`
@@ -392,7 +403,34 @@ WHERE pm_eur.compare_at_price > pm_eur.price
 ./sync-metadata.sh pompdelux-da.myshopify.com
 ```
 
-## 📊 Discount Calculation Logic
+## 📊 Revenue Calculation Logic ✨ UPDATED (2025-10-20)
+
+### Dashboard_2_0 Revenue Formulas
+
+**Critical: These calculations are performed in `analytics-v2` Edge Function**
+
+**Bruttoomsætning (Gross Revenue after discounts and cancellations):**
+```typescript
+bruttoomsætning = revenue_gross - total_discounts - cancelled_amount
+```
+- **Example:** 4,153,957.41 - 425,783.61 - 10,196.35 = **3,717,977.45 kr** ✅
+- **Source:** `daily_shop_metrics` table
+- **Location:** [analytics-v2/index.ts:145](supabase/functions/analytics-v2/index.ts#L145)
+
+**Nettoomsætning (Net Revenue after returns):**
+```typescript
+nettoomsætning = bruttoomsætning - refundedAmount
+```
+- **Example:** 3,717,977.45 - 391,666.34 = **3,326,311.11 kr** ✅
+- **Source:** Calculated from aggregated metrics
+- **Location:** [analytics-v2/index.ts:154](supabase/functions/analytics-v2/index.ts#L154)
+
+**Important Notes:**
+- ❌ **DO NOT** use `revenue_net` from `daily_shop_metrics` - it has wrong calculation
+- ✅ **DO** calculate `nettoomsætning` dynamically from `bruttoomsætning - refundedAmount`
+- ✅ Edge Function performs all revenue calculations client-side for correct aggregation
+
+### Discount Breakdown
 
 **Dashboard "Rabat ex moms" = Order Discounts + Sale Discounts**
 
@@ -610,6 +648,80 @@ ORDER BY order_id;
   .gte("created_at", "2025-09-01T00:00:00Z")
   .lte("created_at", "2025-09-30T23:59:59Z")
   ```
+
+## 🚨 CRITICAL: Google Sheets Timezone Conversion (READ THIS FIRST!)
+
+**⚠️ THIS HAS BEEN BROKEN 5-7 TIMES - NEVER REMOVE THIS LOGIC AGAIN! ⚠️**
+
+### The Problem
+Google Sheets sends dates via `formatDateWithTime()` which **subtracts** timezone offset to convert Danish dates to UTC:
+```javascript
+// Google Sheets: google-sheets-enhanced.js line 1463-1485
+function formatDateWithTime(date, isEndDate = false) {
+  const isDST = isDanishDST_(year, month + 1, day);
+  const offset = isDST ? 2 : 1;  // 2 hours in summer, 1 in winter
+
+  if (isEndDate) {
+    utcDate.setUTCHours(24 - offset, 0, 0, 0);  // 24-2=22:00 (summer) or 23:00 (winter)
+  } else {
+    utcDate.setUTCHours(0 - offset, 0, 0, 0);   // 0-2=-2=22:00 previous day (summer)
+  }
+}
+```
+
+**Example:**
+- Danish date: `09/09/2025` (user input)
+- Google Sheets sends: `2025-09-08T22:00:00Z` (summer) or `2025-09-08T23:00:00Z` (winter)
+- **This is 22:00 the PREVIOUS DAY in UTC!**
+
+### The Solution (MANDATORY in ALL Edge Functions)
+Edge Functions **MUST** add the offset back to get correct Danish date:
+
+```typescript
+// ✅ CORRECT - DO NOT REMOVE THIS CODE!
+function isDanishSummerTime(utcTimestamp: Date): boolean {
+  const date = new Date(utcTimestamp);
+  const year = date.getUTCFullYear();
+
+  const marchLastDay = new Date(Date.UTC(year, 2, 31, 1, 0, 0));
+  const marchLastSunday = new Date(marchLastDay);
+  marchLastSunday.setUTCDate(31 - marchLastDay.getUTCDay());
+
+  const octoberLastDay = new Date(Date.UTC(year, 9, 31, 1, 0, 0));
+  const octoberLastSunday = new Date(octoberLastDay);
+  octoberLastSunday.setUTCDate(31 - octoberLastDay.getUTCDay());
+
+  return date >= marchLastSunday && date < octoberLastSunday;
+}
+
+// Extract Danish calendar date by adding correct offset
+const startOffset = isDanishSummerTime(startDate) ? 2 : 1;
+const endOffset = isDanishSummerTime(endDate) ? 2 : 1;
+
+const dateStart = new Date(startDate.getTime() + startOffset * 60 * 60 * 1000).toISOString().split('T')[0];
+const dateEnd = new Date(endDate.getTime() + endOffset * 60 * 60 * 1000).toISOString().split('T')[0];
+```
+
+**Why this works:**
+- Google sends: `2025-09-08T22:00:00Z`
+- Add 2 hours (summer): `2025-09-09T00:00:00Z`
+- Extract date: `2025-09-09` ✅ CORRECT!
+
+### Common Mistakes (NEVER DO THIS!)
+❌ **WRONG**: `startDate.toISOString().split('T')[0]` → Returns `2025-09-08` (previous day!)
+❌ **WRONG**: Removing timezone offset logic → Breaks all date filtering
+❌ **WRONG**: "daily_*_metrics already has Danish dates, no conversion needed" → IGNORES that Google Sheets sends UTC timestamps!
+
+### Where This Logic is Required
+- ✅ `color-analytics-v2/index.ts` (lines 17-42)
+- ✅ `sku-analytics-v2/index.ts` (lines 17-42)
+- ✅ Any future Edge Function that receives dates from Google Sheets
+
+### Testing
+Always test with a specific date range like `09/09/2025 to 19/10/2025`:
+- Check that `dateStart` = `2025-09-09` (not `2025-09-08`)
+- Check that `dateEnd` = `2025-10-19` (not `2025-10-18`)
+- Verify total sales match database query for same date range
 
 ## 🛠️ Development Commands
 

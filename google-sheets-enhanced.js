@@ -3,8 +3,18 @@
 
 // Configuration
 const CONFIG = {
+  // Supabase Edge Functions (PRIMARY)
+  SUPABASE_BASE: 'https://ihawjrtfwysyokfotewn.supabase.co/functions/v1',
+  SUPABASE_KEY: '@Za#SJxn;gnBxJ;Iu2uixoUd&#\'ndl',
+
+  // Vercel API (FALLBACK)
+  VERCEL_BASE: 'https://shopify-analytics-nu.vercel.app/api',
+  VERCEL_KEY: 'bda5da3d49fe0e7391fded3895b5c6bc',
+
+  // Legacy config (will be removed after migration)
   API_BASE: 'https://shopify-analytics-nu.vercel.app/api',
   API_KEY: 'bda5da3d49fe0e7391fded3895b5c6bc',
+
   SPREADSHEET_ID: SpreadsheetApp.getActiveSpreadsheet().getId(),
 
   // Ark navne (kun de nødvendige)
@@ -1307,33 +1317,84 @@ function fetchMetadataData(type = 'list', options = {}) {
 }
 
 /**
- * Lav API request
+ * Lav API request med Supabase-first failover til Vercel
  */
 function makeApiRequest(url, params = {}) {
+  // Byg query parameters
+  const queryParams = Object.entries(params)
+    .filter(([_, value]) => value !== null && value !== undefined)
+    .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+    .join('&');
+
+  const queryString = queryParams ? `?${queryParams}` : '';
+
+  // Determine endpoint type from URL
+  let endpoint = '';
+  if (url.includes('/metadata')) {
+    endpoint = 'metadata';
+  } else if (url.includes('/analytics-v2')) {
+    endpoint = 'analytics-v2';
+  } else if (url.includes('/color-analytics-v2')) {
+    endpoint = 'color-analytics-v2';
+  } else if (url.includes('/sku-analytics-v2')) {
+    endpoint = 'sku-analytics-v2';
+  } else if (url.includes('/analytics')) {
+    endpoint = 'api-analytics';
+  } else if (url.includes('/fulfillments')) {
+    endpoint = 'fulfillments';
+  }
+
+  // Try Supabase first (if endpoint is migrated)
+  if (endpoint === 'api-analytics' || endpoint === 'analytics-v2' || endpoint === 'color-analytics-v2' || endpoint === 'sku-analytics-v2') {
+    try {
+      const supabaseUrl = `${CONFIG.SUPABASE_BASE}/${endpoint}${queryString}`;
+      console.log(`🔗 [Supabase] API Request: ${supabaseUrl}`);
+
+      const supabaseOptions = {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${CONFIG.SUPABASE_KEY}`
+        },
+        muteHttpExceptions: true
+      };
+
+      const response = UrlFetchApp.fetch(supabaseUrl, supabaseOptions);
+      const responseCode = response.getResponseCode();
+
+      if (responseCode === 200) {
+        const data = JSON.parse(response.getContentText());
+        if (!data.error) {
+          console.log(`✅ Supabase Success`);
+          return data;
+        }
+      }
+
+      console.log(`⚠️ Supabase returned ${responseCode}, falling back to Vercel...`);
+    } catch (supabaseError) {
+      console.error(`⚠️ Supabase error: ${supabaseError.message}, falling back to Vercel...`);
+    }
+  }
+
+  // Fallback to Vercel (or primary if not migrated yet)
   try {
-    // Byg URL med query parameters
-    const queryParams = Object.entries(params)
-      .filter(([_, value]) => value !== null && value !== undefined)
-      .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
-      .join('&');
+    const vercelUrl = `${url}${queryString}`;
+    console.log(`🔗 [Vercel] API Request: ${vercelUrl}`);
 
-    const fullUrl = queryParams ? `${url}?${queryParams}` : url;
-
-    const options = {
+    const vercelOptions = {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${CONFIG.API_KEY}`
+        'Authorization': `Bearer ${CONFIG.VERCEL_KEY}`
       }
     };
 
-    console.log(`🔗 API Request: ${fullUrl}`);
-    const response = UrlFetchApp.fetch(fullUrl, options);
+    const response = UrlFetchApp.fetch(vercelUrl, vercelOptions);
     const data = JSON.parse(response.getContentText());
 
     if (data.error) {
       throw new Error(data.error);
     }
 
+    console.log(`✅ Vercel Success`);
     return data;
 
   } catch (error) {
@@ -1629,17 +1690,17 @@ function generateStyleColorAnalytics_V2() {
 
     console.log(`⚡ V2: Henter Color Analytics for ${formatDate(startDate)} til ${formatDate(endDate)}`);
 
-    // Call V2 API endpoint
-    const response = makeApiRequest(`${CONFIG.API_BASE}/analytics-v2`, {
+    // Call V2 API endpoint (color-analytics-v2)
+    const response = makeApiRequest(`${CONFIG.API_BASE}/color-analytics-v2`, {
       startDate: formatDateWithTime(startDate, false),
       endDate: formatDateWithTime(endDate, true),
       type: 'color-analytics'
     });
 
-    // API returns data in 'data' field, not 'rows'
+    // API returns array of arrays directly in 'data' field
     const rows = response.data || [];
 
-    if (!response.success || rows.length === 0) {
+    if (!response.success || !rows || rows.length === 0) {
       console.log(`⚠️ Ingen data fundet for perioden ${formatDate(startDate)} til ${formatDate(endDate)}`);
       const sheet = getOrCreateSheet('Color_Analytics_2_0');
 
@@ -1683,47 +1744,92 @@ function renderColorAnalytics_V2(rows, startDate, endDate) {
     sheet.getRange(4, 1, lastRow - 3, lastCol).clear();
   }
 
-  // Headers - row 4
+  // Headers - row 4 (20 columns)
   const headers = [
+    'Program',
+    'Produkt',
     'Farve',
-    'Solgt (stk)',
-    'Retur (stk)',
-    'Omsætning (DKK)',
-    'Lager (stk)',
+    'Artikelnummer',
+    'Sæson',
+    'Køn',
+    'Beregnet købt',
+    'Solgt',
+    'Retur',
+    'Lager',
     'Varemodtaget',
-    'Beregnet Købt',
-    'Solgt %',
-    'Retur %',
-    'DB (DKK)',
-    'DB %'
+    'Difference',
+    'Solgt % af købt',
+    'Retur % af solgt',
+    'Kostpris',
+    'DB',
+    'Omsætning kr',
+    'Status',
+    'Tags',
+    'Vejl. Pris'
   ];
 
-  sheet.getRange('A4:K4').setValues([headers]);
-  sheet.getRange('A4:K4').setFontWeight('bold').setBackground('#E3F2FD');
+  sheet.getRange(4, 1, 1, headers.length).setValues([headers]);
+  sheet.getRange(4, 1, 1, headers.length).setFontWeight('bold').setBackground('#E3F2FD');
 
   // Data rows - starting from row 5
-  if (rows.length > 0) {
-    sheet.getRange(5, 1, rows.length, rows[0].length).setValues(rows);
+  if (rows.length > 0 && rows[0] && rows[0].length > 0) {
+    // Write in batches to avoid timeout (500 rows at a time)
+    const BATCH_SIZE = 500;
+    const totalRows = rows.length;
+    const numCols = rows[0].length;
 
-    // Format quantity columns (B, C, E, F, G)
-    sheet.getRange(5, 2, rows.length, 1).setNumberFormat('#,##0'); // Solgt
-    sheet.getRange(5, 3, rows.length, 1).setNumberFormat('#,##0'); // Retur
-    sheet.getRange(5, 5, rows.length, 1).setNumberFormat('#,##0'); // Lager
-    sheet.getRange(5, 6, rows.length, 1).setNumberFormat('#,##0'); // Varemodtaget
-    sheet.getRange(5, 7, rows.length, 1).setNumberFormat('#,##0'); // Beregnet Købt
+    console.log(`📝 Skriver ${totalRows} rækker i batches af ${BATCH_SIZE}...`);
 
-    // Format currency columns (D, J)
-    sheet.getRange(5, 4, rows.length, 1).setNumberFormat('#,##0.00 "kr"'); // Omsætning
-    sheet.getRange(5, 10, rows.length, 1).setNumberFormat('#,##0.00 "kr"'); // DB
+    for (let i = 0; i < totalRows; i += BATCH_SIZE) {
+      const batchEnd = Math.min(i + BATCH_SIZE, totalRows);
+      const batchRows = rows.slice(i, batchEnd);
+      const startRow = 5 + i;
 
-    // Format percentage columns (H, I, K)
-    sheet.getRange(5, 8, rows.length, 1).setNumberFormat('0.00"%"'); // Solgt %
-    sheet.getRange(5, 9, rows.length, 1).setNumberFormat('0.00"%"'); // Retur %
-    sheet.getRange(5, 11, rows.length, 1).setNumberFormat('0.00"%"'); // DB %
+      sheet.getRange(startRow, 1, batchRows.length, numCols).setValues(batchRows);
+      console.log(`  ✅ Batch ${Math.floor(i/BATCH_SIZE) + 1}: Rækker ${i+1}-${batchEnd} skrevet`);
+
+      // Small delay between batches to avoid rate limits
+      if (batchEnd < totalRows) {
+        Utilities.sleep(100);
+      }
+    }
+
+    console.log(`🎨 Formaterer kolonner...`);
+
+    // Format in larger batches (1000 rows at a time) - much faster than per-row
+    const FORMAT_BATCH_SIZE = 1000;
+    for (let i = 0; i < rows.length; i += FORMAT_BATCH_SIZE) {
+      const batchEnd = Math.min(i + FORMAT_BATCH_SIZE, rows.length);
+      const batchSize = batchEnd - i;
+      const startRow = 5 + i;
+
+      // Format Artikelnummer (column D = 4) as plain text
+      sheet.getRange(startRow, 4, batchSize, 1).setNumberFormat('@');
+
+      // Format quantity columns as integers
+      sheet.getRange(startRow, 7, batchSize, 1).setNumberFormat('#,##0'); // Beregnet købt (G)
+      sheet.getRange(startRow, 8, batchSize, 1).setNumberFormat('#,##0'); // Solgt (H)
+      sheet.getRange(startRow, 9, batchSize, 1).setNumberFormat('#,##0'); // Retur (I)
+      sheet.getRange(startRow, 10, batchSize, 1).setNumberFormat('#,##0'); // Lager (J)
+      sheet.getRange(startRow, 11, batchSize, 1).setNumberFormat('#,##0'); // Varemodtaget (K)
+      sheet.getRange(startRow, 12, batchSize, 1).setNumberFormat('#,##0'); // Difference (L)
+
+      // Format percentage columns
+      sheet.getRange(startRow, 13, batchSize, 1).setNumberFormat('0.00"%"'); // Solgt % af købt (M)
+      sheet.getRange(startRow, 14, batchSize, 1).setNumberFormat('0.00"%"'); // Retur % af solgt (N)
+      sheet.getRange(startRow, 16, batchSize, 1).setNumberFormat('0.00"%"'); // DB % (P)
+
+      // Format currency columns
+      sheet.getRange(startRow, 15, batchSize, 1).setNumberFormat('#,##0.00 "kr"'); // Kostpris (O)
+      sheet.getRange(startRow, 17, batchSize, 1).setNumberFormat('#,##0.00 "kr"'); // Omsætning kr (Q)
+      sheet.getRange(startRow, 20, batchSize, 1).setNumberFormat('#,##0.00 "kr"'); // Vejl. Pris (T)
+    }
+    console.log(`  ✅ Formatering færdig`);
   }
 
-  // Auto-resize columns
-  sheet.autoResizeColumns(1, headers.length);
+  // Skip auto-resize for large datasets (causes timeout)
+  // sheet.autoResizeColumns(1, headers.length);
+  console.log(`✅ Color Analytics rendering færdig - kolonnebredde ikke auto-justeret (for mange rækker)`);
 }
 
 function getColorAnalyticsSelectedDates_V2() {
@@ -1761,7 +1867,191 @@ function getColorAnalyticsSelectedDates_V2() {
 }
 
 function generateStyleSKUAnalytics_V2() {
-  SpreadsheetApp.getUi().alert('V2 Analytics', 'Style SKU Analytics V2 bruger samme endpoint som V1. Brug V1 versionen.', SpreadsheetApp.getUi().ButtonSet.OK);
+  try {
+    console.log('🚀 V2: Starter SKU Analytics opdatering...');
+
+    // Hent dato range fra sheet (SKU_Analytics_2_0)
+    const { startDate, endDate } = getSKUAnalyticsSelectedDates_V2();
+
+    if (!startDate || !endDate) {
+      throw new Error('Mangler start/slut dato');
+    }
+
+    // Call V2 API endpoint (sku-analytics-v2)
+    const response = makeApiRequest(`${CONFIG.API_BASE}/sku-analytics-v2`, {
+      startDate: formatDateWithTime(startDate, false),
+      endDate: formatDateWithTime(endDate, true),
+      type: 'sku-analytics'
+    });
+
+    // API returns array of arrays directly in 'data' field
+    const rows = response.data || [];
+
+    if (!response.success || !rows || rows.length === 0) {
+      console.log(`⚠️ Ingen data fundet for perioden ${formatDate(startDate)} til ${formatDate(endDate)}`);
+      const sheet = getOrCreateSheet('SKU_Analytics_2_0');
+
+      // Clear data area from row 4
+      if (sheet.getLastRow() >= 4) {
+        const lastRow = sheet.getLastRow();
+        const lastCol = sheet.getLastColumn();
+        if (lastRow >= 4 && lastCol > 0) {
+          sheet.getRange(4, 1, lastRow - 4 + 1, lastCol).clear();
+        }
+      }
+
+      sheet.getRange('A4').setValue(`Ingen data for perioden ${formatDate(startDate)} til ${formatDate(endDate)}`);
+      sheet.getRange('A4').setFontStyle('italic').setFontColor('#666666');
+      return;
+    }
+
+    // Render data starting from row 4
+    renderSKUAnalytics_V2(rows, startDate, endDate);
+    console.log(`✅ V2: SKU Analytics opdateret (${rows.length} SKUs)`);
+
+  } catch (error) {
+    console.error(`💥 V2 SKU Analytics fejl: ${error.message}`);
+    throw error;
+  }
+}
+
+function renderSKUAnalytics_V2(rows, startDate, endDate) {
+  const sheet = getOrCreateSheet('SKU_Analytics_2_0');
+
+  // Sæt dato inputs i toppen (A1/A2)
+  sheet.getRange('A1').setValue('Startdato:');
+  sheet.getRange('A2').setValue('Slutdato:');
+  sheet.getRange('A1:A2').setFontWeight('bold');
+  sheet.getRange('B1:B2').setNumberFormat('dd/MM/yyyy');
+
+  // Ryd alt under række 4
+  if (sheet.getLastRow() >= 4) {
+    const lastRow = sheet.getLastRow();
+    const lastCol = Math.max(1, sheet.getLastColumn());
+    sheet.getRange(4, 1, lastRow - 3, lastCol).clear();
+  }
+
+  // Headers - row 4 (21 columns - includes Størrelse)
+  const headers = [
+    'Program',
+    'Produkt',
+    'Farve',
+    'Artikelnummer',
+    'Sæson',
+    'Køn',
+    'Størrelse',
+    'Beregnet købt',
+    'Solgt',
+    'Retur',
+    'Lager',
+    'Varemodtaget',
+    'Difference',
+    'Solgt % af købt',
+    'Retur % af solgt',
+    'Kostpris',
+    'DB',
+    'Omsætning kr',
+    'Status',
+    'Tags',
+    'Vejl. Pris'
+  ];
+
+  sheet.getRange(4, 1, 1, headers.length).setValues([headers]);
+  sheet.getRange(4, 1, 1, headers.length).setFontWeight('bold').setBackground('#E3F2FD');
+
+  // Data rows - starting from row 5
+  if (rows.length > 0 && rows[0] && rows[0].length > 0) {
+    // Write in batches to avoid timeout (500 rows at a time)
+    const BATCH_SIZE = 500;
+    const totalRows = rows.length;
+    const numCols = rows[0].length;
+
+    console.log(`📝 Skriver ${totalRows} rækker i batches af ${BATCH_SIZE}...`);
+
+    for (let i = 0; i < totalRows; i += BATCH_SIZE) {
+      const batchEnd = Math.min(i + BATCH_SIZE, totalRows);
+      const batchRows = rows.slice(i, batchEnd);
+      const startRow = 5 + i;
+
+      sheet.getRange(startRow, 1, batchRows.length, numCols).setValues(batchRows);
+      console.log(`  ✅ Batch ${Math.floor(i/BATCH_SIZE) + 1}: Rækker ${i+1}-${batchEnd} skrevet`);
+
+      // Small delay between batches to avoid rate limits
+      if (batchEnd < totalRows) {
+        Utilities.sleep(100);
+      }
+    }
+
+    console.log(`🎨 Formaterer kolonner...`);
+
+    // Format in larger batches (1000 rows at a time) - much faster than per-row
+    const FORMAT_BATCH_SIZE = 1000;
+    for (let i = 0; i < rows.length; i += FORMAT_BATCH_SIZE) {
+      const batchEnd = Math.min(i + FORMAT_BATCH_SIZE, rows.length);
+      const batchSize = batchEnd - i;
+      const startRow = 5 + i;
+
+      // Format Artikelnummer (column D = 4) as plain text
+      sheet.getRange(startRow, 4, batchSize, 1).setNumberFormat('@');
+
+      // Format quantity columns as integers
+      sheet.getRange(startRow, 8, batchSize, 1).setNumberFormat('#,##0'); // Beregnet købt (H)
+      sheet.getRange(startRow, 9, batchSize, 1).setNumberFormat('#,##0'); // Solgt (I)
+      sheet.getRange(startRow, 10, batchSize, 1).setNumberFormat('#,##0'); // Retur (J)
+      sheet.getRange(startRow, 11, batchSize, 1).setNumberFormat('#,##0'); // Lager (K)
+      sheet.getRange(startRow, 12, batchSize, 1).setNumberFormat('#,##0'); // Varemodtaget (L)
+      sheet.getRange(startRow, 13, batchSize, 1).setNumberFormat('#,##0'); // Difference (M)
+
+      // Format percentage columns
+      sheet.getRange(startRow, 14, batchSize, 1).setNumberFormat('0.00"%"'); // Solgt % af købt (N)
+      sheet.getRange(startRow, 15, batchSize, 1).setNumberFormat('0.00"%"'); // Retur % af solgt (O)
+      sheet.getRange(startRow, 17, batchSize, 1).setNumberFormat('0.00"%"'); // DB % (Q)
+
+      // Format currency columns
+      sheet.getRange(startRow, 16, batchSize, 1).setNumberFormat('#,##0.00 "kr"'); // Kostpris (P)
+      sheet.getRange(startRow, 18, batchSize, 1).setNumberFormat('#,##0.00 "kr"'); // Omsætning kr (R)
+      sheet.getRange(startRow, 21, batchSize, 1).setNumberFormat('#,##0.00 "kr"'); // Vejl. Pris (U)
+    }
+    console.log(`  ✅ Formatering færdig`);
+  }
+
+  // Skip auto-resize for large datasets (causes timeout)
+  // sheet.autoResizeColumns(1, headers.length);
+  console.log(`✅ SKU Analytics rendering færdig - kolonnebredde ikke auto-justeret (for mange rækker)`);
+}
+
+function getSKUAnalyticsSelectedDates_V2() {
+  const sheet = getOrCreateSheet('SKU_Analytics_2_0');
+
+  // Sørg for labels findes
+  sheet.getRange('A1').setValue('Startdato:');
+  sheet.getRange('A2').setValue('Slutdato:');
+  sheet.getRange('A1:A2').setFontWeight('bold');
+
+  let startVal, endVal;
+  try {
+    startVal = sheet.getRange('B1').getValue();
+    endVal = sheet.getRange('B2').getValue();
+  } catch (e) {
+    // ignore
+  }
+
+  if (startVal instanceof Date && endVal instanceof Date && !isNaN(startVal) && !isNaN(endVal)) {
+    const s = new Date(startVal.getTime());
+    const e = new Date(endVal.getTime());
+    s.setHours(0, 0, 0, 0);
+    e.setHours(23, 59, 59, 999);
+    return { startDate: s, endDate: e };
+  }
+
+  // Fallback til sidste 90 dage
+  const endDate = new Date();
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - 90);
+  sheet.getRange('B1').setValue(startDate);
+  sheet.getRange('B2').setValue(endDate);
+  sheet.getRange('B1:B2').setNumberFormat('dd/MM/yyyy');
+  return { startDate, endDate };
 }
 
 function generateStyleNumberAnalytics_V2() {
