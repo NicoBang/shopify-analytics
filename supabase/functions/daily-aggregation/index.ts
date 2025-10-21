@@ -49,13 +49,22 @@ Deno.serve(async (req) => {
     // 1. Aggregate yesterday (new orders)
     console.log(`\n📊 Aggregating yesterday (${yesterdayStr})...`);
     try {
-      const { data, error } = await supabase.functions.invoke('aggregate-daily-metrics', {
+      // Aggregate daily_shop_metrics
+      const { data: shopData, error: shopError } = await supabase.functions.invoke('aggregate-daily-metrics', {
         body: { targetDate: yesterdayStr },
       });
 
-      if (error) throw error;
-      results.yesterday = { date: yesterdayStr, success: true, data };
-      console.log(`✅ Yesterday aggregated successfully`);
+      if (shopError) throw shopError;
+
+      // Aggregate daily_color_metrics and daily_sku_metrics
+      const { data: styleData, error: styleError } = await supabase.functions.invoke('aggregate-style-metrics', {
+        body: { targetDate: yesterdayStr },
+      });
+
+      if (styleError) throw styleError;
+
+      results.yesterday = { date: yesterdayStr, success: true, data: { shop: shopData, style: styleData } };
+      console.log(`✅ Yesterday aggregated successfully (shop + style metrics)`);
     } catch (error: any) {
       console.error(`❌ Error aggregating yesterday:`, error);
       results.errors.push({ date: yesterdayStr, error: error.message });
@@ -89,14 +98,22 @@ Deno.serve(async (req) => {
       // Process batch in parallel
       const batchPromises = batch.map(async (date) => {
         try {
-          const { data, error } = await supabase.functions.invoke('aggregate-daily-metrics', {
+          // Aggregate daily_shop_metrics
+          const { data: shopData, error: shopError } = await supabase.functions.invoke('aggregate-daily-metrics', {
             body: { targetDate: date },
           });
 
-          if (error) throw error;
+          if (shopError) throw shopError;
+
+          // Aggregate daily_color_metrics and daily_sku_metrics
+          const { data: styleData, error: styleError } = await supabase.functions.invoke('aggregate-style-metrics', {
+            body: { targetDate: date },
+          });
+
+          if (styleError) throw styleError;
 
           successCount++;
-          return { date, success: true, data };
+          return { date, success: true, data: { shop: shopData, style: styleData } };
         } catch (error: any) {
           console.error(`❌ Error aggregating ${date}:`, error.message);
           errorCount++;
