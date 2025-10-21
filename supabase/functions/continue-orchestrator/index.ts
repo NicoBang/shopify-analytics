@@ -27,6 +27,7 @@ const SYNC_DEPENDENCIES: Record<string, string[]> = {
   "skus": ["orders"],
   "refunds": ["orders", "skus"],
   "shipping-discounts": ["orders"],
+  "fulfillments": ["orders"], // Fulfillments depend on orders existing
 };
 
 serve(async (req) => {
@@ -278,6 +279,8 @@ async function processJob(supabase, job) {
         ? "bulk-sync-orders"
         : job.object_type === "shipping-discounts"
         ? "bulk-sync-shipping-discounts"
+        : job.object_type === "fulfillments"
+        ? "bulk-sync-fulfillments"
         : "bulk-sync-skus";
 
     const resp = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/${fnName}`, {

@@ -113,7 +113,47 @@ class SupabaseService {
 
     console.log(`  Total SKU metrics fetched for period: ${allMetrics.length}`);
 
-    // Step 3: Build a lookup map of metrics per SKU
+    // Step 3: Fetch inventory with PAGINATION (inventory table has >1000 rows)
+    const allInventory: any[] = [];
+    let invOffset = 0;
+    const invBatchSize = 1000;
+    let hasMoreInventory = true;
+
+    while (hasMoreInventory) {
+      const { data: invBatch, error: inventoryError } = await this.supabase
+        .from('inventory')
+        .select('sku, quantity')
+        .order('sku', { ascending: true })
+        .range(invOffset, invOffset + invBatchSize - 1);
+
+      if (inventoryError) {
+        console.error('❌ Error fetching inventory:', inventoryError);
+        throw inventoryError;
+      }
+
+      if (invBatch && invBatch.length > 0) {
+        allInventory.push(...invBatch);
+        hasMoreInventory = invBatch.length === invBatchSize;
+        invOffset += invBatchSize;
+        if (hasMoreInventory) {
+          console.log(`  Fetched ${invOffset} inventory rows, continuing...`);
+        }
+      } else {
+        hasMoreInventory = false;
+      }
+    }
+
+    console.log(`  Total inventory rows fetched: ${allInventory.length}`);
+
+    // Build inventory lookup map per SKU
+    const inventoryMap: Record<string, number> = {};
+    allInventory.forEach((inv: any) => {
+      inventoryMap[inv.sku] = parseInt(inv.quantity) || 0;
+    });
+
+    console.log(`  Inventory mapped for ${Object.keys(inventoryMap).length} SKUs`);
+
+    // Step 4: Build a lookup map of metrics per SKU
     const metricsMap: Record<string, any[]> = {};
     allMetrics.forEach((row: any) => {
       const sku = row.sku;
@@ -212,9 +252,10 @@ class SupabaseService {
         m.omsætning += parseFloat(row.omsaetning_net) || 0;
         // Kostpris from database is per-unit cost, sum it across days
         m.kostpris += parseFloat(row.kostpris) || 0;
-        // Lager from inventory table (backfilled into daily_sku_metrics)
-        m.lager = parseInt(row.lager) || 0;
       });
+
+      // Set inventory from inventoryMap (not from daily_sku_metrics)
+      skuMap[sku].lager = inventoryMap[sku] || 0;
     });
 
     // Calculate derived metrics and format for Google Sheets

@@ -9,8 +9,8 @@ const SHOPS = [
   "pompdelux-chf.myshopify.com",
 ];
 
-// ✅ CRITICAL: Order matters! Dependencies: orders → skus → refunds → shipping-discounts
-const SYNC_TYPES = ["orders", "skus", "refunds", "shipping-discounts", "both"] as const;
+// ✅ CRITICAL: Order matters! Dependencies: orders → skus → refunds → shipping-discounts → fulfillments
+const SYNC_TYPES = ["orders", "skus", "refunds", "shipping-discounts", "fulfillments", "both"] as const;
 type SyncType = typeof SYNC_TYPES[number];
 
 // Dependency chain - each type depends on previous types being completed
@@ -19,6 +19,7 @@ const SYNC_DEPENDENCIES: Record<SyncType, SyncType[]> = {
   "skus": ["orders"],
   "refunds": ["orders", "skus"],
   "shipping-discounts": ["orders"],
+  "fulfillments": ["orders"], // Fulfillments depend on orders existing
   "both": [],
 };
 

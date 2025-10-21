@@ -134,15 +134,37 @@ class SupabaseService {
 
     console.log(`  Total color metrics fetched for period: ${allMetrics.length}`);
 
-    // Step 3: Fetch inventory and aggregate per artikelnummer
-    const { data: inventoryData, error: inventoryError } = await this.supabase
-      .from('inventory')
-      .select('sku, quantity');
+    // Step 3: Fetch inventory with PAGINATION (inventory table has >1000 rows)
+    const allInventory: any[] = [];
+    let invOffset = 0;
+    const invBatchSize = 1000;
+    let hasMoreInventory = true;
 
-    if (inventoryError) {
-      console.error('❌ Error fetching inventory:', inventoryError);
-      throw inventoryError;
+    while (hasMoreInventory) {
+      const { data: invBatch, error: inventoryError } = await this.supabase
+        .from('inventory')
+        .select('sku, quantity')
+        .order('sku', { ascending: true })
+        .range(invOffset, invOffset + invBatchSize - 1);
+
+      if (inventoryError) {
+        console.error('❌ Error fetching inventory:', inventoryError);
+        throw inventoryError;
+      }
+
+      if (invBatch && invBatch.length > 0) {
+        allInventory.push(...invBatch);
+        hasMoreInventory = invBatch.length === invBatchSize;
+        invOffset += invBatchSize;
+        if (hasMoreInventory) {
+          console.log(`  Fetched ${invOffset} inventory rows, continuing...`);
+        }
+      } else {
+        hasMoreInventory = false;
+      }
     }
+
+    console.log(`  Total inventory rows fetched: ${allInventory.length}`);
 
     // Helper function to extract artikelnummer
     function extractArtikelnummer(sku: string): string {
@@ -152,7 +174,7 @@ class SupabaseService {
 
     // Aggregate inventory per artikelnummer
     const inventoryMap: Record<string, number> = {};
-    (inventoryData || []).forEach((inv: any) => {
+    allInventory.forEach((inv: any) => {
       const artikelnummer = extractArtikelnummer(inv.sku);
       if (artikelnummer) {
         inventoryMap[artikelnummer] = (inventoryMap[artikelnummer] || 0) + (parseInt(inv.quantity) || 0);
