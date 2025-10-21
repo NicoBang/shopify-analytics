@@ -24,6 +24,7 @@ serve(async (req: Request): Promise<Response> => {
       skus: { updated: 0, realFailures: 0 },
       refunds: { updated: 0, realFailures: 0 },
       shippingDiscounts: { updated: 0, realFailures: 0 },
+      fulfillments: { updated: 0, realFailures: 0 },
     };
 
     // Validate orders
@@ -134,9 +135,36 @@ serve(async (req: Request): Promise<Response> => {
       console.error("❌ Shipping discounts validation error:", error);
     }
 
+    // Validate fulfillments
+    console.log("📦 Validating fulfillment jobs...");
+    try {
+      const fulfillmentsResponse = await fetch(
+        `${supabaseUrl}/functions/v1/validate-failed-jobs`,
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${serviceRoleKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ objectType: "fulfillments" }),
+        }
+      );
+
+      if (fulfillmentsResponse.ok) {
+        const fulfillmentsData = await fulfillmentsResponse.json();
+        results.fulfillments.updated = fulfillmentsData.summary?.updated || 0;
+        results.fulfillments.realFailures = fulfillmentsData.summary?.realFailures || 0;
+        console.log(`  ✅ Updated: ${results.fulfillments.updated}, Real failures: ${results.fulfillments.realFailures}`);
+      } else {
+        console.error("❌ Fulfillments validation failed:", await fulfillmentsResponse.text());
+      }
+    } catch (error) {
+      console.error("❌ Fulfillments validation error:", error);
+    }
+
     // Calculate totals
-    const totalUpdated = results.orders.updated + results.skus.updated + results.refunds.updated + results.shippingDiscounts.updated;
-    const totalRealFailures = results.orders.realFailures + results.skus.realFailures + results.refunds.realFailures + results.shippingDiscounts.realFailures;
+    const totalUpdated = results.orders.updated + results.skus.updated + results.refunds.updated + results.shippingDiscounts.updated + results.fulfillments.updated;
+    const totalRealFailures = results.orders.realFailures + results.skus.realFailures + results.refunds.realFailures + results.shippingDiscounts.realFailures + results.fulfillments.realFailures;
 
     console.log("\n📊 Auto-validate summary:");
     console.log(`  Empty days corrected: ${totalUpdated}`);

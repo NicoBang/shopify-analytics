@@ -176,24 +176,19 @@ function generateExpectedJobs(startDate: string, endDate: string, objectType?: s
           created_at: new Date().toISOString(),
         });
       } else {
-        // Otherwise create all types (orders + skus)
-        jobs.push({
-          shop,
-          start_date: dateStr,
-          end_date: dateStr,
-          object_type: "orders",
-          status: "pending",
-          created_at: new Date().toISOString(),
-        });
+        // Otherwise create all types (orders, skus, refunds, fulfillments, shipping-discounts)
+        const types = ["orders", "skus", "refunds", "fulfillments", "shipping-discounts"];
 
-        jobs.push({
-          shop,
-          start_date: dateStr,
-          end_date: dateStr,
-          object_type: "skus",
-          status: "pending",
-          created_at: new Date().toISOString(),
-        });
+        for (const type of types) {
+          jobs.push({
+            shop,
+            start_date: dateStr,
+            end_date: dateStr,
+            object_type: type,
+            status: "pending",
+            created_at: new Date().toISOString(),
+          });
+        }
       }
     }
   }

@@ -80,6 +80,11 @@ serve(async (req) => {
           count = await getOrderCountForDate(job.shop, shopifyToken, date);
           hasData = count > 0;
           console.log(`  ${job.shop} ${date}: ${count} orders (shipping discount source) in Shopify`);
+        } else if (objectType === "fulfillments") {
+          // Fulfillments come from orders, so check if there were orders
+          count = await getOrderCountForDate(job.shop, shopifyToken, date);
+          hasData = count > 0;
+          console.log(`  ${job.shop} ${date}: ${count} orders (fulfillment source) in Shopify`);
         }
 
         const result: ValidationResult = {

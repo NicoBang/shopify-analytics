@@ -333,9 +333,10 @@ async function aggregateShopDate(supabase: any, shop: string, dateStr: string) {
     refundData.forEach(refund => {
       const refundedQty = refund.refunded_qty || 0;
       const refundedAmount = refund.refunded_amount_dkk || 0;
-      const cancelledQtyItem = refund.cancelled_qty || 0;
 
-      if (cancelledQtyItem === 0 && refundedQty > 0) {
+      // FIXED (2025-10-21): Include ALL refunds in return_quantity, regardless of cancelled_qty
+      // Previously excluded items with cancelled_qty > 0, causing undercounting (e.g., 60 vs 72)
+      if (refundedQty > 0) {
         returnQty += refundedQty;
         returnAmount += refundedAmount;
         returnOrders.add(refund.order_id);

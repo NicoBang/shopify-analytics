@@ -17,8 +17,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
  */
 
 const BATCH_SIZE = 20; // Max jobs per call
-const PARALLEL_LIMIT_ORDERS = 3; // Max shops running at once for orders
-const PARALLEL_LIMIT_REFUNDS = 3; // Refunds can run in parallel
+const PARALLEL_LIMIT_ORDERS = 5; // Max shops running at once for orders (5 shops total)
+const PARALLEL_LIMIT_REFUNDS = 5; // Refunds can run in parallel (5 shops total)
 // SKUs: 1 job per shop (all shops in parallel for max throughput)
 
 // === Dependency System ===
@@ -61,8 +61,8 @@ serve(async (req) => {
     if (staleCount > 0) console.log(`🧹 Cleaned up ${staleCount} stale jobs`);
 
     // === Step 2: Get next batch of pending jobs ===
-    // Sort by dependency order: orders first, then skus, then refunds/shipping-discounts
-    const typeOrder = { "orders": 1, "skus": 2, "refunds": 3, "shipping-discounts": 3 };
+    // Sort by dependency order: orders first, then skus, then refunds/shipping-discounts, then fulfillments
+    const typeOrder = { "orders": 1, "skus": 2, "refunds": 3, "shipping-discounts": 3, "fulfillments": 4 };
 
     let query = supabase
       .from("bulk_sync_jobs")

@@ -7,10 +7,10 @@ Komplet guide til at synce Shopify data til Supabase.
 ## 📋 Oversigt
 
 **Fem typer syncs:**
-1. **Orders & SKUs** - Syncer ordrer og SKU data baseret på `created_at`
-2. **Refund Orders** - Syncer ordrer med refunds baseret på `updated_at`
-3. **Orchestrator** - Automatisk sync af alle shops for en periode
-4. **Fulfillments** - Syncer leveringsdata fra Shopify (via Vercel API)
+1. **Orders & SKUs** - Syncer ordrer og SKU data baseret på `created_at` (via Bulk Operations API)
+2. **Refunds** - Opdaterer orders/SKUs med refund data baseret på `updated_at` (via REST API)
+3. **Fulfillments** - Syncer shipping info (carrier, country, item_count) baseret på `created_at` (via Bulk Operations API)
+4. **Orchestrator** - Automatisk sync af alle shops for en periode (koordinerer alle typer)
 5. **Product Metadata** - Syncer produkt metadata og attributter (via Vercel API)
 
 **Automatiske daglige syncs:**
@@ -64,9 +64,16 @@ Komplet guide til at synce Shopify data til Supabase.
 ./retry-failed-jobs.sh
 ```
 
-### Sync fulfillments (leveringer)
+### Sync fulfillments (leveringer) via Orchestrator
 ```bash
-./sync-fulfillments.sh 2025-10-01 2025-10-07
+# Opret jobs for alle shops (anbefalet metode)
+curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/bulk-sync-orchestrator" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM" \
+  -H "Content-Type: application/json" \
+  -d '{"shops":["pompdelux-da.myshopify.com","pompdelux-de.myshopify.com","pompdelux-nl.myshopify.com","pompdelux-int.myshopify.com","pompdelux-chf.myshopify.com"],"types":["fulfillments"],"startDate":"2025-10-01","endDate":"2025-10-07"}'
+
+# Legacy script (via Vercel API - ikke anbefalet)
+# ./sync-fulfillments.sh 2025-10-01 2025-10-07
 ```
 
 ### Sync product metadata
@@ -237,44 +244,95 @@ curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/bulk-sync-re
 
 ### 5. Sync Fulfillments (Leveringer)
 
-**Brug:** Syncer leveringsdata for alle shops i en periode.
+**Brug:** Syncer leveringsdata (shipping info) for alle shops i en periode.
 
-**Via Vercel API (ikke Edge Function):**
+**Via Edge Function (anbefalet - Bulk Operations API):**
 
 ```bash
-SHOPS=("pompdelux-da.myshopify.com"
-       "pompdelux-de.myshopify.com"
-       "pompdelux-nl.myshopify.com"
-       "pompdelux-int.myshopify.com"
-       "pompdelux-chf.myshopify.com")
-
-for shop in "${SHOPS[@]}"; do
-  curl -H "Authorization: Bearer bda5da3d49fe0e7391fded3895b5c6bc" \
-  "https://shopify-analytics-nu.vercel.app/api/sync-shop?shop=$shop&type=fulfillments&startDate=2025-10-01&endDate=2025-10-07" &
-done
-
-wait
-echo "✅ Alle shops synkroniseret med fulfillments"
+# Enkelt shop
+curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/bulk-sync-fulfillments" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "shop": "pompdelux-da.myshopify.com",
+    "startDate": "2025-10-01",
+    "endDate": "2025-10-07"
+  }'
 ```
 
-**Eller brug scriptet:**
+**Via Orchestrator (alle shops automatisk):**
+
 ```bash
-./sync-fulfillments.sh 2025-10-01 2025-10-07
+# Opret fulfillment jobs for alle shops
+curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/bulk-sync-orchestrator" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "shops": ["pompdelux-da.myshopify.com", "pompdelux-de.myshopify.com", "pompdelux-nl.myshopify.com", "pompdelux-int.myshopify.com", "pompdelux-chf.myshopify.com"],
+    "types": ["fulfillments"],
+    "startDate": "2025-10-01",
+    "endDate": "2025-10-07"
+  }'
+
+# Jobs processeres automatisk af continue-orchestrator cron job
 ```
 
 **Features:**
-- Syncer leveringsdata (carrier, item_count, country)
-- Bruger dato-interval ligesom orders sync
-- Kører alle shops parallelt med `&`
+- Syncer shipping info: carrier (fragtfirma), country (land), item_count (antal varer)
+- Bruger Shopify Bulk Operations API (hurtigere og mere effektiv)
+- Dag-for-dag processing for at undgå timeouts
+- **VIGTIGT:** Syncer IKKE refund data - brug bulk-sync-refunds til det
 
-**Vigtigt:**
-- Dette er en **Vercel API**, ikke en Edge Function
-- Bruger deployment URL (ikke production URL)
-- Bearer token er fra Vercel, ikke Supabase
+**Hvad synces IKKE:**
+- ❌ Refund data (refunded_qty, refunded_amount_dkk) - brug `bulk-sync-refunds` i stedet
+- ❌ SKU-level fulfillment data - kun ordre-level
+
+**Legacy metode (Vercel API - ikke anbefalet):**
+```bash
+./sync-fulfillments.sh 2025-10-01 2025-10-07  # ⚠️ Gammel metode via Vercel
+```
 
 ---
 
-### 6. Sync Product Metadata
+### 6. Aggregate Daily Metrics
+
+**Brug:** Aggregér data fra orders/skus/fulfillments til daily_shop_metrics, daily_sku_metrics og daily_color_metrics tabeller.
+
+**VIGTIGT:** Brug `targetDate` parameter (IKKE `date`)!
+
+```bash
+# Enkelt dag
+curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/aggregate-daily-metrics" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM" \
+  -H "Content-Type: application/json" \
+  -d '{"targetDate": "2025-09-01"}'
+```
+
+**Eller brug script for hele perioden:**
+```bash
+# Re-aggregér alle data (August 2024 - Oktober 2025)
+./re-aggregate-all.sh
+
+# Re-aggregér kun en måned
+./re-aggregate-october.sh
+```
+
+**Features:**
+- Aggregerer return_quantity, revenue, order_count, etc. til daily_shop_metrics
+- Aggregerer SKU-level data til daily_sku_metrics
+- Aggregerer farve-level data til daily_color_metrics
+- Håndterer både normale refunds OG cancelled+refunded items korrekt
+- Bruges til at opdatere daily metrics efter data ændringer
+- **Vigtigt:** Kører automatisk dagligt kl. 07:00 for BÅDE nye ordrer OG refunds
+
+**Automatisk daglig aggregering:**
+- Aggregerer gårsdagens dato (nye ordrer)
+- PLUS de sidste 90 dage (for nye refunds på gamle ordrer)
+- Se sektion "Automatiske Daglige Syncs" → "Daglig Aggregering"
+
+---
+
+### 7. Sync Product Metadata
 
 **Brug:** Syncer produkt metadata og attributter for alle shops.
 
@@ -436,20 +494,45 @@ curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/bulk-sync-or
 
 ### Complete Daily Sync (Anbefalet workflow)
 ```bash
-# 1. Sync ordrer og SKUs
-./sync-date-range.sh 2025-10-01 2025-10-07
+# 1. Sync ordrer og SKUs (brug ALTID sync-complete.sh for fuld sync)
+./sync-complete.sh 2025-10-01 2025-10-07
 
-# 2. Sync refunds (opdaterer eksisterende SKUs)
+# 2. Sync refunds (opdaterer eksisterende orders og SKUs med refund data)
 ./sync-date-range-refunds.sh 2025-10-01 2025-10-07
 
-# 3. Sync leveringsdata
-./sync-fulfillments.sh 2025-10-01 2025-10-07
+# 3. Sync fulfillments via orchestrator (shipping info)
+curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/bulk-sync-orchestrator" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "shops": ["pompdelux-da.myshopify.com", "pompdelux-de.myshopify.com", "pompdelux-nl.myshopify.com", "pompdelux-int.myshopify.com", "pompdelux-chf.myshopify.com"],
+    "types": ["fulfillments"],
+    "startDate": "2025-10-01",
+    "endDate": "2025-10-07"
+  }'
 
-# 4. Sync produkt metadata (kører ugentligt eller månedligt)
-./sync-metadata.sh
-
-# 5. Tjek status
+# 4. Tjek status (inklusive fulfillments jobs)
 ./check-sync-status.sh 2025-10-01 2025-10-07
+
+# 5. Sync produkt metadata (kører ugentligt eller månedligt)
+./sync-metadata.sh
+```
+
+**Alternativ - Alt via Orchestrator:**
+```bash
+# Opret ALLE jobs i én kommando (orders, skus, refunds, fulfillments)
+curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/bulk-sync-orchestrator" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "shops": ["pompdelux-da.myshopify.com", "pompdelux-de.myshopify.com", "pompdelux-nl.myshopify.com", "pompdelux-int.myshopify.com", "pompdelux-chf.myshopify.com"],
+    "types": ["orders", "skus", "refunds", "fulfillments"],
+    "startDate": "2025-10-01",
+    "endDate": "2025-10-07"
+  }'
+
+# Jobs processeres automatisk af continue-orchestrator cron job (hver 5. minut)
+# Tjek fremskridt: ./check-sync-status.sh 2025-10-01 2025-10-07
 ```
 
 ---
@@ -706,6 +789,30 @@ SELECT cron.schedule(
 );
 ```
 
+#### Daglig Aggregering (kl. 07:00 Copenhagen tid)
+```sql
+SELECT cron.schedule(
+  'daily-aggregation',
+  '0 6 * * *',  -- 06:00 UTC = 07:00 Copenhagen (vinter) / 08:00 (sommer)
+  $$
+  SELECT net.http_post(
+    url := 'https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/daily-aggregation',
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM',
+      'Content-Type', 'application/json'
+    ),
+    body := '{}'::jsonb
+  );
+  $$
+);
+```
+
+**Formål:** Aggregerer data til daily_shop_metrics, daily_sku_metrics og daily_color_metrics. Kører for:
+- **Gårsdagens dato** (nye ordrer)
+- **Sidste 90 dage** (nye refunds på gamle ordrer)
+
+Dette sikrer at både nye ordrer og refunds fanges korrekt i metrics tabellerne.
+
 #### Ugentlig Metadata Sync (søndag kl. 02:00 Copenhagen tid)
 ```sql
 SELECT cron.schedule(
@@ -731,6 +838,10 @@ SELECT cron.schedule(
 2. Refunds for gårsdagens dato
 3. Fulfillments for gårsdagens dato (alle shops parallelt)
 
+**Daglig kl. 07:00:**
+- Aggregering til daily_shop_metrics, daily_sku_metrics, daily_color_metrics
+- Aggregerer gårsdagens dato (nye ordrer) + sidste 90 dage (nye refunds)
+
 **Ugentlig søndag kl. 02:00:**
 - Product metadata for alle shops (parallelt)
 
@@ -739,6 +850,14 @@ SELECT cron.schedule(
 **Test daglig sync manuelt:**
 ```bash
 curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/daily-sync" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+**Test daglig aggregering manuelt:**
+```bash
+curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/daily-aggregation" \
   -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM" \
   -H "Content-Type: application/json" \
   -d '{}'
@@ -765,7 +884,7 @@ ORDER BY jobname;
 ```sql
 SELECT *
 FROM cron.job_run_details
-WHERE job_name IN ('daily-sync', 'weekly-metadata-sync')
+WHERE job_name IN ('daily-sync', 'daily-aggregation', 'weekly-metadata-sync')
 ORDER BY start_time DESC
 LIMIT 10;
 ```
@@ -778,3 +897,8 @@ SELECT cron.unschedule('daily-sync');
 -- Enable igen
 SELECT cron.schedule(...);  -- Brug SQL fra opsætningen ovenfor
 ```
+
+
+TIL SYNC AF HISTORIS ALL PENDING:
+
+./create-all-jobs.sh 2025-09-01 2025-10-20

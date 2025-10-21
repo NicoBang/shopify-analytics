@@ -85,6 +85,7 @@ serve(async (req) => {
       JSON.stringify({
         success: !results.hasErrors,
         message: `Processed ${results.totalRecords} fulfillments across ${results.daysProcessed} days`,
+        records_processed: results.totalRecords,
         details: results,
         testMode,
       }),
@@ -512,7 +513,15 @@ async function downloadBulkResults(url: string): Promise<any[]> {
     }
   }
 
-  console.log(`📦 Found ${orders.size} orders, ${fulfillments.length} fulfillments`);
+  console.log(`📦 Found ${orders.size} orders, ${fulfillments.length} fulfillments in JSONL`);
+  console.log(`📄 Total lines in JSONL: ${lines.length}`);
+
+  if (lines.length > 0 && lines.length < 20) {
+    console.log(`🔍 First few lines of JSONL:`);
+    lines.slice(0, 5).forEach((line, i) => {
+      if (line) console.log(`Line ${i}: ${line.substring(0, 200)}`);
+    });
+  }
 
   // Transform to fulfillment records
   const fulfillmentRecords: any[] = [];

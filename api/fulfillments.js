@@ -57,18 +57,25 @@ class SupabaseService {
   async getEnhancedDeliveryAnalytics(startDate, endDate) {
     console.log(`🚚 Enhanced Delivery Analytics: ${startDate.toISOString().slice(0,10)} to ${endDate.toISOString().slice(0,10)}`);
 
-    // Get ALL fulfillments using chunked pagination (no 1000 limit)
+    // ✅ CRITICAL: Fetch fulfillments where EITHER date OR refund_date is in period
+    // This ensures we get:
+    // 1. Fulfillments that happened in the period (for fulfilled count)
+    // 2. Refunds that happened in the period (even if fulfillment was earlier)
+
     let allFulfillments = [];
     let offset = 0;
     const batchSize = 1000;
     let hasMore = true;
 
+    const startISO = startDate.toISOString();
+    const endISO = endDate.toISOString();
+
     while (hasMore) {
+      // Use .or() to fetch rows where EITHER date OR refund_date is in period
       const { data: batch, error: batchError } = await this.supabase
         .from('fulfillments')
         .select('*')
-        .gte('date', startDate.toISOString())
-        .lte('date', endDate.toISOString())
+        .or(`and(date.gte.${startISO},date.lte.${endISO}),and(refund_date.gte.${startISO},refund_date.lte.${endISO})`)
         .range(offset, offset + batchSize - 1);
 
       if (batchError) {
@@ -85,7 +92,7 @@ class SupabaseService {
       }
     }
 
-    console.log(`✅ Fetched ${allFulfillments.length} total fulfillments`);
+    console.log(`✅ Fetched ${allFulfillments.length} total fulfillments (by date OR refund_date)`);
 
     // Calculate enhanced metrics - refund data now comes from fulfillments table
     return this.calculateEnhancedDeliveryMetrics(

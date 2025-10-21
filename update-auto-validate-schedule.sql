@@ -1,7 +1,6 @@
--- Setup automatic failed job validation
--- Runs every 5 minutes to validate failed jobs and mark empty days as completed
+-- Update auto-validate-failed-jobs to run every 5 minutes instead of daily at 2 AM
 
--- Remove existing cron job if it exists
+-- Remove existing cron job
 SELECT cron.unschedule('auto-validate-failed-jobs');
 
 -- Schedule auto-validate to run every 5 minutes
@@ -20,5 +19,5 @@ SELECT cron.schedule(
   $$
 );
 
--- Verify cron job was created
-SELECT * FROM cron.job WHERE jobname = 'auto-validate-failed-jobs';
+-- Verify cron job was updated
+SELECT jobname, schedule, active FROM cron.job WHERE jobname = 'auto-validate-failed-jobs';
