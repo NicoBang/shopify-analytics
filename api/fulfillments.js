@@ -53,7 +53,7 @@ class SupabaseService {
     return { data: data || [], error: null };
   }
 
-  // Enhanced delivery analytics with ALL fixes applied
+  // Enhanced delivery analytics - now using refund data from fulfillments table
   async getEnhancedDeliveryAnalytics(startDate, endDate) {
     console.log(`🚚 Enhanced Delivery Analytics: ${startDate.toISOString().slice(0,10)} to ${endDate.toISOString().slice(0,10)}`);
 
@@ -87,135 +87,53 @@ class SupabaseService {
 
     console.log(`✅ Fetched ${allFulfillments.length} total fulfillments`);
 
-    // FIXED: Get orders from 90-day cache window (like old system) using pagination
-    const cacheStartDate = new Date(endDate);
-    cacheStartDate.setDate(cacheStartDate.getDate() - 90); // 90 days back like old system
-
-    let allOrdersData = [];
-    let orderOffset = 0;
-    const orderBatchSize = 1000;
-    let hasMoreOrders = true;
-
-    while (hasMoreOrders) {
-      const { data: batch, error: batchError } = await this.supabase
-        .from('orders')
-        .select('order_id, country, refunded_qty, refund_date')
-        .gte('created_at', cacheStartDate.toISOString())
-        .lte('created_at', endDate.toISOString())
-        .range(orderOffset, orderOffset + orderBatchSize - 1);
-
-      if (batchError) {
-        console.error('❌ Error fetching orders:', batchError);
-        throw batchError;
-      }
-
-      if (batch && batch.length > 0) {
-        allOrdersData = allOrdersData.concat(batch);
-        hasMoreOrders = batch.length === orderBatchSize;
-        orderOffset += orderBatchSize;
-      } else {
-        hasMoreOrders = false;
-      }
-    }
-
-    console.log(`✅ Fetched ${allOrdersData.length} orders from 90-day window`);
-
-    // Calculate enhanced metrics with proper carrier mapping
+    // Calculate enhanced metrics - refund data now comes from fulfillments table
     return this.calculateEnhancedDeliveryMetrics(
-      allOrdersData || [],
       allFulfillments || [],
       startDate,
       endDate
     );
   }
 
-  // Robust carrier mapping and returns analysis
-  async calculateEnhancedDeliveryMetrics(orderData, fulfillmentData, startDate, endDate) {
+  // Simplified metrics using refund data from fulfillments table
+  async calculateEnhancedDeliveryMetrics(fulfillmentData, startDate, endDate) {
     const fulfillmentMatrix = {};
+    const returnsMatrix = {};
     const carriers = new Set();
     const countries = new Set();
+    const returnCountries = new Set();
     let totalFulfillments = 0;
     let totalFulfilledItems = 0;
+    let totalReturnedItems = 0;
+    let totalReturns = 0;
 
-    // Process fulfillments (already filtered by date)
+    // Process fulfillments and returns from single table
     fulfillmentData.forEach(fulfillment => {
       const key = `${fulfillment.country}|${fulfillment.carrier}`;
+
+      // Track fulfillments (by date field)
       countries.add(fulfillment.country);
       carriers.add(fulfillment.carrier);
       fulfillmentMatrix[key] = (fulfillmentMatrix[key] || 0) + 1;
-
       totalFulfillments++;
       totalFulfilledItems += Number(fulfillment.item_count) || 0;
-    });
 
-    // ROBUST CARRIER MAPPING - Use order_id directly (no extractId)
-    const orderIdToCarrier = {};
+      // Track returns (by refund_date field) - filter in period
+      if (fulfillment.refund_date) {
+        const refundDateStr = fulfillment.refund_date.split('T')[0];
+        const startDateStr = startDate.toISOString().split('T')[0];
+        const endDateStr = endDate.toISOString().split('T')[0];
 
-    try {
-      // Get ALL fulfillments for carrier mapping using pagination
-      let allFulfillments = [];
-      let offset = 0;
-      const batchSize = 1000;
-      let hasMore = true;
-
-      while (hasMore) {
-        const { data: batch, error: batchError } = await this.supabase
-          .from('fulfillments')
-          .select('order_id, carrier')
-          .range(offset, offset + batchSize - 1);
-
-        if (batchError) throw batchError;
-
-        if (batch && batch.length > 0) {
-          allFulfillments = allFulfillments.concat(batch);
-          hasMore = batch.length === batchSize;
-          offset += batchSize;
-        } else {
-          hasMore = false;
+        if (refundDateStr >= startDateStr && refundDateStr <= endDateStr) {
+          returnCountries.add(fulfillment.country);
+          returnsMatrix[key] = (returnsMatrix[key] || 0) + 1;
+          totalReturns++;
+          totalReturnedItems += Number(fulfillment.refunded_qty) || 0;
         }
-      }
-
-      // Build carrier mapping using direct order_id
-      allFulfillments.forEach(f => {
-        if (f.order_id && f.carrier) {
-          orderIdToCarrier[f.order_id] = f.carrier;
-        }
-      });
-
-    } catch (error) {
-      console.error('⚠️ Could not get comprehensive carrier mapping:', error);
-      // Fallback: use period fulfillments only
-      fulfillmentData.forEach(fulfillment => {
-        orderIdToCarrier[fulfillment.order_id] = fulfillment.carrier;
-      });
-    }
-
-    // Process returns with carrier mapping
-    const returnsMatrix = {};
-    const returnCountries = new Set();
-    let totalReturnedItems = 0;
-
-    orderData.forEach(order => {
-      // Use date-only comparison (not timestamp)
-      const refundDateStr = order.refund_date ? order.refund_date.split('T')[0] : null;
-      const startDateStr = startDate.toISOString().split('T')[0];
-      const endDateStr = endDate.toISOString().split('T')[0];
-
-      if (refundDateStr && refundDateStr >= startDateStr && refundDateStr <= endDateStr) {
-        const orderId = order.order_id;
-        const carrier = orderIdToCarrier[orderId] || "Ukendt";
-        const country = order.country || "Ukendt";
-
-        const key = `${country}|${carrier}`;
-        returnCountries.add(country);
-        returnsMatrix[key] = (returnsMatrix[key] || 0) + 1;
-
-        totalReturnedItems += Number(order.refunded_qty) || 0;
       }
     });
 
-    const totalReturns = Object.values(returnsMatrix).reduce((a, b) => a + b, 0);
-    console.log(`✅ Processed: ${totalFulfillments} fulfillments, ${totalReturns} returns`);
+    console.log(`✅ Processed: ${totalFulfillments} fulfillments, ${totalReturns} returns, ${totalReturnedItems} items returned`);
 
     return {
       fulfillmentMatrix,
@@ -232,17 +150,7 @@ class SupabaseService {
         : '0%',
       itemReturnRate: totalFulfilledItems > 0
         ? ((totalReturnedItems / totalFulfilledItems) * 100).toFixed(2) + '%'
-        : '0%',
-      // Enhanced diagnostics
-      diagnostics: {
-        carrierMappingCount: Object.keys(orderIdToCarrier).length,
-        sampleCarrierMappings: Object.entries(orderIdToCarrier).slice(0, 3).map(([id, carrier]) => `${id}=${carrier}`),
-        sampleOrderIds: orderData.slice(0, 3).map(o => o.order_id),
-        fulfillmentDataCount: fulfillmentData.length,
-        orderDataCount: orderData.length,
-        returnsProcessed: totalReturns,
-        paginationBatches: Math.ceil(fulfillmentData.length / 1000)
-      }
+        : '0%'
     };
   }
 

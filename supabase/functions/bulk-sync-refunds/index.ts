@@ -418,6 +418,10 @@ async function syncRefundsForChunk(shop, token, supabase, startISO, endISO) {
     console.log(`🚢 Updated ${ordersUpdated} orders with shipping refunds`);
   }
 
+  // === 📦 Update fulfillments table with refund data ===
+  const fulfillmentsUpdated = await updateFulfillmentsWithRefunds(supabase, refundUpdates);
+  console.log(`📦 Updated ${fulfillmentsUpdated} fulfillments with refund data`);
+
   return { refundsProcessed: refundUpdates.length, skusUpdated: updated };
 }
 
@@ -482,6 +486,56 @@ async function updateOrderShippingRefunds(supabase, orderRefunds) {
 
     if (error) {
       console.error(`❌ Failed to update shipping refund for order ${orderRefund.order_id}: ${error.message}`);
+    } else {
+      totalUpdated++;
+    }
+  }
+
+  return totalUpdated;
+}
+
+// === UPDATE FULFILLMENTS TABLE WITH REFUND DATA ================================
+async function updateFulfillmentsWithRefunds(supabase, refunds) {
+  if (!refunds || refunds.length === 0) return 0;
+
+  // Group refunds by order_id
+  const refundsByOrder = new Map();
+
+  for (const refund of refunds) {
+    if (!refundsByOrder.has(refund.order_id)) {
+      refundsByOrder.set(refund.order_id, {
+        shop: refund.shop,
+        order_id: refund.order_id,
+        refunded_qty: 0,
+        refund_date: null
+      });
+    }
+
+    const current = refundsByOrder.get(refund.order_id);
+    current.refunded_qty += refund.refunded_qty || 0;
+
+    // Keep latest refund_date
+    if (refund.refund_date) {
+      if (!current.refund_date || new Date(refund.refund_date) > new Date(current.refund_date)) {
+        current.refund_date = refund.refund_date;
+      }
+    }
+  }
+
+  let totalUpdated = 0;
+
+  // Update fulfillments for each order
+  for (const [orderId, data] of refundsByOrder) {
+    const { error } = await supabase
+      .from("fulfillments")
+      .update({
+        refunded_qty: data.refunded_qty,
+        refund_date: data.refund_date
+      })
+      .eq("order_id", orderId);
+
+    if (error) {
+      console.error(`❌ Failed to update fulfillment for order ${orderId}: ${error.message}`);
     } else {
       totalUpdated++;
     }

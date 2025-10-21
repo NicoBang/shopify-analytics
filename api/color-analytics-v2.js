@@ -360,11 +360,13 @@ class ColorAnalyticsV2 {
         hasMoreInv = false;
       } else {
         data.forEach(item => {
-          const baseArtikelNummer = item.style;
+          // FIXED: Extract artikelnummer from sku instead of non-existent 'style' field
+          const baseArtikelNummer = this.extractArtikelnummer(item.sku);  // Use existing extract method (sku.split('\\')[0])
+
           if (!inventoryByStyle[baseArtikelNummer]) {
             inventoryByStyle[baseArtikelNummer] = 0;
           }
-          inventoryByStyle[baseArtikelNummer] += parseInt(item.qty || 0);
+          inventoryByStyle[baseArtikelNummer] += parseInt(item.quantity || item.qty || 0);  // Handle both 'quantity' and 'qty' if needed
         });
 
         invOffset += invBatchSize;

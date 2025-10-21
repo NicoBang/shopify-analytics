@@ -1119,10 +1119,14 @@ function renderDeliveryAnalytics(data, startDate, endDate) {
     ['Retur rate (styk):', data.totalFulfilledItems > 0 ? `${(((data.totalReturnedItems || 0) / data.totalFulfilledItems) * 100).toFixed(2)}%` : '0%']
   ];
 
+  const summaryStartRow = currentRow;
   summary.forEach(row => {
     sheet.getRange(currentRow, 1, 1, 2).setValues([row]);
     currentRow += 1;
   });
+
+  // Fix: Fjern procentformatering fra tal-kolonnen (kolonne 2) for de første 4 rækker
+  sheet.getRange(summaryStartRow, 2, 4, 1).setNumberFormat('#,##0');
 
   // Auto-resize
   sheet.autoResizeColumns(1, Math.max(headers.length, returnHeaders.length));
