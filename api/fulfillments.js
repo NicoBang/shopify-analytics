@@ -71,7 +71,10 @@ class SupabaseService {
     const endISO = endDate.toISOString();
 
     while (hasMore) {
-      // Use .or() to fetch rows where EITHER date OR refund_date is in period
+      // ✅ FIXED: Fetch fulfillments where EITHER delivery happened OR refund happened in period
+      // This ensures we track:
+      // 1. Deliveries in period (for fulfillment count)
+      // 2. Refunds in period (for return count, even if delivery was earlier)
       const { data: batch, error: batchError } = await this.supabase
         .from('fulfillments')
         .select('*')
@@ -117,17 +120,19 @@ class SupabaseService {
     // Process fulfillments and returns from single table
     fulfillmentData.forEach(fulfillment => {
       const key = `${fulfillment.country}|${fulfillment.carrier}`;
+      const fulfillmentDate = new Date(fulfillment.date);
 
-      // Track fulfillments (by date field)
-      countries.add(fulfillment.country);
-      carriers.add(fulfillment.carrier);
-      fulfillmentMatrix[key] = (fulfillmentMatrix[key] || 0) + 1;
-      totalFulfillments++;
-      totalFulfilledItems += Number(fulfillment.item_count) || 0;
+      // ✅ Track fulfillments ONLY if delivery happened in period
+      if (fulfillmentDate >= startDate && fulfillmentDate <= endDate) {
+        countries.add(fulfillment.country);
+        carriers.add(fulfillment.carrier);
+        fulfillmentMatrix[key] = (fulfillmentMatrix[key] || 0) + 1;
+        totalFulfillments++;
+        totalFulfilledItems += Number(fulfillment.item_count) || 0;
+      }
 
-      // Track returns (by refund_date field) - filter in period
-      // ✅ CRITICAL: Google Sheets sends UTC timestamps that represent Danish dates
-      // We need to compare the refund_date AS UTC timestamp (not extract date string)
+      // ✅ Track returns ONLY if refund happened in period
+      // CRITICAL: Google Sheets sends UTC timestamps that represent Danish dates
       if (fulfillment.refund_date) {
         const refundDate = new Date(fulfillment.refund_date);
 
