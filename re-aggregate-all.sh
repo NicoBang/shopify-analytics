@@ -28,23 +28,23 @@ aggregate_month() {
 }
 
 # 2024
-aggregate_month 2024 8 31   # August 2024
-aggregate_month 2024 9 30   # September 2024
-aggregate_month 2024 10 31  # October 2024
-aggregate_month 2024 11 30  # November 2024
-aggregate_month 2024 12 31  # December 2024
+# aggregate_month 2024 8 31   # August 2024
+# aggregate_month 2024 9 30   # September 2024
+# aggregate_month 2024 10 31  # October 2024
+# aggregate_month 2024 11 30  # November 2024
+# aggregate_month 2024 12 31  # December 2024
 
-# 2025
-aggregate_month 2025 1 31   # January 2025
-aggregate_month 2025 2 28   # February 2025
-aggregate_month 2025 3 31   # March 2025
-aggregate_month 2025 4 30   # April 2025
-aggregate_month 2025 5 31   # May 2025
-aggregate_month 2025 6 30   # June 2025
-aggregate_month 2025 7 31   # July 2025
-aggregate_month 2025 8 31   # August 2025
-aggregate_month 2025 9 30   # September 2025
-aggregate_month 2025 10 16  # October 2025 (partial - up to 16th)
+# # 2025
+# aggregate_month 2025 1 31   # January 2025
+# aggregate_month 2025 2 28   # February 2025
+# aggregate_month 2025 3 31   # March 2025
+# aggregate_month 2025 4 30   # April 2025
+# aggregate_month 2025 5 31   # May 2025
+# aggregate_month 2025 6 30   # June 2025
+# aggregate_month 2025 7 31   # July 2025
+# aggregate_month 2025 8 31   # August 2025
+# aggregate_month 2025 9 30   # September 2025
+aggregate_month 2025 10 22  # October 2025 (partial - up to 22nd)
 
 echo "✅ Complete re-aggregation finished!"
 echo ""

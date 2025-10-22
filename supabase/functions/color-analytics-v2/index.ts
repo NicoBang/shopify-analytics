@@ -269,23 +269,16 @@ class SupabaseService {
 
       // Sum metrics from daily_color_metrics for this period (if any)
       const metrics = metricsMap[artikelnummer] || [];
-      let totalCancelled = 0;
-      let totalRefunded = 0;
       metrics.forEach((row: any) => {
         const m = artikelMap[artikelnummer];
         m.solgt += row.solgt || 0;
         m.retur += row.retur || 0;
-        // Sum omsaetning_net (which is revenue_gross - order_discounts)
+        // ✅ CRITICAL: omsaetning_net is ALREADY net revenue (revenue_gross - order_discounts - cancelled_amount - refunded_amount)
+        // DO NOT subtract refunds again - just sum it!
         m.omsætning += parseFloat(row.omsaetning_net) || 0;
-        // Kostpris is ALREADY total cost (not per-unit), just sum it
+        // ✅ CRITICAL: Kostpris is ALREADY total cost (unit_cost × (solgt - retur)), just sum it!
         m.kostpris += parseFloat(row.kostpris) || 0;
-        // Track cancelled and refunded amounts separately
-        totalCancelled += parseFloat(row.cancelled_amount) || 0;
-        totalRefunded += parseFloat(row.refunded_amount) || 0;
       });
-
-      // ✅ FIX: Subtract cancelled and refunded amounts from omsætning
-      artikelMap[artikelnummer].omsætning -= (totalCancelled + totalRefunded);
 
       // Set inventory from aggregated inventoryMap (not from daily_color_metrics)
       artikelMap[artikelnummer].lager = inventoryMap[artikelnummer] || 0;
