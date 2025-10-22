@@ -126,12 +126,13 @@ class SupabaseService {
       totalFulfilledItems += Number(fulfillment.item_count) || 0;
 
       // Track returns (by refund_date field) - filter in period
+      // ✅ CRITICAL: Google Sheets sends UTC timestamps that represent Danish dates
+      // We need to compare the refund_date AS UTC timestamp (not extract date string)
       if (fulfillment.refund_date) {
-        const refundDateStr = fulfillment.refund_date.split('T')[0];
-        const startDateStr = startDate.toISOString().split('T')[0];
-        const endDateStr = endDate.toISOString().split('T')[0];
+        const refundDate = new Date(fulfillment.refund_date);
 
-        if (refundDateStr >= startDateStr && refundDateStr <= endDateStr) {
+        // Compare timestamps directly (no string conversion - avoids timezone issues)
+        if (refundDate >= startDate && refundDate <= endDate) {
           returnCountries.add(fulfillment.country);
           returnsMatrix[key] = (returnsMatrix[key] || 0) + 1;
           totalReturns++;
