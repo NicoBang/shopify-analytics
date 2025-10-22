@@ -70,7 +70,7 @@ Komplet guide til at synce Shopify data til Supabase.
 curl -X POST "https://ihawjrtfwysyokfotewn.supabase.co/functions/v1/bulk-sync-orchestrator" \
   -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImloYXdqcnRmd3lzeW9rZm90ZXduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODA0OTMyOCwiZXhwIjoyMDczNjI1MzI4fQ.MzRIK7zmo-O8yt89vxYsw9DVMLyHLo7OUSLSnXaOUJM" \
   -H "Content-Type: application/json" \
-  -d '{"shops":["pompdelux-da.myshopify.com","pompdelux-de.myshopify.com","pompdelux-nl.myshopify.com","pompdelux-int.myshopify.com","pompdelux-chf.myshopify.com"],"types":["fulfillments"],"startDate":"2025-10-01","endDate":"2025-10-07"}'
+  -d '{"shops":["pompdelux-da.myshopify.com","pompdelux-de.myshopify.com","pompdelux-nl.myshopify.com","pompdelux-int.myshopify.com","pompdelux-chf.myshopify.com"],"types":["fulfillments"],"startDate":"2025-09-10","endDate":"2025-09-17"}'
 
 # Legacy script (via Vercel API - ikke anbefalet)
 # ./sync-fulfillments.sh 2025-10-01 2025-10-07
@@ -901,4 +901,4 @@ SELECT cron.schedule(...);  -- Brug SQL fra opsætningen ovenfor
 
 TIL SYNC AF HISTORIS ALL PENDING:
 
-./create-all-jobs.sh 2025-09-01 2025-10-20
+./create-all-jobs.sh 2025-08-01 2025-08-31

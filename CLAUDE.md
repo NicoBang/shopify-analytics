@@ -71,6 +71,34 @@ This project syncs Shopify order and SKU data to Supabase for analytics and repo
 - [supabase/functions/bulk-sync-skus/index.ts](supabase/functions/bulk-sync-skus/index.ts): All 5 bug fixes
 - [legacy-sync-one-day.sh](legacy-sync-one-day.sh): Removed hardcoded Shopify token
 
+### Session 8: Daily Metrics `omsaetning_net` Fix (2025-10-22) ⚠️ CRITICAL
+- ✅ **CRITICAL FIX**: `omsaetning_net` in `daily_color_metrics` and `daily_sku_metrics` is **BRUTTO** revenue
+  - **Formula**: `omsaetning_net = (price_dkk × quantity) - total_discount_dkk - cancelled_amount_dkk`
+  - **Does NOT subtract**: `refunded_amount` (stored separately in own column)
+  - **Why**: Refunds happen on different dates than sales, must be tracked separately
+- ✅ **Edge Function Fix**: Updated `color-analytics-v2` Edge Function to subtract `refunded_amount`
+  - **Location**: `supabase/functions/color-analytics-v2/index.ts` (lines 272-286)
+  - **Logic**: Sum `omsaetning_net` (brutto), then subtract `refunded_amount` to get net
+- ✅ **Database Migrations**:
+  - `20251022_fix_omsaetning_net_calculation.sql` - Fixed daily_color_metrics
+  - `20251022_fix_sku_metrics_omsaetning.sql` - Fixed daily_sku_metrics
+
+**🚨 NEVER ASSUME `omsaetning_net` is net revenue - it is BRUTTO!**
+**🚨 ALWAYS subtract `refunded_amount` when calculating final revenue in Edge Functions!**
+
+**Verification Example (2025-10-01, artikelnummer 100145):**
+```
+Sales (4 orders): 948.10 kr (after discounts, before refunds)
+Refunds: 116.21 kr (from different date)
+Expected omsaetning_net: 948.10 kr ✅
+Expected net after refunds: 831.89 kr ✅
+```
+
+**Critical Files Modified**:
+- [supabase/functions/color-analytics-v2/index.ts](supabase/functions/color-analytics-v2/index.ts): Lines 272-286
+- [supabase/migrations/20251022_fix_omsaetning_net_calculation.sql](supabase/migrations/20251022_fix_omsaetning_net_calculation.sql)
+- [supabase/migrations/20251022_fix_sku_metrics_omsaetning.sql](supabase/migrations/20251022_fix_sku_metrics_omsaetning.sql)
+
 ## 🗄️ Database Tables
 
 ### `orders` table
@@ -1052,6 +1080,13 @@ SELECT cron.schedule(
 7. **Table Separation:** bulk-sync-orders → orders table, bulk-sync-skus → skus table
 8. **Extensions:** pg_cron + pg_net must both be enabled for automation
 9. **Deployment:** Always use `--no-verify-jwt` flag
+10. **🚨 CRITICAL (2025-10-22): `omsaetning_net` is BRUTTO revenue (without refunds)!**
+    - **Formula in DB**: `omsaetning_net = (price_dkk × quantity) - total_discount_dkk - cancelled_amount_dkk`
+    - **Does NOT subtract**: `refunded_amount` (stored in separate column)
+    - **Why**: Refunds happen on different dates than sales
+    - **Edge Functions MUST**: Sum `omsaetning_net`, then subtract `refunded_amount` to get net
+    - **Example**: Sales 948.10 kr + Refunds 116.21 kr → Net 831.89 kr
+    - **NEVER assume** `omsaetning_net` is final revenue without checking refunds!
 
 ## 🔍 Quick Troubleshooting Guide
 

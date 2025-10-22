@@ -216,6 +216,7 @@ async function aggregateShopDate(supabase: any, shop: string, dateStr: string) {
       .select('refunded_qty, refunded_amount_dkk, order_id, cancelled_qty')
       .eq('shop', shop)
       .gt('refunded_qty', 0)
+      .not('refund_date', 'is', null)  // ✅ CRITICAL: Only SKUs with refund_date (excludes cancelled-only)
       .gte('refund_date', danishDateStart.toISOString())
       .lte('refund_date', danishDateEnd.toISOString())
       .order('refund_date', { ascending: false })
@@ -243,9 +244,16 @@ async function aggregateShopDate(supabase: any, shop: string, dateStr: string) {
 
     if (refundData && refundData.length > 0) {
       refundData.forEach(refund => {
-        returnQty += refund.refunded_qty || 0;
-        returnAmount += refund.refunded_amount_dkk || 0;
-        returnOrders.add(refund.order_id);
+        // ✅ CRITICAL: Refunds query already excludes cancelled-only orders (has refund_date filter)
+        // So we can safely count all refunded_qty as returns
+        const refundedQty = refund.refunded_qty || 0;
+        const refundedAmount = refund.refunded_amount_dkk || 0;
+
+        if (refundedQty > 0) {
+          returnQty += refundedQty;
+          returnAmount += refundedAmount;
+          returnOrders.add(refund.order_id);
+        }
       });
     }
 
@@ -331,11 +339,12 @@ async function aggregateShopDate(supabase: any, shop: string, dateStr: string) {
   // Process refunds
   if (refundData && refundData.length > 0) {
     refundData.forEach(refund => {
+      // ✅ CRITICAL FIX (2025-10-22): Refunds query already excludes cancelled-only orders
+      // (has refund_date filter which is NULL for cancelled orders)
+      // So we can safely count all refunded_qty as returns
       const refundedQty = refund.refunded_qty || 0;
       const refundedAmount = refund.refunded_amount_dkk || 0;
 
-      // FIXED (2025-10-21): Include ALL refunds in return_quantity, regardless of cancelled_qty
-      // Previously excluded items with cancelled_qty > 0, causing undercounting (e.g., 60 vs 72)
       if (refundedQty > 0) {
         returnQty += refundedQty;
         returnAmount += refundedAmount;

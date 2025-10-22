@@ -131,9 +131,10 @@ class SupabaseService {
         totalFulfilledItems += Number(fulfillment.item_count) || 0;
       }
 
-      // ✅ Track returns ONLY if refund happened in period
+      // ✅ Track returns ONLY if refund happened in period AND refunded_qty > 0
       // CRITICAL: Google Sheets sends UTC timestamps that represent Danish dates
-      if (fulfillment.refund_date) {
+      // CRITICAL: Only count as return if refunded_qty > 0 (some orders have refund_date but 0 refunded items)
+      if (fulfillment.refund_date && fulfillment.refunded_qty > 0) {
         const refundDate = new Date(fulfillment.refund_date);
 
         // Compare timestamps directly (no string conversion - avoids timezone issues)
@@ -141,7 +142,7 @@ class SupabaseService {
           returnCountries.add(fulfillment.country);
           returnsMatrix[key] = (returnsMatrix[key] || 0) + 1;
           totalReturns++;
-          totalReturnedItems += Number(fulfillment.refunded_qty) || 0;
+          totalReturnedItems += Number(fulfillment.refunded_qty);
         }
       }
     });

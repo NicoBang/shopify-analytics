@@ -347,10 +347,9 @@ async function syncRefundsForChunk(shop, token, supabase, startISO, endISO) {
           const currency = item.subtotal_set?.shop_money?.currency_code || "DKK";
           const rate = CURRENCY_RATES[currency] || 1;
 
-          // ✅ Use database tax_rate for accuracy (same as bulk-sync-skus)
-          // Shopify's refund subtotal is INCL VAT: 16.95 EUR
-          // Remove VAT: 16.95 / (1 + 0.2) = 14.125 EUR EX VAT
-          // Convert to DKK: 14.125 × 7.46 = 105.37 DKK
+          // ✅ FIXED (2025-10-22): Correct order of operations
+          // 1. Convert currency to DKK first: 16.95 EUR × 7.46 = 126.447 DKK INCL VAT
+          // 2. Remove VAT: 126.447 / (1 + 0.21) = 104.50 DKK EX VAT
           if (taxRate !== null && taxRate !== undefined) {
             const subtotalInclVatDkk = subtotal * rate;
             amountDkk = subtotalInclVatDkk / (1 + taxRate);
@@ -358,8 +357,8 @@ async function syncRefundsForChunk(shop, token, supabase, startISO, endISO) {
             // Fallback: calculate from Shopify's tax data
             const tax = parseFloat(item.total_tax_set?.shop_money?.amount || "0");
             const calculatedTaxRate = tax > 0 && subtotal > 0 ? tax / (subtotal - tax) : 0;
-            const subtotalExVat = subtotal / (1 + calculatedTaxRate);
-            amountDkk = subtotalExVat * rate;
+            const subtotalInclVatDkk = subtotal * rate;
+            amountDkk = subtotalInclVatDkk / (1 + calculatedTaxRate);
           }
         } else {
           const subtotal = parseFloat(item.subtotal_set?.shop_money?.amount || "0");
@@ -367,23 +366,30 @@ async function syncRefundsForChunk(shop, token, supabase, startISO, endISO) {
           const currency = item.subtotal_set?.shop_money?.currency_code || "DKK";
           const rate = CURRENCY_RATES[currency] || 1;
 
-          // ✅ Calculate proportion based on INCL VAT (subtotal + tax)
+          // ✅ FIXED (2025-10-22): Convert actualRefundAmount to DKK FIRST
+          // transactions[].amount is in SHOP currency (EUR for INT shop)
+          // Need to get transaction currency from first transaction
+          const firstTransaction = transactions.find(t => t.kind === "refund" && t.status === "success");
+          const transactionCurrency = firstTransaction?.currency || currency;
+          const transactionRate = CURRENCY_RATES[transactionCurrency] || 1;
+
+          // 1. Convert actualRefundAmount from original currency to DKK INCL VAT
+          const actualRefundAmountDkk = actualRefundAmount * transactionRate;
+
+          // 2. Calculate proportion based on INCL VAT (subtotal + tax)
           const itemTotal = subtotal + tax;
           const proportion = totalTheoretical > 0 ? itemTotal / totalTheoretical : 0;
 
-          // ✅ actualRefundAmount is INCL VAT in original currency
-          // Distribute proportionally and convert to DKK
-          const actualInclVat = actualRefundAmount * proportion;
+          // 3. Distribute proportionally in DKK INCL VAT
+          const actualInclVatDkk = actualRefundAmountDkk * proportion;
 
-          // ✅ Use database tax_rate for accuracy (same as bulk-sync-skus)
+          // 4. Remove VAT to get DKK EX VAT
           if (taxRate !== null && taxRate !== undefined) {
-            const actualExVat = actualInclVat / (1 + taxRate);
-            amountDkk = actualExVat * rate;
+            amountDkk = actualInclVatDkk / (1 + taxRate);
           } else {
             // Fallback: calculate from Shopify's tax data
             const calculatedTaxRate = subtotal > 0 ? tax / subtotal : 0;
-            const actualExVat = actualInclVat / (1 + calculatedTaxRate);
-            amountDkk = actualExVat * rate;
+            amountDkk = actualInclVatDkk / (1 + calculatedTaxRate);
           }
         }
 
@@ -539,8 +545,9 @@ async function updateFulfillmentsWithRefunds(supabase, refunds) {
     const current = refundsByOrder.get(refund.order_id);
     current.refunded_qty += refund.refunded_qty || 0;
 
-    // Keep latest refund_date
-    if (refund.refund_date) {
+    // Keep latest refund_date - but ONLY from actual refunds, not cancellations
+    // This prevents cancelled items' refund_date from overriding actual refund dates
+    if (refund.refund_date && refund.refunded_qty > 0) {
       if (!current.refund_date || new Date(refund.refund_date) > new Date(current.refund_date)) {
         current.refund_date = refund.refund_date;
       }
@@ -550,17 +557,35 @@ async function updateFulfillmentsWithRefunds(supabase, refunds) {
   let totalUpdated = 0;
 
   // Update fulfillments for each order
+  // ⚠️ CRITICAL: Only update ONE fulfillment row per order to prevent duplication
+  // Some orders have duplicate fulfillment rows from different sync methods (bulk-sync-fulfillments vs sync-fulfillments-for-date.sh)
+  // Strategy: Update the OLDEST row (earliest created_at) to preserve historical data
   for (const [orderId, data] of refundsByOrder) {
-    const { error } = await supabase
+    // First, get the oldest fulfillment row for this order
+    const { data: oldestFulfillment, error: selectError } = await supabase
+      .from("fulfillments")
+      .select("id, created_at")
+      .eq("order_id", orderId)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .single();
+
+    if (selectError || !oldestFulfillment) {
+      console.error(`❌ Failed to find fulfillment for order ${orderId}: ${selectError?.message}`);
+      continue;
+    }
+
+    // Now update ONLY that specific row by id
+    const { error: updateError } = await supabase
       .from("fulfillments")
       .update({
         refunded_qty: data.refunded_qty,
         refund_date: data.refund_date
       })
-      .eq("order_id", orderId);
+      .eq("id", oldestFulfillment.id);
 
-    if (error) {
-      console.error(`❌ Failed to update fulfillment for order ${orderId}: ${error.message}`);
+    if (updateError) {
+      console.error(`❌ Failed to update fulfillment ${oldestFulfillment.id} for order ${orderId}: ${updateError.message}`);
     } else {
       totalUpdated++;
     }

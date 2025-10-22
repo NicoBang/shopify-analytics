@@ -145,9 +145,11 @@ class ColorAnalyticsV2 {
           solgt: 0,
           retur: 0,
           cancelled: 0,
-          omsaetning_net: 0,  // ✅ CRITICAL: This is ALREADY net (no refund deduction needed!)
+          omsaetning_net: 0,  // Brutto revenue (without refunds)
+          refunded_amount: 0,  // ✅ NEW: Track refunds separately
+          cancelled_amount: 0,  // Track cancelled separately
           varemodtaget: record.varemodtaget || 0,
-          kostpris: 0,  // ✅ CRITICAL: This is TOTAL cost (not unit cost)
+          kostpris: 0,  // Total cost (not unit cost)
           vejl_pris: record.vejl_pris || 0,
           lager: 0  // Will be added from inventory table
         };
@@ -158,8 +160,10 @@ class ColorAnalyticsV2 {
       group.solgt += record.solgt || 0;
       group.retur += record.retur || 0;
       group.cancelled += record.cancelled || 0;
-      group.omsaetning_net += parseFloat(record.omsaetning_net) || 0;  // ✅ ALREADY NET!
-      group.kostpris += parseFloat(record.kostpris) || 0;  // ✅ ALREADY TOTAL!
+      group.omsaetning_net += parseFloat(record.omsaetning_net) || 0;  // Brutto
+      group.refunded_amount += parseFloat(record.refunded_amount) || 0;  // ✅ NEW
+      group.cancelled_amount += parseFloat(record.cancelled_amount) || 0;  // ✅ NEW
+      group.kostpris += parseFloat(record.kostpris) || 0;
     });
 
     console.log(`  📦 Aggregated into ${Object.keys(byArtikelnummer).length} artikelnummer`);
@@ -220,9 +224,11 @@ class ColorAnalyticsV2 {
           styles: [],
           totalSold: 0,
           totalReturn: 0,
-          totalRevenue: 0,  // ✅ omsaetning_net is already net!
+          totalRevenueBrutto: 0,  // Brutto revenue (before refunds)
+          totalRefunded: 0,  // ✅ NEW: Track total refunds
+          totalCancelled: 0,  // ✅ NEW: Track total cancelled
           totalInventory: 0,
-          totalCost: 0,  // ✅ kostpris is already total!
+          totalCost: 0,
           totalVaremodtaget: 0
         };
       }
@@ -231,9 +237,11 @@ class ColorAnalyticsV2 {
       colorGroup.styles.push(style);
       colorGroup.totalSold += style.solgt;
       colorGroup.totalReturn += style.retur;
-      colorGroup.totalRevenue += style.omsaetning_net;  // ✅ CRITICAL: Use directly, no deduction!
+      colorGroup.totalRevenueBrutto += style.omsaetning_net;  // Brutto
+      colorGroup.totalRefunded += style.refunded_amount;  // ✅ NEW
+      colorGroup.totalCancelled += style.cancelled_amount;  // ✅ NEW
       colorGroup.totalInventory += style.lager;
-      colorGroup.totalCost += style.kostpris;  // ✅ CRITICAL: Already total cost!
+      colorGroup.totalCost += style.kostpris;
       colorGroup.totalVaremodtaget += style.varemodtaget;
     });
 
@@ -241,17 +249,20 @@ class ColorAnalyticsV2 {
 
     // STEP 5: Calculate derived metrics
     const result = Object.values(colorGroups).map(group => {
+      // ✅ CRITICAL: Subtract refunded_amount from brutto to get net revenue
+      const totalRevenueNet = group.totalRevenueBrutto - group.totalRefunded;
+
       const beregnetKøbt = group.totalSold + group.totalReturn + group.totalInventory;
       const solgtPct = beregnetKøbt > 0 ? (group.totalSold / beregnetKøbt) * 100 : 0;
       const returPct = group.totalSold > 0 ? (group.totalReturn / group.totalSold) * 100 : 0;
-      const db = group.totalRevenue - group.totalCost;
-      const dbPct = group.totalRevenue > 0 ? (db / group.totalRevenue) * 100 : 0;
+      const db = totalRevenueNet - group.totalCost;
+      const dbPct = totalRevenueNet > 0 ? (db / totalRevenueNet) * 100 : 0;
 
       return {
         farve: group.farve,
         solgt: group.totalSold,
         retur: group.totalReturn,
-        omsætning: Math.round(group.totalRevenue * 100) / 100,  // ✅ Already net revenue!
+        omsætning: Math.round(totalRevenueNet * 100) / 100,  // ✅ Net revenue after refunds
         lager: group.totalInventory,
         varemodtaget: group.totalVaremodtaget,
         beregnetKøbt: beregnetKøbt,
