@@ -108,7 +108,7 @@ sales AS (
     SUM(COALESCE(sb.cancelled_qty, 0))::int AS cancelled,
     -- Revenue calculations (INCLUDE cancelled in gross revenue)
     SUM((sb.price_dkk * sb.quantity))::numeric(14,2) AS revenue_gross,
-    SUM((sb.cancelled_amount_dkk * COALESCE(sb.cancelled_qty, 0)))::numeric(14,2) AS cancelled_amount,
+    SUM(COALESCE(sb.cancelled_amount_dkk, 0))::numeric(14,2) AS cancelled_amount,
     -- Discount calculations (INCLUDE cancelled in discounts)
     SUM((sb.discount_per_unit_dkk * sb.quantity))::numeric(14,2) AS order_discounts,
     SUM(sb.sale_discount_total_dkk)::numeric(14,2) AS sale_discounts
