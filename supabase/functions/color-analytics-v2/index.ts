@@ -270,20 +270,22 @@ class SupabaseService {
       // Sum metrics from daily_color_metrics for this period (if any)
       const metrics = metricsMap[artikelnummer] || [];
       let totalRefundedAmount = 0;
+      let totalCancelledAmount = 0;
       metrics.forEach((row: any) => {
         const m = artikelMap[artikelnummer];
         m.solgt += row.solgt || 0;
         m.retur += row.retur || 0;
-        // ✅ CRITICAL: omsaetning_net is BRUTTO (without refunds)
-        // We need to subtract refunded_amount to get true net revenue
+        // ✅ CRITICAL: omsaetning_net is BRUTTO (without refunds and cancelled)
+        // We need to subtract refunded_amount AND cancelled_amount to match Dashboard
         m.omsætning += parseFloat(row.omsaetning_net) || 0;
         totalRefundedAmount += parseFloat(row.refunded_amount) || 0;
+        totalCancelledAmount += parseFloat(row.cancelled_amount) || 0;
         // ✅ CRITICAL: Kostpris is ALREADY total cost, just sum it!
         m.kostpris += parseFloat(row.kostpris) || 0;
       });
 
-      // Subtract refunds to get net revenue
-      artikelMap[artikelnummer].omsætning -= totalRefundedAmount;
+      // Subtract refunds AND cancelled to get net revenue (same as Dashboard)
+      artikelMap[artikelnummer].omsætning -= (totalRefundedAmount + totalCancelledAmount);
 
       // Set inventory from aggregated inventoryMap (not from daily_color_metrics)
       artikelMap[artikelnummer].lager = inventoryMap[artikelnummer] || 0;

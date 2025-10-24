@@ -244,15 +244,23 @@ class SupabaseService {
 
       // Sum metrics from daily_sku_metrics for this period (if any)
       const metrics = metricsMap[sku] || [];
+      let totalRefundedAmount = 0;
+      let totalCancelledAmount = 0;
       metrics.forEach((row: any) => {
         const m = skuMap[sku];
         m.solgt += row.solgt || 0;
         m.retur += row.retur || 0;
-        // ✅ REVERT: Just use omsaetning_net directly - it's already correct in database
+        // ✅ CRITICAL: omsaetning_net is BRUTTO (without refunds and cancelled)
+        // Must subtract refunded_amount AND cancelled_amount to match Dashboard
         m.omsætning += parseFloat(row.omsaetning_net) || 0;
+        totalRefundedAmount += parseFloat(row.refunded_amount) || 0;
+        totalCancelledAmount += parseFloat(row.cancelled_amount) || 0;
         // Kostpris from database is per-unit cost, sum it across days
         m.kostpris += parseFloat(row.kostpris) || 0;
       });
+
+      // Subtract refunds AND cancelled to get net revenue (same as Dashboard)
+      skuMap[sku].omsætning -= (totalRefundedAmount + totalCancelledAmount);
 
       // Set inventory from inventoryMap (not from daily_sku_metrics)
       skuMap[sku].lager = inventoryMap[sku] || 0;

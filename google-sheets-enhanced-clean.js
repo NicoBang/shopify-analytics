@@ -85,665 +85,6 @@ function ensureOnOpenTrigger() {
  * HOVEDFUNKTIONER
  */
 
-/**
- * Opdater dashboard med de sidste 30 dages data
- * UPDATED: Nu bruger dashboard-sku endpoint (kombinerer SKU + orders data)
- */
-function updateDashboard() {
-  try {
-    console.log('🚀 Starter dashboard opdatering...');
-
-    // Læs datoer fra Dashboard arket (B1/B2). Fallback: sidste 30 dage
-    const { startDate, endDate } = getDashboardSelectedDates_();
-
-    // Brug dashboard-sku endpoint
-    const dashboardUrl = `${CONFIG.API_BASE}/analytics`;
-    const dashboardPayload = {
-      startDate: formatDateWithTime(startDate, false),
-      endDate: formatDateWithTime(endDate, true),
-      type: 'dashboard-sku'
-    };
-    const dashboardRes = makeApiRequest(dashboardUrl, dashboardPayload);
-
-    if (!dashboardRes.success || !dashboardRes.data) {
-      throw new Error('Dashboard data kunne ikke hentes');
-    }
-
-    // Brug renderDashboardFromSkus_() funktion
-    renderDashboardFromSkus_(dashboardRes.data, startDate, endDate);
-    console.log(`✅ Dashboard opdateret fra dashboard-sku endpoint (${dashboardRes.data.length} shops)`);
-
-  } catch (error) {
-    console.error('💥 Fejl i updateDashboard:', error);
-    throw error;
-  }
-}
-
-// Render Dashboard fra SKU-baserede beregninger (Updated October 2025)
-function renderDashboardFromSkus_(dashboardData, startDate, endDate) {
-  const sheet = getOrCreateSheet(CONFIG.SHEETS.DASHBOARD);
-
-  // Sæt dato inputs i toppen (A1/A2)
-  sheet.getRange('A1').setValue('Startdato:');
-  sheet.getRange('A2').setValue('Slutdato:');
-  sheet.getRange('A1:A2').setFontWeight('bold');
-  sheet.getRange('B1:B2').setNumberFormat('dd/MM/yyyy');
-
-  // Ryd alt under række 4
-  if (sheet.getLastRow() >= 4) {
-    const lastRow = sheet.getLastRow();
-    const lastCol = Math.max(1, sheet.getLastColumn());
-    sheet.getRange(4, 1, lastRow - 3, lastCol).clear();
-  }
-
-  // Headers - alle 16 kolonner som før
-  const headers = [
-    'Shop','Bruttoomsætning','Nettoomsætning',
-    'Antal stk Brutto','Antal stk Netto','Antal Ordrer',
-    'Gnst ordreværdi','Basket size','Gns. stykpris',
-    'Retur % i stk','Retur % i kr','Retur % i antal o',
-    'Fragt indtægt ex','% af oms','Rabat ex moms','Cancelled stk'
-  ];
-  sheet.getRange('A4:P4').setValues([headers]).setFontWeight('bold').setBackground('#E3F2FD');
-
-  // Byg rækker fra dashboard data
-  const rows = [];
-  const totals = {
-    brutto:0, netto:0, stkBrutto:0, stkNetto:0, orders:0,
-    returStk:0, returKr:0, returOrdre:0, fragt:0, rabat:0, cancelled:0
-  };
-
-  dashboardData.forEach(shopData => {
-    const brutto = shopData.bruttoomsætning || 0;
-    const netto = shopData.nettoomsætning || 0;
-    const stkBrutto = shopData.stkBrutto || 0;
-    const stkNetto = shopData.stkNetto || 0;
-    const returQty = shopData.returQty || 0;
-    const refundedAmount = shopData.refundedAmount || 0;
-    const orders = shopData.antalOrdrer || 0;
-    const shipping = shopData.shipping || 0;
-    const rabat = shopData.totalDiscounts || 0;
-    const cancelled = shopData.cancelledQty || 0;
-
-    // Brug afledte værdier fra API (allerede beregnet)
-    const ordreværdi = shopData.gnstOrdreværdi || 0;
-    const basketSize = shopData.basketSize || 0;
-    const stkPris = shopData.gnsStkpris || 0;
-    const returStkPct = shopData.returPctStk || 0;
-    const returKrPct = shopData.returPctKr || 0;
-    const returOrdrePct = shopData.returPctOrdre || 0;
-    const fragtPct = shopData.fragtPctAfOms || 0;
-
-    rows.push([
-      shopLabel_(shopData.shop),
-      round2_(brutto),
-      round2_(netto),
-      stkBrutto,
-      stkNetto,
-      orders,
-      round2_(ordreværdi),
-      toFixed1_(basketSize),
-      round2_(stkPris),
-      pctStr_(returStkPct / 100),  // API returnerer som 0-100, vi vil have 0-1
-      pctStr_(returKrPct / 100),
-      pctStr_(returOrdrePct / 100),
-      round2_(shipping),
-      pctStr_(fragtPct / 100),
-      round2_(rabat),
-      cancelled
-    ]);
-
-    totals.brutto += brutto;
-    totals.netto += netto;
-    totals.stkBrutto += stkBrutto;
-    totals.stkNetto += stkNetto;
-    totals.orders += orders;
-    totals.returStk += returQty;
-    totals.returKr += refundedAmount;
-    totals.returOrdre += (shopData.returOrderCount || 0); // ✅ FIXED: Sum antal ordrer med refunds
-    totals.fragt += shipping;
-    totals.rabat += rabat;
-    totals.cancelled += cancelled;
-  });
-
-  // Total række
-  const totalReturOrdrePct = totals.orders > 0 ? (totals.returOrdre / totals.orders) : 0;
-  const totalFragtPct = totals.brutto > 0 ? (totals.fragt / totals.brutto) : 0;
-
-  rows.push([
-    'I alt',
-    round2_(totals.brutto),
-    round2_(totals.netto),
-    totals.stkBrutto,
-    totals.stkNetto,
-    totals.orders,
-    round2_(totals.orders > 0 ? totals.brutto / totals.orders : 0),
-    totals.orders > 0 ? toFixed1_(totals.stkBrutto / totals.orders) : '0',
-    round2_(totals.stkBrutto > 0 ? totals.brutto / totals.stkBrutto : 0),
-    pctStr_(totals.stkBrutto > 0 ? (totals.returStk / totals.stkBrutto) : 0),
-    pctStr_(totals.brutto > 0 ? (totals.returKr / totals.brutto) : 0),
-    pctStr_(totalReturOrdrePct),
-    round2_(totals.fragt),
-    pctStr_(totalFragtPct),
-    round2_(totals.rabat),
-    totals.cancelled
-  ]);
-
-  if (rows.length > 0) {
-    sheet.getRange(5, 1, rows.length, rows[0].length).setValues(rows);
-    sheet.getRange(5 + rows.length - 1, 1, 1, rows[0].length).setFontWeight('bold').setBackground('#F0F8FF');
-    sheet.autoResizeColumns(1, rows[0].length);
-  }
-}
-
-// Render Dashboard identisk med det gamle GAS-setup
-// UPDATED: Now accepts optional shopBreakdown parameter for SKU-level cancelled amounts
-function renderDashboard_(orderRows, returnRows, startDate, endDate, shopBreakdown = null) {
-  const sheet = getOrCreateSheet(CONFIG.SHEETS.DASHBOARD);
-
-  // Sæt dato inputs i toppen (A1/A2) som i det gamle setup
-  sheet.getRange('A1').setValue('Startdato:');
-  sheet.getRange('A2').setValue('Slutdato:');
-  sheet.getRange('A1:A2').setFontWeight('bold');
-  // Bevar brugerens indtastede datoer i B1/B2 uændret; kun format
-  sheet.getRange('B1:B2').setNumberFormat('dd/MM/yyyy');
-
-  // Ryd alt under række 4 (behold eventuelle brugerfelter over det)
-  if (sheet.getLastRow() >= 4) {
-    const lastRow = sheet.getLastRow();
-    const lastCol = Math.max(1, sheet.getLastColumn());
-    sheet.getRange(4, 1, lastRow - 3, lastCol).clear();
-  }
-
-  // Headers som i det gamle Dashboard
-  const headers = [
-    'Shop','Bruttoomsætning','Nettoomsætning',
-    'Antal stk Brutto','Antal stk Netto','Antal Ordrer',
-    'Gnst ordreværdi','Basket size','Gns. stykpris',
-    'Retur % i stk','Retur % i kr','Retur % i antal o',
-    'Fragt indtægt ex','% af oms','Rabat ex moms','Cancelled stk'
-  ];
-  sheet.getRange('A4:P4').setValues([headers]).setFontWeight('bold').setBackground('#E3F2FD');
-
-  // Indekser for order rows (som fra /api/analytics?type=orders)
-  const IDX = {
-    SHOP:0, ORDER_ID:1, CREATED_AT:2, COUNTRY:3, DISCOUNTED_TOTAL:4,
-    TAX:5, SHIPPING:6, ITEM_COUNT:7, REFUNDED_AMOUNT:8, REFUNDED_QTY:9,
-    REFUND_DATE:10, TOTAL_DISCOUNTS_EX_TAX:11, CANCELLED_QTY:12,
-    SALE_DISCOUNT_TOTAL:13, COMBINED_DISCOUNT_TOTAL:14
-  };
-
-  // Init pr. shop
-  const shops = extractShopsFromOrders_(orderRows);
-  const shopMap = {};
-  const skuStats = {};
-  shops.forEach(s => {
-    shopMap[s] = { gross:0, net:0, orders:new Set(), shipping:0, refundedAmount:0, refundOrders:new Set(), totalDiscounts:0 };
-    skuStats[s] = { qty:0, qtyNet:0, refundedQty:0, cancelledQty:0 };
-  });
-
-  // Track which returns we've already counted in orderRows
-  const processedReturns = new Set();
-
-  // Ordrer oprettet i perioden
-  orderRows.forEach(row => {
-    if (!row || row.length < 15) return;
-    const shop = row[IDX.SHOP];
-    if (!shopMap[shop]) return;
-
-    const orderId = row[IDX.ORDER_ID];
-
-    const discountedTotal = toNum_(row[IDX.DISCOUNTED_TOTAL]);
-    const tax = toNum_(row[IDX.TAX]);
-    const shipping = toNum_(row[IDX.SHIPPING]);
-    // shipping er allerede ex moms, og shipping tax er inkluderet i tax
-    // brutto = hvad vi har solgt produkter for ex moms
-    const brutto = discountedTotal - tax - shipping;
-
-    shopMap[shop].gross += brutto;
-    shopMap[shop].net += brutto;
-    shopMap[shop].shipping += shipping;
-    shopMap[shop].totalDiscounts += toNum_(row[IDX.COMBINED_DISCOUNT_TOTAL]);
-    shopMap[shop].orders.add(orderId);
-
-    const cancelledQty = toNum_(row[IDX.CANCELLED_QTY]);
-    const itemCount = toNum_(row[IDX.ITEM_COUNT]);
-    // Brutto antal skal ekskludere annulleringer
-    const bruttoQty = Math.max(0, itemCount - cancelledQty);
-    skuStats[shop].qty += bruttoQty;
-    // Netto starter fra brutto (allerede uden annulleringer) og reduceres senere af retur
-    skuStats[shop].qtyNet += bruttoQty;
-    skuStats[shop].cancelledQty += cancelledQty;
-
-    // NOTE: Cancelled amount deduction is handled via SKU-level data in shopBreakdown
-    // Old proportional calculation has been removed to avoid double-deduction
-    // Fallback: If shopBreakdown is null, use proportional calculation
-    if (!shopBreakdown && itemCount > 0 && cancelledQty > 0) {
-      const perUnitExTax = brutto / itemCount;
-      const cancelValueExTax = perUnitExTax * cancelledQty;
-      // Træk fra både brutto (B) og netto (C)
-      shopMap[shop].gross -= cancelValueExTax;
-      shopMap[shop].net -= cancelValueExTax;
-      console.log(`⚠️  FALLBACK: Using proportional calculation for ${shop} order ${orderId} (cancelled_amount_dkk not available)`);
-    }
-
-    // Håndter returer for ordrer i perioden (undgå dobbelt-træk senere)
-    const refundedAmount = toNum_(row[IDX.REFUNDED_AMOUNT]);
-    const refundedQty = toNum_(row[IDX.REFUNDED_QTY]);
-    const refundDate = row[IDX.REFUND_DATE];
-
-    // KUN tæl returen hvis refund_date er inden for denne periode
-    if (refundDate && refundedAmount > 0) {
-      const refundDateObj = new Date(refundDate);
-      if (refundDateObj >= startDate && refundDateObj <= endDate) {
-        shopMap[shop].net -= refundedAmount;
-        shopMap[shop].refundedAmount += refundedAmount;
-        if (refundedQty > 0) {
-          shopMap[shop].refundOrders.add(orderId);
-        }
-        skuStats[shop].refundedQty += refundedQty;
-        skuStats[shop].qtyNet -= refundedQty;
-        // Mark this return as processed so we don't count it again in returnRows
-        processedReturns.add(orderId);
-      }
-    }
-  });
-
-  // Returer dateret på refund_date i perioden
-  returnRows.forEach(row => {
-    if (!row || row.length < 15) return;
-    const shop = row[IDX.SHOP];
-    if (!shopMap[shop]) return;
-
-    const orderId = row[IDX.ORDER_ID];
-    const refundedAmount = toNum_(row[IDX.REFUNDED_AMOUNT]);
-    const refundedQty = toNum_(row[IDX.REFUNDED_QTY]);
-    const refundDate = row[IDX.REFUND_DATE];
-    if (!refundDate) return;
-
-    // Skip if we already counted this return in orderRows
-    if (processedReturns.has(orderId)) {
-      return;
-    }
-
-    // This return is from an order created in an earlier period
-    // Only subtract the return value (order creation not in this period)
-    shopMap[shop].net -= refundedAmount;
-    shopMap[shop].refundedAmount += refundedAmount;
-    if (refundedQty > 0) {
-      shopMap[shop].refundOrders.add(orderId);
-    }
-    skuStats[shop].refundedQty += refundedQty;
-    skuStats[shop].qtyNet -= refundedQty;
-  });
-
-  // If shopBreakdown exists, use SKU-level revenue (with precise cancelled amounts)
-  if (shopBreakdown && shopBreakdown.length > 0) {
-    console.log('✅ Using SKU-level cancelled amounts from shopBreakdown');
-    shopBreakdown.forEach(breakdown => {
-      const shop = breakdown.shop;
-      if (!shopMap[shop]) return;
-
-      // Calculate revenue components from SKU-level data
-      const totalRevenue = breakdown.revenue || 0;           // Brutto (gross revenue)
-      const cancelledAmount = breakdown.cancelledAmount || 0; // Cancelled items value
-
-      // Override the order-level calculated values
-      shopMap[shop].gross = totalRevenue;
-      shopMap[shop].net = totalRevenue - cancelledAmount;  // ✅ Subtract cancelled amounts from net
-
-      // Logging for transparency
-      if (cancelledAmount === 0) {
-        console.log(`   ${shop}: Brutto=${totalRevenue.toFixed(2)}, Cancelled=0 (no cancellations)`);
-      } else {
-        console.log(`✅ Using SKU-level net revenue calculation`);
-        console.log(`   ${shop}: Brutto=${totalRevenue.toFixed(2)}, Cancelled=${cancelledAmount.toFixed(2)}, Netto=${(totalRevenue - cancelledAmount).toFixed(2)}`);
-      }
-    });
-  } else {
-    console.log('⚠️  No shopBreakdown available - using order-level proportional calculation');
-  }
-
-  // Byg rækker
-  const rows = [];
-  const totals = { brutto:0, netto:0, stkBrutto:0, stkNetto:0, orders:0, fragt:0, returStk:0, returKr:0, returOrdre:0, rabat:0, cancelled:0 };
-
-  shops.forEach(shop => {
-    const o = shopMap[shop], s = skuStats[shop];
-    const orders = o.orders.size;
-    const brutto = o.gross, netto = o.net, fragt = o.shipping;
-    const stkBrutto = s.qty, stkNetto = s.qtyNet;
-    const stkPris = stkBrutto > 0 ? brutto / stkBrutto : 0;  // Gns. stykpris = brutto / brutto antal
-    const ordreværdi = orders > 0 ? brutto / orders : 0;     // Gns. ordreværdi = brutto / orders
-    const basketSize = orders > 0 ? stkBrutto / orders : 0;  // Basket size = brutto antal / orders
-    const returStkPct = stkBrutto > 0 ? s.refundedQty / stkBrutto : 0;
-    const returKrPct = brutto > 0 ? o.refundedAmount / brutto : 0;
-    const returOrdrePct = orders > 0 ? o.refundOrders.size / orders : 0;
-    const fragtPct = brutto > 0 ? fragt / brutto : 0;  // Fragt % af brutto
-
-    rows.push([
-      shopLabel_(shop),
-      round2_(brutto),
-      round2_(netto),
-      stkBrutto,
-      stkNetto,
-      orders,
-      round2_(ordreværdi),
-      toFixed1_(basketSize),
-      round2_(stkPris),
-      pctStr_(returStkPct),
-      pctStr_(returKrPct),
-      pctStr_(returOrdrePct),
-      round2_(fragt),
-      toFixed2_(fragtPct * 100),
-      round2_(o.totalDiscounts),
-      s.cancelledQty
-    ]);
-
-    totals.brutto += brutto; totals.netto += netto; totals.stkBrutto += stkBrutto; totals.stkNetto += stkNetto;
-    totals.orders += orders; totals.fragt += fragt; totals.returStk += s.refundedQty; totals.returKr += o.refundedAmount;
-    totals.returOrdre += o.refundOrders.size; totals.rabat += o.totalDiscounts; totals.cancelled += s.cancelledQty;
-  });
-
-  // Total række
-  rows.push([
-    'I alt',
-    round2_(totals.brutto),
-    round2_(totals.netto),
-    totals.stkBrutto,
-    totals.stkNetto,
-    totals.orders,
-    round2_(totals.orders > 0 ? totals.brutto / totals.orders : 0),  // Gns. ordreværdi = brutto / orders
-    totals.orders > 0 ? toFixed1_(totals.stkBrutto / totals.orders) : '0',  // Basket size = brutto antal / orders
-    round2_(totals.stkBrutto > 0 ? totals.brutto / totals.stkBrutto : 0),  // Gns. stykpris total = brutto / brutto antal
-    pctStr_(totals.stkBrutto > 0 ? (totals.returStk / totals.stkBrutto) : 0),
-    pctStr_(totals.brutto > 0 ? (totals.returKr / totals.brutto) : 0),
-    pctStr_(totals.orders > 0 ? (totals.returOrdre / totals.orders) : 0),
-    round2_(totals.fragt),
-    toFixed2_(totals.brutto > 0 ? (totals.fragt / totals.brutto * 100) : 0),  // Fragt % af brutto
-    round2_(totals.rabat),
-    totals.cancelled
-  ]);
-
-  if (rows.length > 0) {
-    sheet.getRange(5, 1, rows.length, rows[0].length).setValues(rows);
-    sheet.getRange(5 + rows.length - 1, 1, 1, rows[0].length).setFontWeight('bold').setBackground('#F0F8FF');
-    sheet.autoResizeColumns(1, rows[0].length);
-  }
-}
-
-/**
- * Style Color Analytics
- */
-function generateStyleColorAnalytics() {
-  try {
-    console.log('🎨 Starter color analytics...');
-
-    // Prøv at læse datoer fra Color_Analytics sheet
-    let startDate, endDate;
-
-    try {
-      const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Color_Analytics');
-      if (sheet) {
-        const startDateCell = sheet.getRange('B1').getValue();
-        const endDateCell = sheet.getRange('B2').getValue();
-
-        // Hvis begge celler indeholder gyldige datoer, brug dem
-        if (startDateCell instanceof Date && endDateCell instanceof Date) {
-          startDate = new Date(startDateCell);
-          endDate = new Date(endDateCell);
-
-          // Hvis samme dag valgt, sæt endDate til slutningen af dagen
-          if (startDate.toDateString() === endDate.toDateString()) {
-            endDate.setHours(23, 59, 59, 999);
-            console.log(`📅 Samme dag valgt - analyserer hele dagen: ${formatDate(startDate)}`);
-          } else {
-            console.log(`📅 Bruger brugerdefinerede datoer: ${formatDate(startDate)} til ${formatDate(endDate)}`);
-          }
-        } else {
-          // Opret standard header med dato-eksempler hvis sheet eksisterer men celler er tomme
-          if (!startDateCell || !endDateCell) {
-            const today = new Date();
-            const defaultStart = new Date();
-            defaultStart.setDate(defaultStart.getDate() - 90);
-
-            // Setup labels og datoer som Dashboard
-            sheet.getRange('A1').setValue('Startdato:');
-            sheet.getRange('A2').setValue('Slutdato:');
-            sheet.getRange('A1:A2').setFontWeight('bold');
-
-            // Kun sæt datoer hvis cellerne er helt tomme
-            if (!startDateCell) sheet.getRange('B1').setValue(defaultStart);
-            if (!endDateCell) sheet.getRange('B2').setValue(today);
-            sheet.getRange('B1:B2').setNumberFormat('dd/MM/yyyy');
-
-            startDate = startDateCell || defaultStart;
-            endDate = endDateCell || today;
-            console.log(`📅 Oprettede standard datoer. Rediger B1 og B2 for at vælge periode.`);
-          }
-        }
-      }
-    } catch (sheetError) {
-      console.log('ℹ️ Color_Analytics sheet ikke fundet eller fejl ved læsning af datoer');
-    }
-
-    // Fallback til standard 90-dages periode hvis ingen gyldige datoer blev fundet
-    if (!startDate || !endDate) {
-      endDate = new Date();
-      startDate = new Date();
-      startDate.setDate(startDate.getDate() - 90);
-      console.log(`📅 Bruger standard 90-dages periode: ${formatDate(startDate)} til ${formatDate(endDate)}`);
-    }
-
-    const data = fetchMetadataData('style', {
-      startDate: formatDateWithTime(startDate, false),
-      endDate: formatDateWithTime(endDate, true),
-      groupBy: 'farve'
-    });
-
-    console.log(`📊 API Response: success=${data.success}, count=${data.count}, data length=${data.data ? data.data.length : 'null'}`);
-
-    if (data.success && data.count > 0) {
-      const headers = [
-        'Program', 'Produkt', 'Farve', 'Artikelnummer', 'Sæson', 'Køn',
-        'Beregnet købt', 'Solgt', 'Retur', 'Lager', 'Varemodtaget', 'Difference',
-        'Solgt % af købt', 'Retur % af solgt', 'Kostpris', 'DB', 'Omsætning kr',
-        'Status', 'Tags', 'Vejl. Pris'
-      ];
-      const formattedData = data.data.map(item => [
-        item.program || '',
-        item.produkt || '',
-        item.farve || '',
-        item.artikelnummer || '',
-        item.season || '',
-        convertGenderToDanish(item.gender),
-        item.beregnetKøbt || 0,
-        item.solgt || 0,
-        item.retur || 0,
-        item.lager || 0,
-        item.varemodtaget || 0,
-        item.difference || 0,
-        item.solgtPct || 0,
-        item.returPct || 0,
-        item.kostpris || 0,
-        item.db || 0,
-        item.omsætning || 0,
-        item.status || '',
-        item.tags || '',
-        item.vejlPris || 0
-      ]);
-
-      // Opdater sheet med data fra række 4
-      updateSheetWithOffset('Color_Analytics', headers, formattedData, 4);
-      console.log(`✅ Color Analytics opdateret med ${data.count} farver for perioden ${formatDate(startDate)} til ${formatDate(endDate)}`);
-    } else {
-      console.log(`⚠️ Ingen data fundet for perioden ${formatDate(startDate)} til ${formatDate(endDate)}`);
-
-      // Vis besked til brugeren hvis ingen data
-      if (data.success && data.count === 0) {
-        const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Color_Analytics');
-        if (sheet) {
-          // Clear data area but keep headers
-          if (sheet.getLastRow() >= 4) {
-            const lastRow = sheet.getLastRow();
-            const lastCol = sheet.getLastColumn();
-            if (lastRow >= 4 && lastCol > 0) {
-              sheet.getRange(4, 1, lastRow - 4 + 1, lastCol).clear();
-            }
-          }
-
-          // Add "No data" message
-          sheet.getRange('A4').setValue(`Ingen data for perioden ${formatDate(startDate)} til ${formatDate(endDate)}`);
-          sheet.getRange('A4').setFontStyle('italic').setFontColor('#666666');
-        }
-      }
-    }
-
-  } catch (error) {
-    console.error('💥 Fejl i generateStyleColorAnalytics:', error);
-    throw error;
-  }
-}
-
-/**
- * Style SKU Analytics - individuelle SKU'er med størrelser
- */
-function generateStyleSKUAnalytics() {
-  try {
-    console.log('🏷️ Starter SKU analytics...');
-
-    // Prøv at læse datoer fra SKU_Analytics sheet
-    let startDate, endDate;
-
-    try {
-      const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('SKU_Analytics');
-      if (sheet) {
-        const startDateCell = sheet.getRange('B1').getValue();
-        const endDateCell = sheet.getRange('B2').getValue();
-
-        // Hvis begge celler indeholder gyldige datoer, brug dem
-        if (startDateCell instanceof Date && endDateCell instanceof Date) {
-          startDate = new Date(startDateCell);
-          endDate = new Date(endDateCell);
-
-          // Hvis samme dag valgt, sæt endDate til slutningen af dagen
-          if (startDate.toDateString() === endDate.toDateString()) {
-            endDate.setHours(23, 59, 59, 999);
-            console.log(`📅 Samme dag valgt - analyserer hele dagen: ${formatDate(startDate)}`);
-          } else {
-            console.log(`📅 Bruger brugerdefinerede datoer: ${formatDate(startDate)} til ${formatDate(endDate)}`);
-          }
-        } else {
-          // Opret standard header med dato-eksempler hvis sheet eksisterer men celler er tomme
-          if (!startDateCell || !endDateCell) {
-            const today = new Date();
-            const defaultStart = new Date();
-            defaultStart.setDate(defaultStart.getDate() - 90);
-
-            // Setup labels og datoer som Dashboard
-            sheet.getRange('A1').setValue('Startdato:');
-            sheet.getRange('A2').setValue('Slutdato:');
-            sheet.getRange('A1:A2').setFontWeight('bold');
-
-            // Kun sæt datoer hvis cellerne er helt tomme
-            if (!startDateCell) sheet.getRange('B1').setValue(defaultStart);
-            if (!endDateCell) sheet.getRange('B2').setValue(today);
-            sheet.getRange('B1:B2').setNumberFormat('dd/MM/yyyy');
-
-            startDate = startDateCell || defaultStart;
-            endDate = endDateCell || today;
-            console.log(`📅 Oprettede standard datoer. Rediger B1 og B2 for at vælge periode.`);
-          }
-        }
-      }
-    } catch (sheetError) {
-      console.log('ℹ️ SKU_Analytics sheet ikke fundet eller fejl ved læsning af datoer');
-    }
-
-    // Fallback til standard 90-dages periode hvis ingen gyldige datoer blev fundet
-    if (!startDate || !endDate) {
-      endDate = new Date();
-      startDate = new Date();
-      startDate.setDate(startDate.getDate() - 90);
-      console.log(`📅 Bruger standard 90-dages periode: ${formatDate(startDate)} til ${formatDate(endDate)}`);
-    }
-
-    // Hent SKU-niveau data - SAMME metode som generateStyleColorAnalytics()
-    const data = fetchMetadataData('style', {
-      startDate: formatDateWithTime(startDate, false),
-      endDate: formatDateWithTime(endDate, true),
-      groupBy: 'sku'  // Gruppér på SKU niveau i stedet for farve
-    });
-
-    console.log(`📊 API Response: success=${data.success}, count=${data.count}, data length=${data.data ? data.data.length : 'null'}`);
-
-    if (data.success && data.count > 0) {
-      // Headers med størrelse kolonne i position G
-      const headers = [
-        'Program', 'Produkt', 'Farve', 'Artikelnummer', 'Sæson', 'Køn', 'Størrelse',
-        'Beregnet købt', 'Solgt', 'Retur', 'Lager', 'Varemodtaget', 'Difference',
-        'Solgt % af købt', 'Retur % af solgt', 'Kostpris', 'DB', 'Omsætning kr',
-        'Status', 'Tags', 'Vejl. Pris'
-      ];
-      const formattedData = data.data.map(item => [
-        item.program || '',
-        item.produkt || '',
-        item.farve || '',
-        item.artikelnummer || '',
-        item.season || '',
-        convertGenderToDanish(item.gender),
-        item.størrelse || '',  // Størrelse kolonne i position G
-        item.beregnetKøbt || 0,
-        item.solgt || 0,
-        item.retur || 0,
-        item.lager || 0,
-        item.varemodtaget || 0,
-        item.difference || 0,
-        item.solgtPct || 0,
-        item.returPct || 0,
-        item.kostpris || 0,
-        item.db || 0,
-        item.omsætning || 0,
-        item.status || '',
-        item.tags || '',
-        item.vejlPris || 0
-      ]);
-
-      // Opdater sheet med data fra række 4
-      updateSheetWithOffset('SKU_Analytics', headers, formattedData, 4);
-      console.log(`✅ SKU Analytics opdateret med ${data.count} SKU'er for perioden ${formatDate(startDate)} til ${formatDate(endDate)}`);
-    } else {
-      console.log(`⚠️ Ingen data fundet for perioden ${formatDate(startDate)} til ${formatDate(endDate)}`);
-
-      // Vis besked til brugeren hvis ingen data
-      if (data.success && data.count === 0) {
-        const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('SKU_Analytics');
-        if (sheet) {
-          // Clear data area but keep headers
-          if (sheet.getLastRow() >= 4) {
-            const lastRow = sheet.getLastRow();
-            const lastCol = sheet.getLastColumn();
-            if (lastRow >= 4 && lastCol > 0) {
-              sheet.getRange(4, 1, lastRow - 4 + 1, lastCol).clear();
-            }
-          }
-
-          // Add "No data" message
-          sheet.getRange('A4').setValue(`Ingen data for perioden ${formatDate(startDate)} til ${formatDate(endDate)}`);
-          sheet.getRange('A4').setFontStyle('italic').setFontColor('#666666');
-        }
-      }
-    }
-
-  } catch (error) {
-    console.error('💥 Fejl i generateStyleSKUAnalytics:', error);
-    throw error;
-  }
-}
-
-/**
- * Style Number Analytics - individuelle stamvarenumre (samler farver)
- */
 function generateStyleNumberAnalytics() {
   try {
     console.log('🔢 Starter stamvarenummer analytics...');
@@ -877,6 +218,7 @@ function generateStyleNumberAnalytics() {
 /**
  * Delivery Analytics - leveringsrapport med returner
  */
+
 function generateDeliveryAnalytics() {
   try {
     console.log('🚚 Starter delivery analytics...');
@@ -1123,38 +465,11 @@ function renderDeliveryAnalytics(data, startDate, endDate) {
 /**
  * Test forbindelse til API
  */
-function testConnection() {
-  try {
-    console.log('🔍 Tester forbindelse til API...');
-
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - 1);
-
-    const data = makeApiRequest(`${CONFIG.API_BASE}/analytics`, {
-      startDate: formatDate(startDate),
-      endDate: formatDate(endDate),
-      type: 'raw'
-    });
-
-    if (data.success) {
-      console.log(`✅ Forbindelse OK: ${data.count} records fundet`);
-      SpreadsheetApp.getUi().alert('Forbindelse OK', `API forbindelse vellykket. ${data.count} records fundet.`, SpreadsheetApp.getUi().ButtonSet.OK);
-    } else {
-      throw new Error('API returnerede fejl');
-    }
-
-  } catch (error) {
-    console.error(`💥 Forbindelsesfejl: ${error.message}`);
-    SpreadsheetApp.getUi().alert('Forbindelsesfejl', `Kunne ikke forbinde til API: ${error.message}`, SpreadsheetApp.getUi().ButtonSet.OK);
-  }
-}
 
 /**
  * UTILITY FUNKTIONER
  */
 
-// Hjælpere til Dashboard
 function extractShopsFromOrders_(rows) {
   const s = new Set();
   rows.forEach(r => { if (r && r.length > 0 && r[0]) s.add(r[0]); });
@@ -1219,6 +534,7 @@ function getDashboardSelectedDates_() {
 /**
  * Konverter kønsangivelser til dansk
  */
+
 function convertGenderToDanish(genderValue) {
   if (!genderValue) return '';
 
@@ -1475,22 +791,20 @@ function formatDateWithTime(date, isEndDate = false) {
 
   return utcDate.toISOString();
 }
+
 /**
  * ========================================
- * V2 FUNCTIONS (PRE-AGGREGATION)
- * Uses analytics-v2.js endpoint with daily_shop_metrics
+ * PRE-AGGREGATED ANALYTICS (V2)
+ * Uses daily_shop_metrics, daily_color_metrics, daily_sku_metrics
  * ========================================
  */
 
-/**
- * Opdater dashboard V2 med pre-aggregation
- */
-function updateDashboard_V2() {
+function updateDashboard() {
   try {
     console.log('🚀 Starter dashboard V2 opdatering (pre-aggregation)...');
 
     // Læs datoer fra Dashboard_2_0 arket (B1/B2). Fallback: sidste 30 dage
-    const { startDate, endDate } = getDashboardSelectedDates_V2();
+    const { startDate, endDate } = getDashboardSelectedDates_();
 
     // Brug analytics-v2 endpoint (PRE-AGGREGATION)
     const dashboardUrl = `${CONFIG.API_BASE}/analytics-v2`;
@@ -1508,18 +822,18 @@ function updateDashboard_V2() {
       throw new Error('Dashboard data kunne ikke hentes');
     }
 
-    // Brug renderDashboardFromSkus_V2() funktion
-    renderDashboardFromSkus_V2(dashboardRes.data, startDate, endDate);
+    // Brug renderDashboardFromSkus_() funktion
+    renderDashboardFromSkus_(dashboardRes.data, startDate, endDate);
     console.log(`✅ Dashboard V2 opdateret fra pre-aggregation (${dashboardRes.data.length} shops)`);
 
   } catch (error) {
-    console.error('💥 Fejl i updateDashboard_V2:', error);
+    console.error('💥 Fejl i updateDashboard:', error);
     throw error;
   }
 }
 
-function renderDashboardFromSkus_V2(dashboardData, startDate, endDate) {
-  const sheet = getOrCreateSheet('Dashboard_2_0');
+function renderDashboardFromSkus_(dashboardData, startDate, endDate) {
+  const sheet = getOrCreateSheet('Dashboard');
 
   // Sæt dato inputs i toppen (A1/A2)
   sheet.getRange('A1').setValue('Startdato:');
@@ -1634,8 +948,8 @@ function renderDashboardFromSkus_V2(dashboardData, startDate, endDate) {
   }
 }
 
-function getDashboardSelectedDates_V2() {
-  const sheet = getOrCreateSheet('Dashboard_2_0');
+function getDashboardSelectedDates_() {
+  const sheet = getOrCreateSheet('Dashboard');
 
   // Sørg for labels findes
   sheet.getRange('A1').setValue('Startdato:');
@@ -1673,12 +987,12 @@ function getDashboardSelectedDates_V2() {
  * ⚡ V2: Generate Style Color Analytics (ULTRA-FAST using pre-aggregated data)
  * Bruger daily_sku_transactions tabel - 10-15x hurtigere end V1
  */
-function generateStyleColorAnalytics_V2() {
+function generateStyleColorAnalytics() {
   try {
     console.log('⚡ V2: Starter Color Analytics opdatering (pre-aggregation)...');
 
     // Læs datoer fra Color_Analytics_2_0 arket (B1/B2). Fallback: sidste 90 dage
-    const { startDate, endDate } = getColorAnalyticsSelectedDates_V2();
+    const { startDate, endDate } = getColorAnalyticsSelectedDates_();
 
     console.log(`⚡ V2: Henter Color Analytics for ${formatDate(startDate)} til ${formatDate(endDate)}`);
 
@@ -1694,7 +1008,7 @@ function generateStyleColorAnalytics_V2() {
 
     if (!response.success || !rows || rows.length === 0) {
       console.log(`⚠️ Ingen data fundet for perioden ${formatDate(startDate)} til ${formatDate(endDate)}`);
-      const sheet = getOrCreateSheet('Color_Analytics_2_0');
+      const sheet = getOrCreateSheet('Color_Analytics');
 
       // Clear data area from row 4
       if (sheet.getLastRow() >= 4) {
@@ -1711,7 +1025,7 @@ function generateStyleColorAnalytics_V2() {
     }
 
     // Render data starting from row 4
-    renderColorAnalytics_V2(rows, startDate, endDate);
+    renderColorAnalytics_(rows, startDate, endDate);
     console.log(`✅ V2: Color Analytics opdateret (${rows.length} farver)`);
 
   } catch (error) {
@@ -1720,8 +1034,8 @@ function generateStyleColorAnalytics_V2() {
   }
 }
 
-function renderColorAnalytics_V2(rows, startDate, endDate) {
-  const sheet = getOrCreateSheet('Color_Analytics_2_0');
+function renderColorAnalytics_(rows, startDate, endDate) {
+  const sheet = getOrCreateSheet('Color_Analytics');
 
   // Sæt dato inputs i toppen (A1/A2)
   sheet.getRange('A1').setValue('Startdato:');
@@ -1824,8 +1138,8 @@ function renderColorAnalytics_V2(rows, startDate, endDate) {
   console.log(`✅ Color Analytics rendering færdig - kolonnebredde ikke auto-justeret (for mange rækker)`);
 }
 
-function getColorAnalyticsSelectedDates_V2() {
-  const sheet = getOrCreateSheet('Color_Analytics_2_0');
+function getColorAnalyticsSelectedDates_() {
+  const sheet = getOrCreateSheet('Color_Analytics');
 
   // Sørg for labels findes
   sheet.getRange('A1').setValue('Startdato:');
@@ -1858,12 +1172,12 @@ function getColorAnalyticsSelectedDates_V2() {
   return { startDate, endDate };
 }
 
-function generateStyleSKUAnalytics_V2() {
+function generateStyleSKUAnalytics() {
   try {
     console.log('🚀 V2: Starter SKU Analytics opdatering...');
 
     // Hent dato range fra sheet (SKU_Analytics_2_0)
-    const { startDate, endDate } = getSKUAnalyticsSelectedDates_V2();
+    const { startDate, endDate } = getSKUAnalyticsSelectedDates_();
 
     if (!startDate || !endDate) {
       throw new Error('Mangler start/slut dato');
@@ -1881,7 +1195,7 @@ function generateStyleSKUAnalytics_V2() {
 
     if (!response.success || !rows || rows.length === 0) {
       console.log(`⚠️ Ingen data fundet for perioden ${formatDate(startDate)} til ${formatDate(endDate)}`);
-      const sheet = getOrCreateSheet('SKU_Analytics_2_0');
+      const sheet = getOrCreateSheet('SKU_Analytics');
 
       // Clear data area from row 4
       if (sheet.getLastRow() >= 4) {
@@ -1898,7 +1212,7 @@ function generateStyleSKUAnalytics_V2() {
     }
 
     // Render data starting from row 4
-    renderSKUAnalytics_V2(rows, startDate, endDate);
+    renderSKUAnalytics_(rows, startDate, endDate);
     console.log(`✅ V2: SKU Analytics opdateret (${rows.length} SKUs)`);
 
   } catch (error) {
@@ -1907,8 +1221,8 @@ function generateStyleSKUAnalytics_V2() {
   }
 }
 
-function renderSKUAnalytics_V2(rows, startDate, endDate) {
-  const sheet = getOrCreateSheet('SKU_Analytics_2_0');
+function renderSKUAnalytics_(rows, startDate, endDate) {
+  const sheet = getOrCreateSheet('SKU_Analytics');
 
   // Sæt dato inputs i toppen (A1/A2)
   sheet.getRange('A1').setValue('Startdato:');
@@ -2012,8 +1326,8 @@ function renderSKUAnalytics_V2(rows, startDate, endDate) {
   console.log(`✅ SKU Analytics rendering færdig - kolonnebredde ikke auto-justeret (for mange rækker)`);
 }
 
-function getSKUAnalyticsSelectedDates_V2() {
-  const sheet = getOrCreateSheet('SKU_Analytics_2_0');
+function getSKUAnalyticsSelectedDates_() {
+  const sheet = getOrCreateSheet('SKU_Analytics');
 
   // Sørg for labels findes
   sheet.getRange('A1').setValue('Startdato:');
@@ -2046,15 +1360,8 @@ function getSKUAnalyticsSelectedDates_V2() {
   return { startDate, endDate };
 }
 
-function generateStyleNumberAnalytics_V2() {
-  SpreadsheetApp.getUi().alert('V2 Analytics', 'Style Number Analytics V2 bruger samme endpoint som V1. Brug V1 versionen.', SpreadsheetApp.getUi().ButtonSet.OK);
-}
 
-function generateDeliveryAnalytics_V2() {
-  SpreadsheetApp.getUi().alert('V2 Analytics', 'Delivery Analytics V2 bruger samme endpoint som V1. Brug V1 versionen.', SpreadsheetApp.getUi().ButtonSet.OK);
-}
-
-function testConnection_V2() {
+function testConnection() {
   try {
     console.log('🔍 Tester V2 API forbindelse...');
     const endDate = new Date();
