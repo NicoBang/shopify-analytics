@@ -252,7 +252,7 @@ class ColorAnalyticsV2 {
       // ✅ CRITICAL: Subtract refunded_amount from brutto to get net revenue
       const totalRevenueNet = group.totalRevenueBrutto - group.totalRefunded;
 
-      const beregnetKøbt = group.totalSold + group.totalReturn + group.totalInventory;
+      const beregnetKøbt = (group.totalSold + group.totalInventory) - group.totalReturn;
       const nettoSolgt = group.totalSold - group.totalReturn;
       const solgtPct = beregnetKøbt > 0 ? (nettoSolgt / beregnetKøbt) * 100 : 0;
       const returPct = group.totalSold > 0 ? (group.totalReturn / group.totalSold) * 100 : 0;
