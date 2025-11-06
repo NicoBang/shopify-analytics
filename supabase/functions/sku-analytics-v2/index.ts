@@ -6,6 +6,16 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SERVICE_ROLE_KEY') || '';
 const API_SECRET_KEY = Deno.env.get('API_SECRET_KEY') || '';
 
+// Filter tags to only show those containing "Overløber"
+function filterOverløberTags(tags: string | null): string {
+  if (!tags) return '';
+
+  const tagArray = tags.split(',').map(t => t.trim());
+  const overløberTags = tagArray.filter(tag => tag.toLowerCase().includes('overløber'));
+
+  return overløberTags.join(', ');
+}
+
 class SupabaseService {
   supabase: any;
 
@@ -269,15 +279,16 @@ class SupabaseService {
     // Calculate derived metrics and format for Google Sheets
     const result = Object.values(skuMap).map((sku: any) => {
       const beregnetKøbt = (sku.solgt + sku.lager) - sku.retur;
-      const solgtPct = beregnetKøbt > 0 ? (sku.solgt / beregnetKøbt) : 0;
+      const nettoSolgt = sku.solgt - sku.retur;
+      const solgtPct = beregnetKøbt > 0 ? (nettoSolgt / beregnetKøbt) : 0;
       const returPct = sku.solgt > 0 ? (sku.retur / sku.solgt) : 0;
       // kostpris from database is ALREADY total cost (unit_cost × solgt calculated in migration)
       const db = sku.omsætning - sku.kostpris;
       const dbPct = sku.omsætning > 0 ? (db / sku.omsætning) : 0;
       const difference = sku.varemodtaget - beregnetKøbt;
 
-      // Return 21 columns (including Størrelse)
-      // Program, Produkt, Farve, Artikelnummer, Sæson, Køn, Størrelse, Beregnet købt, Solgt, Retur,
+      // Return 22 columns with new 'Netto solgt' column:
+      // Program, Produkt, Farve, Artikelnummer, Sæson, Køn, Størrelse, Beregnet købt, Solgt, Retur, Netto solgt,
       // Lager, Varemodtaget, Difference, Solgt % af købt, Retur % af solgt, Kostpris,
       // DB, Omsætning kr, Status, Tags, Vejl. Pris
       return [
@@ -291,6 +302,7 @@ class SupabaseService {
         beregnetKøbt,
         sku.solgt,
         sku.retur,
+        nettoSolgt,
         sku.lager,
         sku.varemodtaget,
         difference,
@@ -300,13 +312,13 @@ class SupabaseService {
         Math.round(dbPct * 10000) / 100,
         Math.round(sku.omsætning * 100) / 100,
         sku.status,
-        sku.tags,
+        filterOverløberTags(sku.tags),
         sku.vejlPris
       ];
     });
 
-    // Sort by revenue (descending) - column index 17 (Omsætning kr)
-    result.sort((a, b) => (b[17] as number) - (a[17] as number));
+    // Sort by revenue (descending) - column index 18 (Omsætning kr)
+    result.sort((a, b) => (b[18] as number) - (a[18] as number));
 
     console.log(`✅ SKU Analytics: ${result.length} SKUs`);
     return result;

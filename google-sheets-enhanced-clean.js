@@ -1050,7 +1050,7 @@ function renderColorAnalytics_(rows, startDate, endDate) {
     sheet.getRange(4, 1, lastRow - 3, lastCol).clear();
   }
 
-  // Headers - row 4 (20 columns)
+  // Headers - row 4 (21 columns)
   const headers = [
     'Program',
     'Produkt',
@@ -1061,6 +1061,7 @@ function renderColorAnalytics_(rows, startDate, endDate) {
     'Beregnet købt',
     'Solgt',
     'Retur',
+    'Netto solgt',
     'Lager',
     'Varemodtaget',
     'Difference',
@@ -1116,19 +1117,20 @@ function renderColorAnalytics_(rows, startDate, endDate) {
       sheet.getRange(startRow, 7, batchSize, 1).setNumberFormat('#,##0'); // Beregnet købt (G)
       sheet.getRange(startRow, 8, batchSize, 1).setNumberFormat('#,##0'); // Solgt (H)
       sheet.getRange(startRow, 9, batchSize, 1).setNumberFormat('#,##0'); // Retur (I)
-      sheet.getRange(startRow, 10, batchSize, 1).setNumberFormat('#,##0'); // Lager (J)
-      sheet.getRange(startRow, 11, batchSize, 1).setNumberFormat('#,##0'); // Varemodtaget (K)
-      sheet.getRange(startRow, 12, batchSize, 1).setNumberFormat('#,##0'); // Difference (L)
+      sheet.getRange(startRow, 10, batchSize, 1).setNumberFormat('#,##0'); // Netto solgt (J)
+      sheet.getRange(startRow, 11, batchSize, 1).setNumberFormat('#,##0'); // Lager (K)
+      sheet.getRange(startRow, 12, batchSize, 1).setNumberFormat('#,##0'); // Varemodtaget (L)
+      sheet.getRange(startRow, 13, batchSize, 1).setNumberFormat('#,##0'); // Difference (M)
 
       // Format percentage columns
-      sheet.getRange(startRow, 13, batchSize, 1).setNumberFormat('0.00"%"'); // Solgt % af købt (M)
-      sheet.getRange(startRow, 14, batchSize, 1).setNumberFormat('0.00"%"'); // Retur % af solgt (N)
-      sheet.getRange(startRow, 16, batchSize, 1).setNumberFormat('0.00"%"'); // DB % (P)
+      sheet.getRange(startRow, 14, batchSize, 1).setNumberFormat('0.00"%"'); // Solgt % af købt (N)
+      sheet.getRange(startRow, 15, batchSize, 1).setNumberFormat('0.00"%"'); // Retur % af solgt (O)
+      sheet.getRange(startRow, 17, batchSize, 1).setNumberFormat('0.00"%"'); // DB % (Q)
 
       // Format currency columns
-      sheet.getRange(startRow, 15, batchSize, 1).setNumberFormat('#,##0.00 "kr"'); // Kostpris (O)
-      sheet.getRange(startRow, 17, batchSize, 1).setNumberFormat('#,##0.00 "kr"'); // Omsætning kr (Q)
-      sheet.getRange(startRow, 20, batchSize, 1).setNumberFormat('#,##0.00 "kr"'); // Vejl. Pris (T)
+      sheet.getRange(startRow, 16, batchSize, 1).setNumberFormat('#,##0.00 "kr"'); // Kostpris (P)
+      sheet.getRange(startRow, 18, batchSize, 1).setNumberFormat('#,##0.00 "kr"'); // Omsætning kr (R)
+      sheet.getRange(startRow, 21, batchSize, 1).setNumberFormat('#,##0.00 "kr"'); // Vejl. Pris (U)
     }
     console.log(`  ✅ Formatering færdig`);
   }
@@ -1237,7 +1239,7 @@ function renderSKUAnalytics_(rows, startDate, endDate) {
     sheet.getRange(4, 1, lastRow - 3, lastCol).clear();
   }
 
-  // Headers - row 4 (21 columns - includes Størrelse)
+  // Headers - row 4 (22 columns - includes Størrelse and Netto solgt)
   const headers = [
     'Program',
     'Produkt',
@@ -1249,6 +1251,7 @@ function renderSKUAnalytics_(rows, startDate, endDate) {
     'Beregnet købt',
     'Solgt',
     'Retur',
+    'Netto solgt',
     'Lager',
     'Varemodtaget',
     'Difference',
@@ -1304,19 +1307,20 @@ function renderSKUAnalytics_(rows, startDate, endDate) {
       sheet.getRange(startRow, 8, batchSize, 1).setNumberFormat('#,##0'); // Beregnet købt (H)
       sheet.getRange(startRow, 9, batchSize, 1).setNumberFormat('#,##0'); // Solgt (I)
       sheet.getRange(startRow, 10, batchSize, 1).setNumberFormat('#,##0'); // Retur (J)
-      sheet.getRange(startRow, 11, batchSize, 1).setNumberFormat('#,##0'); // Lager (K)
-      sheet.getRange(startRow, 12, batchSize, 1).setNumberFormat('#,##0'); // Varemodtaget (L)
-      sheet.getRange(startRow, 13, batchSize, 1).setNumberFormat('#,##0'); // Difference (M)
+      sheet.getRange(startRow, 11, batchSize, 1).setNumberFormat('#,##0'); // Netto solgt (K)
+      sheet.getRange(startRow, 12, batchSize, 1).setNumberFormat('#,##0'); // Lager (L)
+      sheet.getRange(startRow, 13, batchSize, 1).setNumberFormat('#,##0'); // Varemodtaget (M)
+      sheet.getRange(startRow, 14, batchSize, 1).setNumberFormat('#,##0'); // Difference (N)
 
       // Format percentage columns
-      sheet.getRange(startRow, 14, batchSize, 1).setNumberFormat('0.00"%"'); // Solgt % af købt (N)
-      sheet.getRange(startRow, 15, batchSize, 1).setNumberFormat('0.00"%"'); // Retur % af solgt (O)
-      sheet.getRange(startRow, 17, batchSize, 1).setNumberFormat('0.00"%"'); // DB % (Q)
+      sheet.getRange(startRow, 15, batchSize, 1).setNumberFormat('0.00"%"'); // Solgt % af købt (O)
+      sheet.getRange(startRow, 16, batchSize, 1).setNumberFormat('0.00"%"'); // Retur % af solgt (P)
+      sheet.getRange(startRow, 18, batchSize, 1).setNumberFormat('0.00"%"'); // DB % (R)
 
       // Format currency columns
-      sheet.getRange(startRow, 16, batchSize, 1).setNumberFormat('#,##0.00 "kr"'); // Kostpris (P)
-      sheet.getRange(startRow, 18, batchSize, 1).setNumberFormat('#,##0.00 "kr"'); // Omsætning kr (R)
-      sheet.getRange(startRow, 21, batchSize, 1).setNumberFormat('#,##0.00 "kr"'); // Vejl. Pris (U)
+      sheet.getRange(startRow, 17, batchSize, 1).setNumberFormat('#,##0.00 "kr"'); // Kostpris (Q)
+      sheet.getRange(startRow, 19, batchSize, 1).setNumberFormat('#,##0.00 "kr"'); // Omsætning kr (S)
+      sheet.getRange(startRow, 22, batchSize, 1).setNumberFormat('#,##0.00 "kr"'); // Vejl. Pris (V)
     }
     console.log(`  ✅ Formatering færdig`);
   }

@@ -6,6 +6,16 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SERVICE_ROLE_KEY') || '';
 const API_SECRET_KEY = Deno.env.get('API_SECRET_KEY') || '';
 
+// Filter tags to only show those containing "Overløber"
+function filterOverløberTags(tags: string | null): string {
+  if (!tags) return '';
+
+  const tagArray = tags.split(',').map(t => t.trim());
+  const overløberTags = tagArray.filter(tag => tag.toLowerCase().includes('overløber'));
+
+  return overløberTags.join(', ');
+}
+
 class SupabaseService {
   supabase: any;
 
@@ -294,6 +304,7 @@ class SupabaseService {
     // Calculate derived metrics and format for Google Sheets
     const result = Object.values(artikelMap).map((artikel: any) => {
       const beregnetKøbt = (artikel.solgt + artikel.lager) - artikel.retur;
+      const nettoSolgt = artikel.solgt - artikel.retur;
       const solgtPct = beregnetKøbt > 0 ? (artikel.solgt / beregnetKøbt) : 0;
       const returPct = artikel.solgt > 0 ? (artikel.retur / artikel.solgt) : 0;
       // kostpris from database is ALREADY total cost (unit_cost × solgt calculated in migration)
@@ -301,8 +312,8 @@ class SupabaseService {
       const dbPct = artikel.omsætning > 0 ? (db / artikel.omsætning) : 0;
       const difference = artikel.varemodtaget - beregnetKøbt;
 
-      // Return 20 columns matching old Color_Analytics format:
-      // Program, Produkt, Farve, Artikelnummer, Sæson, Køn, Beregnet købt, Solgt, Retur,
+      // Return 21 columns with new 'Netto solgt' column:
+      // Program, Produkt, Farve, Artikelnummer, Sæson, Køn, Beregnet købt, Solgt, Retur, Netto solgt,
       // Lager, Varemodtaget, Difference, Solgt % af købt, Retur % af solgt, Kostpris,
       // DB, Omsætning kr, Status, Tags, Vejl. Pris
       return [
@@ -315,6 +326,7 @@ class SupabaseService {
         beregnetKøbt,
         artikel.solgt,
         artikel.retur,
+        nettoSolgt,
         artikel.lager,
         artikel.varemodtaget,
         difference,
@@ -324,13 +336,13 @@ class SupabaseService {
         Math.round(dbPct * 10000) / 100,
         Math.round(artikel.omsætning * 100) / 100,
         artikel.status,
-        artikel.tags,
+        filterOverløberTags(artikel.tags),
         artikel.vejlPris
       ];
     });
 
-    // Sort by revenue (descending) - column index 16 (Omsætning kr)
-    result.sort((a, b) => (b[16] as number) - (a[16] as number));
+    // Sort by revenue (descending) - column index 17 (Omsætning kr)
+    result.sort((a, b) => (b[17] as number) - (a[17] as number));
 
     console.log(`✅ Color Analytics: ${result.length} colors`);
     return result;
