@@ -253,7 +253,8 @@ class ColorAnalyticsV2 {
       const totalRevenueNet = group.totalRevenueBrutto - group.totalRefunded;
 
       const beregnetKøbt = group.totalSold + group.totalReturn + group.totalInventory;
-      const solgtPct = beregnetKøbt > 0 ? (group.totalSold / beregnetKøbt) * 100 : 0;
+      const nettoSolgt = group.totalSold - group.totalReturn;
+      const solgtPct = beregnetKøbt > 0 ? (nettoSolgt / beregnetKøbt) * 100 : 0;
       const returPct = group.totalSold > 0 ? (group.totalReturn / group.totalSold) * 100 : 0;
       const db = totalRevenueNet - group.totalCost;
       const dbPct = totalRevenueNet > 0 ? (db / totalRevenueNet) * 100 : 0;
